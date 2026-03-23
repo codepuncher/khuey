@@ -1,0 +1,12 @@
+[Unit]
+Description=Hue Control Backend Service
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/home/lee/Code/misc/khuey/backend/hue-sync
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

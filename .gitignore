@@ -1,0 +1,52 @@
+# Go
+backend/hue-sync
+backend/cmd/hue-sync/hue-sync
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+go.work
+go.work.sum
+
+# Build artifacts
+build/
+dist/
+*.o
+*.a
+moc_*.cpp
+*.moc
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.cmake
+!CMakeLists.txt
+*_autogen/
+.qt/
+
+# Compiled binaries
+trayapp/hue-tray
+
+# Config files (don't commit personal configs)
+config.yaml
+*.local.yaml
+
+# Logs
+*.log
+
+# Temp files
+*.tmp
+.*.tmp

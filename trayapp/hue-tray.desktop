@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Hue Control
+Comment=Control Philips Hue lights with screen synchronization
+Exec=hue-tray
+Icon=preferences-desktop-display-color
+Terminal=false
+Categories=Utility;
+StartupNotify=false
+X-KDE-autostart-after=panel
+X-GNOME-Autostart-enabled=true
