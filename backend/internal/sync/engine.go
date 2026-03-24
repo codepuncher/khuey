@@ -1,9 +1,13 @@
 package sync
 
 import (
+	"bytes"
 	"context"
+	"crypto/tls"
+	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"sync"
 	"time"
 
@@ -97,6 +101,15 @@ func (e *Engine) Start() error {
 	if e.running {
 		return fmt.Errorf("sync already running")
 	}
+
+	// Activate Entertainment Area first
+	if err := e.activateEntertainmentArea(); err != nil {
+		log.Printf("⚠️  Warning: Failed to activate Entertainment Area: %v", err)
+		log.Println("   Attempting connection anyway...")
+	}
+
+	// Give bridge a moment to activate
+	time.Sleep(500 * time.Millisecond)
 
 	// Connect to Entertainment API
 	if err := e.client.Connect(); err != nil {
@@ -224,4 +237,52 @@ func (e *Engine) syncLoop(ctx context.Context) {
 			}
 		}
 	}
+}
+
+// activateEntertainmentArea activates the Entertainment Area on the bridge
+func (e *Engine) activateEntertainmentArea() error {
+	url := fmt.Sprintf("https://%s/clip/v2/resource/entertainment_configuration/%s",
+		e.config.Bridge, e.config.EntertainmentConfigurationID)
+
+	// Create request body
+	body := []byte(`{"action":"start"}`)
+
+	// Create HTTP client with TLS skip (Hue bridge uses self-signed cert)
+	client := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true,
+			},
+		},
+		Timeout: 5 * time.Second,
+	}
+
+	// Create PUT request with body
+	req, err := http.NewRequest("PUT", url, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("hue-application-key", e.config.Key)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to activate: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Check response
+	var result map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	// Check for errors
+	if errors, ok := result["errors"].([]interface{}); ok && len(errors) > 0 {
+		return fmt.Errorf("bridge returned errors: %v", errors)
+	}
+
+	log.Println("✅ Entertainment Area activated")
+	return nil
 }
