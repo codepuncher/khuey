@@ -152,24 +152,25 @@ func (c *Client) StreamColors(colors []ChannelColor) error {
 // buildPacket creates a HueStream v2 protocol packet
 func (c *Client) buildPacket(colors []ChannelColor) []byte {
 	// HueStream v2 packet format:
-	// Header: 16 bytes
+	// Header: 52 bytes (NOT 16!)
 	//   - Protocol (9 bytes): "HueStream"
 	//   - Version (2 bytes): 0x0200 (v2.0)
 	//   - Sequence (1 byte)
 	//   - Reserved (2 bytes): 0x0000
 	//   - Color space (1 byte): 0x00 (RGB)
 	//   - Reserved (1 byte): 0x00
+	//   - Entertainment Configuration ID (36 bytes): UUID without hyphens
 	// Body: 7 bytes per channel
 	//   - Channel ID (1 byte)
 	//   - R (2 bytes, big-endian)
 	//   - G (2 bytes, big-endian)
 	//   - B (2 bytes, big-endian)
 
-	headerSize := 16
+	headerSize := 52 // Fixed: was 16, should be 52!
 	bodySize := 7 * len(colors)
 	packet := make([]byte, headerSize+bodySize)
 
-	// Header
+	// Header - first 16 bytes
 	copy(packet[0:9], "HueStream")
 	packet[9] = 0x02  // Version major
 	packet[10] = 0x00 // Version minor
@@ -178,6 +179,13 @@ func (c *Client) buildPacket(colors []ChannelColor) []byte {
 	packet[13] = 0x00 // Reserved
 	packet[14] = 0x00 // Color space: RGB
 	packet[15] = 0x00 // Reserved
+	
+	// Entertainment Configuration ID (bytes 16-51): UUID without hyphens
+	// Remove hyphens from UUID
+	entID := c.entertainmentID
+	entIDClean := entID
+	entIDClean = entIDClean[:8] + entIDClean[9:13] + entIDClean[14:18] + entIDClean[19:23] + entIDClean[24:]
+	copy(packet[16:52], entIDClean)
 
 	// Body: per-channel colors
 	offset := headerSize
