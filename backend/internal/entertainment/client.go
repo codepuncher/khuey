@@ -180,12 +180,9 @@ func (c *Client) buildPacket(colors []ChannelColor) []byte {
 	packet[14] = 0x00 // Color space: RGB
 	packet[15] = 0x00 // Reserved
 	
-	// Entertainment Configuration ID (bytes 16-51): UUID without hyphens
-	// Remove hyphens from UUID
-	entID := c.entertainmentID
-	entIDClean := entID
-	entIDClean = entIDClean[:8] + entIDClean[9:13] + entIDClean[14:18] + entIDClean[19:23] + entIDClean[24:]
-	copy(packet[16:52], entIDClean)
+	// Entertainment Configuration ID (bytes 16-51): UUID WITH hyphens (36 bytes)
+	// Huenicorn includes the hyphens - the UUID is exactly 36 characters
+	copy(packet[16:52], c.entertainmentID)
 
 	// Body: per-channel colors
 	offset := headerSize
