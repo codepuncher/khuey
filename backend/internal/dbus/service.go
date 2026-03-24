@@ -141,6 +141,21 @@ func (s *Service) introspectionMethods() []introspect.Method {
 				{Name: "lights", Type: "a(sss)", Direction: "out"}, // Array of (ID, Name, Type)
 			},
 		},
+		{
+			Name: "GetState",
+			Args: []introspect.Arg{
+				{Name: "power", Type: "b", Direction: "out"},
+				{Name: "brightness", Type: "i", Direction: "out"},
+				{Name: "success", Type: "b", Direction: "out"},
+			},
+		},
+		{
+			Name: "SetGroupedLight",
+			Args: []introspect.Arg{
+				{Name: "groupedLightID", Type: "s", Direction: "in"},
+				{Name: "success", Type: "b", Direction: "out"},
+			},
+		},
 	}
 }
 
@@ -303,4 +318,43 @@ func (s *Service) StopSync() (bool, *dbus.Error) {
 func (s *Service) IsSyncing() (bool, *dbus.Error) {
 	// TODO: Implement sync engine state
 	return false, nil
+}
+
+// GetState returns the current power and brightness state
+func (s *Service) GetState() (bool, int32, bool, *dbus.Error) {
+	if s.hueClient == nil {
+		return false, 0, false, dbus.MakeFailedError(fmt.Errorf("hue client not initialized"))
+	}
+
+	if s.config.GroupedLightID == "" {
+		return false, 0, false, dbus.MakeFailedError(fmt.Errorf("no grouped light configured"))
+	}
+
+	power, brightness, err := s.hueClient.GetGroupedLightState(s.config.GroupedLightID)
+	if err != nil {
+		log.Printf("❌ Failed to get state: %v", err)
+		return false, 0, false, dbus.MakeFailedError(err)
+	}
+
+	log.Printf("📊 Current state: power=%v, brightness=%.1f", power, brightness)
+	// Round brightness to nearest integer instead of truncating
+	roundedBrightness := int32(brightness + 0.5)
+	return power, roundedBrightness, true, nil
+}
+
+// SetGroupedLight sets the grouped light ID in the config
+func (s *Service) SetGroupedLight(groupedLightID string) (bool, *dbus.Error) {
+	if groupedLightID == "" {
+		return false, dbus.MakeFailedError(fmt.Errorf("grouped light ID cannot be empty"))
+	}
+
+	s.config.GroupedLightID = groupedLightID
+	
+	if err := s.config.Save(); err != nil {
+		log.Printf("❌ Failed to save config: %v", err)
+		return false, dbus.MakeFailedError(err)
+	}
+
+	log.Printf("✅ Grouped light ID set to: %s", groupedLightID)
+	return true, nil
 }

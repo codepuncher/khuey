@@ -6,8 +6,6 @@
 #include <QDBusArgument>
 #include <QMessageBox>
 #include <QInputDialog>
-#include <QFile>
-#include <QDir>
 #include <QMap>
 #include <QSlider>
 #include <QVBoxLayout>
@@ -109,6 +107,36 @@ public slots:
             statusLabel->setText("✅ " + statusReply.value());
         }
         
+        // Get current state (power and brightness)
+        QDBusMessage stateMsg = iface.call("GetState");
+        if (stateMsg.type() == QDBusMessage::ReplyMessage && stateMsg.arguments().size() >= 3) {
+            bool power = stateMsg.arguments().at(0).toBool();
+            int brightness = stateMsg.arguments().at(1).toInt();
+            bool success = stateMsg.arguments().at(2).toBool();
+            
+            if (success) {
+                // Cancel any pending brightness changes since we're syncing with actual state
+                if (brightnessTimer && brightnessTimer->isActive()) {
+                    brightnessTimer->stop();
+                }
+                
+                // Block signals while updating to avoid triggering DBus calls
+                powerCheckbox->blockSignals(true);
+                brightnessSlider->blockSignals(true);
+                
+                // Always update to actual state from lights
+                powerCheckbox->setChecked(power);
+                brightnessSlider->setValue(brightness);
+                brightnessValueLabel->setText(QString::number(brightness) + "%");
+                
+                // Update pendingBrightness to match actual state
+                pendingBrightness = brightness;
+                
+                powerCheckbox->blockSignals(false);
+                brightnessSlider->blockSignals(false);
+            }
+        }
+        
         // Get scenes
         QDBusReply<QStringList> scenesReply = iface.call("GetScenes");
         if (scenesReply.isValid()) {
@@ -130,13 +158,28 @@ private slots:
         QDBusInterface iface("org.kde.plasma.hue", "/org/kde/plasma/hue", 
                            "org.kde.plasma.hue", QDBusConnection::sessionBus());
         iface.call("SetPower", checked);
+        
+        // Refresh state after a short delay to get updated brightness
+        QTimer::singleShot(500, this, &HueControlDialog::refresh);
     }
     
     void onBrightnessChanged(int value) {
         brightnessValueLabel->setText(QString::number(value) + "%");
+        
+        // Store the value and restart the timer
+        pendingBrightness = value;
+        if (!brightnessTimer) {
+            brightnessTimer = new QTimer(this);
+            brightnessTimer->setSingleShot(true);
+            connect(brightnessTimer, &QTimer::timeout, this, &HueControlDialog::applyBrightness);
+        }
+        brightnessTimer->start(300); // Wait 300ms after user stops dragging
+    }
+    
+    void applyBrightness() {
         QDBusInterface iface("org.kde.plasma.hue", "/org/kde/plasma/hue", 
                            "org.kde.plasma.hue", QDBusConnection::sessionBus());
-        iface.call("SetBrightness", value);
+        iface.call("SetBrightness", pendingBrightness);
     }
     
     void onSceneActivated(QListWidgetItem *item) {
@@ -233,51 +276,21 @@ private slots:
         if (ok && !selected.isEmpty()) {
             QString selectedID = idMap[selected];
             
-            // Save to config file
-            QString configPath = QDir::homePath() + "/.openhue/config.yaml";
-            QFile file(configPath);
+            // Call backend to update config
+            QDBusReply<bool> setReply = iface.call("SetGroupedLight", selectedID);
             
-            if (!file.open(QIODevice::ReadOnly)) {
-                QMessageBox::warning(this, "Error", "Failed to open config file");
-                return;
-            }
-            
-            QString content = file.readAll();
-            file.close();
-            
-            // Update or add grouped_light_id
-            QStringList lines = content.split('\n');
-            bool found = false;
-            for (int i = 0; i < lines.size(); i++) {
-                if (lines[i].startsWith("grouped_light_id:")) {
-                    lines[i] = "grouped_light_id: " + selectedID;
-                    found = true;
-                    break;
-                }
-            }
-            
-            if (!found) {
-                // Add after Key line
-                for (int i = 0; i < lines.size(); i++) {
-                    if (lines[i].startsWith("Key:")) {
-                        lines.insert(i + 1, "grouped_light_id: " + selectedID);
-                        break;
-                    }
-                }
-            }
-            
-            content = lines.join('\n');
-            
-            if (file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-                file.write(content.toUtf8());
-                file.close();
-                
+            if (setReply.isValid() && setReply.value()) {
                 QMessageBox::information(this, "Success", 
                     "Grouped light set to: " + selected + "\n\n"
-                    "Restart the backend for changes to take effect:\n"
-                    "systemctl --user restart hue-backend");
+                    "Configuration saved successfully!");
+                    
+                // Refresh to update UI with new light
+                refresh();
             } else {
-                QMessageBox::warning(this, "Error", "Failed to write config file");
+                QString errorMsg = setReply.isValid() ? 
+                    "Failed to save configuration" : 
+                    setReply.error().message();
+                QMessageBox::warning(this, "Error", "Failed to update config: " + errorMsg);
             }
         }
     }
@@ -290,6 +303,8 @@ private:
     QListWidget *sceneList;
     QPushButton *syncButton;
     QLabel *syncStatusLabel;
+    QTimer *brightnessTimer = nullptr;
+    int pendingBrightness = 100;
 };
 
 class HueTrayApp : public QApplication {

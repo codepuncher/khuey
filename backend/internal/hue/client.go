@@ -98,6 +98,36 @@ func (c *Client) SetLightPower(groupID string, on bool) error {
 	return nil
 }
 
+// GetGroupedLightState gets the current power and brightness state of a grouped light
+func (c *Client) GetGroupedLightState(groupID string) (power bool, brightness float32, err error) {
+	resp, err := c.client.GetGroupedLightWithResponse(c.ctx, groupID)
+	if err != nil {
+		return false, 0, fmt.Errorf("failed to get grouped light: %w", err)
+	}
+
+	if resp.StatusCode() != 200 {
+		return false, 0, fmt.Errorf("failed to get grouped light: status %d", resp.StatusCode())
+	}
+
+	if resp.JSON200 == nil || resp.JSON200.Data == nil || len(*resp.JSON200.Data) == 0 {
+		return false, 0, fmt.Errorf("no data in response")
+	}
+
+	data := (*resp.JSON200.Data)[0]
+	
+	power = false
+	if data.On != nil && data.On.On != nil {
+		power = *data.On.On
+	}
+
+	brightness = 0
+	if data.Dimming != nil && data.Dimming.Brightness != nil {
+		brightness = *data.Dimming.Brightness
+	}
+
+	return power, brightness, nil
+}
+
 // SetLightBrightness sets the brightness of a grouped light (0-100)
 func (c *Client) SetLightBrightness(groupID string, brightness float32) error {
 	if brightness < 0 || brightness > 100 {
@@ -230,18 +260,15 @@ func (c *Client) Ping() error {
 // GetGroupedLights lists all available rooms and zones with grouped lights
 func (c *Client) GetGroupedLights() ([]GroupedLight, error) {
 	var groupedLights []GroupedLight
+	var errors []error
 
-	// Get rooms
+	// Get rooms (don't fail if this fails, we can still try zones)
 	roomsResp, err := c.client.GetRoomsWithResponse(c.ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get rooms: %w", err)
-	}
-
-	if roomsResp.StatusCode() != 200 {
-		return nil, fmt.Errorf("failed to get rooms: status %d", roomsResp.StatusCode())
-	}
-
-	if roomsResp.JSON200 != nil && roomsResp.JSON200.Data != nil {
+		errors = append(errors, fmt.Errorf("failed to get rooms: %w", err))
+	} else if roomsResp.StatusCode() != 200 {
+		errors = append(errors, fmt.Errorf("failed to get rooms: status %d", roomsResp.StatusCode()))
+	} else if roomsResp.JSON200 != nil && roomsResp.JSON200.Data != nil {
 		for _, room := range *roomsResp.JSON200.Data {
 			if room.Id != nil && room.Metadata != nil && room.Metadata.Name != nil {
 				// Get the grouped light ID for this room
@@ -266,17 +293,13 @@ func (c *Client) GetGroupedLights() ([]GroupedLight, error) {
 		}
 	}
 
-	// Get zones
+	// Get zones (don't fail if this fails, we might have rooms)
 	zonesResp, err := c.client.GetZonesWithResponse(c.ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get zones: %w", err)
-	}
-
-	if zonesResp.StatusCode() != 200 {
-		return nil, fmt.Errorf("failed to get zones: status %d", zonesResp.StatusCode())
-	}
-
-	if zonesResp.JSON200 != nil && zonesResp.JSON200.Data != nil {
+		errors = append(errors, fmt.Errorf("failed to get zones: %w", err))
+	} else if zonesResp.StatusCode() != 200 {
+		errors = append(errors, fmt.Errorf("failed to get zones: status %d", zonesResp.StatusCode()))
+	} else if zonesResp.JSON200 != nil && zonesResp.JSON200.Data != nil {
 		for _, zone := range *zonesResp.JSON200.Data {
 			if zone.Id != nil && zone.Metadata != nil && zone.Metadata.Name != nil {
 				// Get the grouped light ID for this zone
@@ -299,6 +322,11 @@ func (c *Client) GetGroupedLights() ([]GroupedLight, error) {
 				}
 			}
 		}
+	}
+
+	// Only fail if we got no lights at all
+	if len(groupedLights) == 0 && len(errors) > 0 {
+		return nil, fmt.Errorf("failed to get any grouped lights: %v", errors)
 	}
 
 	// Sort by name
