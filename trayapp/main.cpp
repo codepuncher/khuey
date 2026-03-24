@@ -148,7 +148,7 @@ public slots:
         QDBusReply<bool> syncReply = iface.call("IsSyncing");
         if (syncReply.isValid()) {
             bool syncing = syncReply.value();
-            syncButton->setText(syncing ? "Stop Sync" : "Start Sync");
+            syncButton->setText(syncing ? "Stop Screen Sync" : "Start Screen Sync");
             syncStatusLabel->setText(syncing ? "✅ Syncing" : "Not syncing");
         }
     }
