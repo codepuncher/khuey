@@ -15,8 +15,8 @@ func main() {
 	// Configuration (from your ~/.openhue/config.yaml)
 	cfg := entertainment.Config{
 		BridgeIP:        "192.168.0.9",
-		Username:        "Q22VjmmWiqGhPhCyI7n00tO8u3DNZppbEhv-Isus",
-		ClientKey:       "Q22VjmmWiqGhPhCyI7n00tO8u3DNZppbEhv-Isus",
+		Username:        "IxwdSPVqUEkomWphEq7nHHD246IGPCPAGqQpAt0T",
+		ClientKey:       "20197970C01CB43EF516C6923A55ECB5",
 		EntertainmentID: "6a941316-2219-4063-937e-cf0886eecb46",
 		ChannelCount:    3, // You have 3 lights in your Entertainment Area
 	}

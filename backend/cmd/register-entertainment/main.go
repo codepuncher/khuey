@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"log"
+	"net/http"
 	"time"
 
 	"github.com/openhue/openhue-go"
@@ -17,18 +19,27 @@ func main() {
 	
 	fmt.Printf("Registering with bridge: %s\n", bridgeIP)
 	fmt.Println("\n⚠️  PLEASE PRESS THE LINK BUTTON ON YOUR HUE BRIDGE NOW!")
-	fmt.Println("    You have 30 seconds...")
+	fmt.Println("    Attempting registration in 3 seconds...")
 	fmt.Println()
 
-	// Wait for user to press the button
-	for i := 30; i > 0; i-- {
-		fmt.Printf("\r   Waiting... %d seconds remaining   ", i)
+	// Short countdown to give user time to read
+	for i := 3; i > 0; i-- {
+		fmt.Printf("\r   Starting in... %d seconds   ", i)
 		time.Sleep(1 * time.Second)
 	}
-	fmt.Println()
+	fmt.Println("\r                                ")
+
+	// Create HTTP client with insecure TLS (Hue bridge uses self-signed cert)
+	httpClient := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true,
+			},
+		},
+	}
 
 	// Use the lower-level API to get full response including clientkey
-	client, err := openhue.NewClientWithResponses("https://" + bridgeIP)
+	client, err := openhue.NewClientWithResponses("https://"+bridgeIP, openhue.WithHTTPClient(httpClient))
 	if err != nil {
 		log.Fatalf("Failed to create client: %v", err)
 	}
