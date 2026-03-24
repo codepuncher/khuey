@@ -64,6 +64,12 @@ func NewScreenCapture(cfg Config) (*ScreenCapture, error) {
 
 // Start begins screen capture
 func (sc *ScreenCapture) Start() error {
+	// If using mock frames, skip portal setup
+	if sc.useMockFrames {
+		fmt.Println("Using mock frames - skipping XDG Portal setup")
+		return nil
+	}
+	
 	// Step 1: Create session
 	sessionHandle, err := sc.createSession()
 	if err != nil {
