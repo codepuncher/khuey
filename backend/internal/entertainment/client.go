@@ -3,6 +3,7 @@ package entertainment
 import (
 	"context"
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"net"
 	"sync"
@@ -89,12 +90,18 @@ func (c *Client) Connect() error {
 	addr := fmt.Sprintf("%s:2100", c.bridgeIP)
 
 	// Configure DTLS with PSK (Pre-Shared Key)
+	// Important: clientKey must be hex-decoded before use!
+	pskBytes, err := hex.DecodeString(c.clientKey)
+	if err != nil {
+		return fmt.Errorf("failed to decode client key: %w", err)
+	}
+
 	config := &dtls.Config{
 		PSK: func(hint []byte) ([]byte, error) {
-			// ClientKey is used as PSK
-			return []byte(c.clientKey), nil
+			// Return decoded PSK bytes
+			return pskBytes, nil
 		},
-		PSKIdentityHint: []byte(c.username), // Use username as identity
+		PSKIdentityHint: []byte(c.username), // Username as identity
 		CipherSuites:    []dtls.CipherSuiteID{dtls.TLS_PSK_WITH_AES_128_GCM_SHA256},
 		ExtendedMasterSecret: dtls.RequireExtendedMasterSecret,
 	}
