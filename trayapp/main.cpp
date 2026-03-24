@@ -3,7 +3,12 @@
 #include <QAction>
 #include <QDBusInterface>
 #include <QDBusReply>
+#include <QDBusArgument>
 #include <QMessageBox>
+#include <QInputDialog>
+#include <QFile>
+#include <QDir>
+#include <QMap>
 #include <QSlider>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -35,8 +40,7 @@ public:
         
         // Power control
         auto powerLayout = new QHBoxLayout();
-        powerCheckbox = new QCheckBox("Power On (Not yet implemented)", this);
-        powerCheckbox->setEnabled(false);
+        powerCheckbox = new QCheckBox("Power", this);
         powerLayout->addWidget(powerCheckbox);
         powerLayout->addStretch();
         layout->addLayout(powerLayout);
@@ -45,11 +49,10 @@ public:
         
         // Brightness control
         auto brightnessLayout = new QVBoxLayout();
-        brightnessLayout->addWidget(new QLabel("Brightness: (Not yet implemented)", this));
+        brightnessLayout->addWidget(new QLabel("Brightness:", this));
         brightnessSlider = new QSlider(Qt::Horizontal, this);
         brightnessSlider->setRange(0, 100);
         brightnessSlider->setValue(100);
-        brightnessSlider->setEnabled(false);
         brightnessLayout->addWidget(brightnessSlider);
         brightnessValueLabel = new QLabel("100%", this);
         brightnessLayout->addWidget(brightnessValueLabel);
@@ -75,6 +78,11 @@ public:
         layout->addLayout(syncLayout);
         
         connect(syncButton, &QPushButton::clicked, this, &HueControlDialog::onSyncToggled);
+        
+        // Settings button
+        auto settingsBtn = new QPushButton("Select Room/Zone", this);
+        connect(settingsBtn, &QPushButton::clicked, this, &HueControlDialog::onSettingsClicked);
+        layout->addWidget(settingsBtn);
         
         // Refresh button
         auto refreshBtn = new QPushButton("Refresh", this);
@@ -180,6 +188,98 @@ private slots:
         }
         
         QTimer::singleShot(500, this, &HueControlDialog::refresh);
+    }
+    
+    void onSettingsClicked() {
+        QDBusInterface iface("org.kde.plasma.hue", "/org/kde/plasma/hue", 
+                           "org.kde.plasma.hue", QDBusConnection::sessionBus());
+        
+        // Get available grouped lights
+        QDBusReply<QDBusArgument> reply = iface.call("GetGroupedLights");
+        if (!reply.isValid()) {
+            QMessageBox::warning(this, "Error", "Failed to get grouped lights: " + reply.error().message());
+            return;
+        }
+        
+        // Parse the array of structs
+        QStringList items;
+        QMap<QString, QString> idMap; // Display name -> ID
+        
+        QDBusArgument arg = reply.value();
+        arg.beginArray();
+        while (!arg.atEnd()) {
+            arg.beginStructure();
+            QString id, name, type;
+            arg >> id >> name >> type;
+            arg.endStructure();
+            
+            QString displayName = name + " (" + type + ")";
+            items << displayName;
+            idMap[displayName] = id;
+        }
+        arg.endArray();
+        
+        if (items.isEmpty()) {
+            QMessageBox::information(this, "No Lights", "No grouped lights (rooms/zones) found.");
+            return;
+        }
+        
+        // Show selection dialog
+        bool ok;
+        QString selected = QInputDialog::getItem(this, "Select Room/Zone",
+                                                 "Choose a room or zone to control:",
+                                                 items, 0, false, &ok);
+        
+        if (ok && !selected.isEmpty()) {
+            QString selectedID = idMap[selected];
+            
+            // Save to config file
+            QString configPath = QDir::homePath() + "/.openhue/config.yaml";
+            QFile file(configPath);
+            
+            if (!file.open(QIODevice::ReadOnly)) {
+                QMessageBox::warning(this, "Error", "Failed to open config file");
+                return;
+            }
+            
+            QString content = file.readAll();
+            file.close();
+            
+            // Update or add grouped_light_id
+            QStringList lines = content.split('\n');
+            bool found = false;
+            for (int i = 0; i < lines.size(); i++) {
+                if (lines[i].startsWith("grouped_light_id:")) {
+                    lines[i] = "grouped_light_id: " + selectedID;
+                    found = true;
+                    break;
+                }
+            }
+            
+            if (!found) {
+                // Add after Key line
+                for (int i = 0; i < lines.size(); i++) {
+                    if (lines[i].startsWith("Key:")) {
+                        lines.insert(i + 1, "grouped_light_id: " + selectedID);
+                        break;
+                    }
+                }
+            }
+            
+            content = lines.join('\n');
+            
+            if (file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+                file.write(content.toUtf8());
+                file.close();
+                
+                QMessageBox::information(this, "Success", 
+                    "Grouped light set to: " + selected + "\n\n"
+                    "Restart the backend for changes to take effect:\n"
+                    "systemctl --user restart hue-backend");
+            } else {
+                QMessageBox::warning(this, "Error", "Failed to write config file");
+            }
+        }
     }
 
 private:
