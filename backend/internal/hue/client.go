@@ -27,6 +27,13 @@ type Scene struct {
 	RoomName string
 }
 
+// GroupedLight represents a room or zone with grouped lights
+type GroupedLight struct {
+	ID   string
+	Name string
+	Type string // "room" or "zone"
+}
+
 // NewClient creates a new Hue client
 func NewClient(bridgeAddr, apiKey string) (*Client, error) {
 	if bridgeAddr == "" {
@@ -218,6 +225,88 @@ func (c *Client) Ping() error {
 	}
 
 	return nil
+}
+
+// GetGroupedLights lists all available rooms and zones with grouped lights
+func (c *Client) GetGroupedLights() ([]GroupedLight, error) {
+	var groupedLights []GroupedLight
+
+	// Get rooms
+	roomsResp, err := c.client.GetRoomsWithResponse(c.ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get rooms: %w", err)
+	}
+
+	if roomsResp.StatusCode() != 200 {
+		return nil, fmt.Errorf("failed to get rooms: status %d", roomsResp.StatusCode())
+	}
+
+	if roomsResp.JSON200 != nil && roomsResp.JSON200.Data != nil {
+		for _, room := range *roomsResp.JSON200.Data {
+			if room.Id != nil && room.Metadata != nil && room.Metadata.Name != nil {
+				// Get the grouped light ID for this room
+				groupedLightID := ""
+				if room.Services != nil {
+					for _, service := range *room.Services {
+						if service.Rtype != nil && *service.Rtype == "grouped_light" && service.Rid != nil {
+							groupedLightID = *service.Rid
+							break
+						}
+					}
+				}
+
+				if groupedLightID != "" {
+					groupedLights = append(groupedLights, GroupedLight{
+						ID:   groupedLightID,
+						Name: *room.Metadata.Name,
+						Type: "room",
+					})
+				}
+			}
+		}
+	}
+
+	// Get zones
+	zonesResp, err := c.client.GetZonesWithResponse(c.ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get zones: %w", err)
+	}
+
+	if zonesResp.StatusCode() != 200 {
+		return nil, fmt.Errorf("failed to get zones: status %d", zonesResp.StatusCode())
+	}
+
+	if zonesResp.JSON200 != nil && zonesResp.JSON200.Data != nil {
+		for _, zone := range *zonesResp.JSON200.Data {
+			if zone.Id != nil && zone.Metadata != nil && zone.Metadata.Name != nil {
+				// Get the grouped light ID for this zone
+				groupedLightID := ""
+				if zone.Services != nil {
+					for _, service := range *zone.Services {
+						if service.Rtype != nil && *service.Rtype == "grouped_light" && service.Rid != nil {
+							groupedLightID = *service.Rid
+							break
+						}
+					}
+				}
+
+				if groupedLightID != "" {
+					groupedLights = append(groupedLights, GroupedLight{
+						ID:   groupedLightID,
+						Name: *zone.Metadata.Name,
+						Type: "zone",
+					})
+				}
+			}
+		}
+	}
+
+	// Sort by name
+	sort.Slice(groupedLights, func(i, j int) bool {
+		return groupedLights[i].Name < groupedLights[j].Name
+	})
+
+	return groupedLights, nil
 }
 
 // GetClientKey returns the API key (for Entertainment API setup)

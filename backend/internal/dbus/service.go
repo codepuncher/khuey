@@ -135,6 +135,12 @@ func (s *Service) introspectionMethods() []introspect.Method {
 				{Name: "syncing", Type: "b", Direction: "out"},
 			},
 		},
+		{
+			Name: "GetGroupedLights",
+			Args: []introspect.Arg{
+				{Name: "lights", Type: "a(sss)", Direction: "out"}, // Array of (ID, Name, Type)
+			},
+		},
 	}
 }
 
@@ -154,10 +160,18 @@ func (s *Service) SetPower(on bool) (bool, *dbus.Error) {
 		return false, dbus.MakeFailedError(fmt.Errorf("hue client not initialized"))
 	}
 
-	// TODO: Get the actual grouped light ID from config
-	// For now, this is a placeholder
-	log.Printf("SetPower called: %v (not implemented yet - need grouped light ID)", on)
-	return false, dbus.MakeFailedError(fmt.Errorf("not implemented: need to configure grouped light ID"))
+	if s.config.GroupedLightID == "" {
+		return false, dbus.MakeFailedError(fmt.Errorf("no grouped light configured"))
+	}
+
+	err := s.hueClient.SetLightPower(s.config.GroupedLightID, on)
+	if err != nil {
+		log.Printf("❌ Failed to set power: %v", err)
+		return false, dbus.MakeFailedError(err)
+	}
+
+	log.Printf("✅ Power set to %v", on)
+	return true, nil
 }
 
 // SetBrightness sets the brightness (0-100)
@@ -170,9 +184,18 @@ func (s *Service) SetBrightness(brightness int32) (bool, *dbus.Error) {
 		return false, dbus.MakeFailedError(fmt.Errorf("brightness must be 0-100"))
 	}
 
-	// TODO: Get the actual grouped light ID from config
-	log.Printf("SetBrightness called: %d (not implemented yet - need grouped light ID)", brightness)
-	return false, dbus.MakeFailedError(fmt.Errorf("not implemented: need to configure grouped light ID"))
+	if s.config.GroupedLightID == "" {
+		return false, dbus.MakeFailedError(fmt.Errorf("no grouped light configured"))
+	}
+
+	err := s.hueClient.SetLightBrightness(s.config.GroupedLightID, float32(brightness))
+	if err != nil {
+		log.Printf("❌ Failed to set brightness: %v", err)
+		return false, dbus.MakeFailedError(err)
+	}
+
+	log.Printf("✅ Brightness set to %d%%", brightness)
+	return true, nil
 }
 
 // ActivateScene activates a scene by name (with optional room prefix)
@@ -234,6 +257,32 @@ func (s *Service) GetScenes() ([]string, *dbus.Error) {
 	}
 
 	return names, nil
+}
+
+// GetGroupedLights returns available rooms and zones with grouped lights
+func (s *Service) GetGroupedLights() ([]struct{ ID, Name, Type string }, *dbus.Error) {
+	if s.hueClient == nil {
+		return nil, dbus.MakeFailedError(fmt.Errorf("hue client not initialized"))
+	}
+
+	lights, err := s.hueClient.GetGroupedLights()
+	if err != nil {
+		log.Printf("❌ Failed to get grouped lights: %v", err)
+		return nil, dbus.MakeFailedError(err)
+	}
+
+	// Convert to DBus-friendly struct format
+	result := make([]struct{ ID, Name, Type string }, len(lights))
+	for i, light := range lights {
+		result[i] = struct{ ID, Name, Type string }{
+			ID:   light.ID,
+			Name: light.Name,
+			Type: light.Type,
+		}
+	}
+
+	log.Printf("📋 Found %d grouped lights", len(result))
+	return result, nil
 }
 
 // StartSync starts screen synchronization
