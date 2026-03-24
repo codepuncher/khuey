@@ -3,7 +3,10 @@
 #include <QAction>
 #include <QDBusInterface>
 #include <QDBusReply>
+#include <QDBusArgument>
 #include <QMessageBox>
+#include <QInputDialog>
+#include <QMap>
 #include <QSlider>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -35,8 +38,7 @@ public:
         
         // Power control
         auto powerLayout = new QHBoxLayout();
-        powerCheckbox = new QCheckBox("Power On (Not yet implemented)", this);
-        powerCheckbox->setEnabled(false);
+        powerCheckbox = new QCheckBox("Power", this);
         powerLayout->addWidget(powerCheckbox);
         powerLayout->addStretch();
         layout->addLayout(powerLayout);
@@ -45,11 +47,10 @@ public:
         
         // Brightness control
         auto brightnessLayout = new QVBoxLayout();
-        brightnessLayout->addWidget(new QLabel("Brightness: (Not yet implemented)", this));
+        brightnessLayout->addWidget(new QLabel("Brightness:", this));
         brightnessSlider = new QSlider(Qt::Horizontal, this);
         brightnessSlider->setRange(0, 100);
         brightnessSlider->setValue(100);
-        brightnessSlider->setEnabled(false);
         brightnessLayout->addWidget(brightnessSlider);
         brightnessValueLabel = new QLabel("100%", this);
         brightnessLayout->addWidget(brightnessValueLabel);
@@ -76,6 +77,11 @@ public:
         
         connect(syncButton, &QPushButton::clicked, this, &HueControlDialog::onSyncToggled);
         
+        // Settings button
+        auto settingsBtn = new QPushButton("Select Room/Zone", this);
+        connect(settingsBtn, &QPushButton::clicked, this, &HueControlDialog::onSettingsClicked);
+        layout->addWidget(settingsBtn);
+        
         // Refresh button
         auto refreshBtn = new QPushButton("Refresh", this);
         layout->addWidget(refreshBtn);
@@ -101,6 +107,36 @@ public slots:
             statusLabel->setText("✅ " + statusReply.value());
         }
         
+        // Get current state (power and brightness)
+        QDBusMessage stateMsg = iface.call("GetState");
+        if (stateMsg.type() == QDBusMessage::ReplyMessage && stateMsg.arguments().size() >= 3) {
+            bool power = stateMsg.arguments().at(0).toBool();
+            int brightness = stateMsg.arguments().at(1).toInt();
+            bool success = stateMsg.arguments().at(2).toBool();
+            
+            if (success) {
+                // Cancel any pending brightness changes since we're syncing with actual state
+                if (brightnessTimer && brightnessTimer->isActive()) {
+                    brightnessTimer->stop();
+                }
+                
+                // Block signals while updating to avoid triggering DBus calls
+                powerCheckbox->blockSignals(true);
+                brightnessSlider->blockSignals(true);
+                
+                // Always update to actual state from lights
+                powerCheckbox->setChecked(power);
+                brightnessSlider->setValue(brightness);
+                brightnessValueLabel->setText(QString::number(brightness) + "%");
+                
+                // Update pendingBrightness to match actual state
+                pendingBrightness = brightness;
+                
+                powerCheckbox->blockSignals(false);
+                brightnessSlider->blockSignals(false);
+            }
+        }
+        
         // Get scenes
         QDBusReply<QStringList> scenesReply = iface.call("GetScenes");
         if (scenesReply.isValid()) {
@@ -122,13 +158,28 @@ private slots:
         QDBusInterface iface("org.kde.plasma.hue", "/org/kde/plasma/hue", 
                            "org.kde.plasma.hue", QDBusConnection::sessionBus());
         iface.call("SetPower", checked);
+        
+        // Refresh state after a short delay to get updated brightness
+        QTimer::singleShot(500, this, &HueControlDialog::refresh);
     }
     
     void onBrightnessChanged(int value) {
         brightnessValueLabel->setText(QString::number(value) + "%");
+        
+        // Store the value and restart the timer
+        pendingBrightness = value;
+        if (!brightnessTimer) {
+            brightnessTimer = new QTimer(this);
+            brightnessTimer->setSingleShot(true);
+            connect(brightnessTimer, &QTimer::timeout, this, &HueControlDialog::applyBrightness);
+        }
+        brightnessTimer->start(300); // Wait 300ms after user stops dragging
+    }
+    
+    void applyBrightness() {
         QDBusInterface iface("org.kde.plasma.hue", "/org/kde/plasma/hue", 
                            "org.kde.plasma.hue", QDBusConnection::sessionBus());
-        iface.call("SetBrightness", value);
+        iface.call("SetBrightness", pendingBrightness);
     }
     
     void onSceneActivated(QListWidgetItem *item) {
@@ -181,6 +232,68 @@ private slots:
         
         QTimer::singleShot(500, this, &HueControlDialog::refresh);
     }
+    
+    void onSettingsClicked() {
+        QDBusInterface iface("org.kde.plasma.hue", "/org/kde/plasma/hue", 
+                           "org.kde.plasma.hue", QDBusConnection::sessionBus());
+        
+        // Get available grouped lights
+        QDBusReply<QDBusArgument> reply = iface.call("GetGroupedLights");
+        if (!reply.isValid()) {
+            QMessageBox::warning(this, "Error", "Failed to get grouped lights: " + reply.error().message());
+            return;
+        }
+        
+        // Parse the array of structs
+        QStringList items;
+        QMap<QString, QString> idMap; // Display name -> ID
+        
+        QDBusArgument arg = reply.value();
+        arg.beginArray();
+        while (!arg.atEnd()) {
+            arg.beginStructure();
+            QString id, name, type;
+            arg >> id >> name >> type;
+            arg.endStructure();
+            
+            QString displayName = name + " (" + type + ")";
+            items << displayName;
+            idMap[displayName] = id;
+        }
+        arg.endArray();
+        
+        if (items.isEmpty()) {
+            QMessageBox::information(this, "No Lights", "No grouped lights (rooms/zones) found.");
+            return;
+        }
+        
+        // Show selection dialog
+        bool ok;
+        QString selected = QInputDialog::getItem(this, "Select Room/Zone",
+                                                 "Choose a room or zone to control:",
+                                                 items, 0, false, &ok);
+        
+        if (ok && !selected.isEmpty()) {
+            QString selectedID = idMap[selected];
+            
+            // Call backend to update config
+            QDBusReply<bool> setReply = iface.call("SetGroupedLight", selectedID);
+            
+            if (setReply.isValid() && setReply.value()) {
+                QMessageBox::information(this, "Success", 
+                    "Grouped light set to: " + selected + "\n\n"
+                    "Configuration saved successfully!");
+                    
+                // Refresh to update UI with new light
+                refresh();
+            } else {
+                QString errorMsg = setReply.isValid() ? 
+                    "Failed to save configuration" : 
+                    setReply.error().message();
+                QMessageBox::warning(this, "Error", "Failed to update config: " + errorMsg);
+            }
+        }
+    }
 
 private:
     QLabel *statusLabel;
@@ -190,6 +303,8 @@ private:
     QListWidget *sceneList;
     QPushButton *syncButton;
     QLabel *syncStatusLabel;
+    QTimer *brightnessTimer = nullptr;
+    int pendingBrightness = 100;
 };
 
 class HueTrayApp : public QApplication {

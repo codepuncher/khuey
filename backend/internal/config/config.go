@@ -14,6 +14,9 @@ type Config struct {
 	Bridge string `mapstructure:"Bridge"`
 	Key    string `mapstructure:"Key"`
 
+	// Grouped light (room/zone) for power and brightness control
+	GroupedLightID string `mapstructure:"grouped_light_id"`
+
 	// Entertainment API specific
 	ClientKey                    string                 `mapstructure:"clientkey"`
 	EntertainmentConfigurationID string                 `mapstructure:"entertainmentConfigurationId"`
@@ -131,6 +134,7 @@ func (c *Config) Save() error {
 	// Set all values in viper
 	viper.Set("Bridge", c.Bridge)
 	viper.Set("Key", c.Key)
+	viper.Set("grouped_light_id", c.GroupedLightID)
 	viper.Set("clientkey", c.ClientKey)
 	viper.Set("entertainmentConfigurationId", c.EntertainmentConfigurationID)
 	viper.Set("channels", c.Channels)
