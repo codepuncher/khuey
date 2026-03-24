@@ -9,6 +9,7 @@ import (
 	"github.com/godbus/dbus/v5/introspect"
 	"github.com/codepuncher/khuey/internal/config"
 	"github.com/codepuncher/khuey/internal/hue"
+	"github.com/codepuncher/khuey/internal/sync"
 )
 
 const (
@@ -19,10 +20,11 @@ const (
 
 // Service provides DBus interface for the plasmoid
 type Service struct {
-	conn      *dbus.Conn
-	config    *config.Config
-	hueClient *hue.Client
-	mu        sync.RWMutex // Protects config access from concurrent DBus calls
+	conn       *dbus.Conn
+	config     *config.Config
+	hueClient  *hue.Client
+	syncEngine *sync.Engine
+	mu         sync.RWMutex // Protects config access from concurrent DBus calls
 }
 
 // NewService creates a new DBus service
@@ -32,10 +34,25 @@ func NewService(cfg *config.Config, client *hue.Client) (*Service, error) {
 		return nil, fmt.Errorf("failed to connect to session bus: %w", err)
 	}
 
+	// Create sync engine if Entertainment API is configured
+	var syncEngine *sync.Engine
+	if cfg.EntertainmentConfigurationID != "" && cfg.ClientKey != "" {
+		syncEngine, err = sync.NewEngine(cfg)
+		if err != nil {
+			log.Printf("⚠️  Failed to create sync engine: %v", err)
+			log.Println("   Screen sync will be unavailable")
+		} else {
+			log.Println("✅ Sync engine initialized")
+		}
+	} else {
+		log.Println("ℹ️  Entertainment API not configured - screen sync unavailable")
+	}
+
 	return &Service{
-		conn:      conn,
-		config:    cfg,
-		hueClient: client,
+		conn:       conn,
+		config:     cfg,
+		hueClient:  client,
+		syncEngine: syncEngine,
 	}, nil
 }
 
@@ -314,22 +331,40 @@ func (s *Service) GetGroupedLights() ([]struct{ ID, Name, Type string }, *dbus.E
 
 // StartSync starts screen synchronization
 func (s *Service) StartSync() (bool, *dbus.Error) {
-	// TODO: Implement sync engine
-	log.Println("StartSync called (not implemented yet)")
-	return false, dbus.MakeFailedError(fmt.Errorf("sync not implemented yet"))
+	if s.syncEngine == nil {
+		return false, dbus.MakeFailedError(fmt.Errorf("sync engine not available - check Entertainment API configuration"))
+	}
+
+	if err := s.syncEngine.Start(); err != nil {
+		log.Printf("❌ Failed to start sync: %v", err)
+		return false, dbus.MakeFailedError(err)
+	}
+
+	log.Println("✅ Screen sync started")
+	return true, nil
 }
 
 // StopSync stops screen synchronization
 func (s *Service) StopSync() (bool, *dbus.Error) {
-	// TODO: Implement sync engine
-	log.Println("StopSync called (not implemented yet)")
-	return false, dbus.MakeFailedError(fmt.Errorf("sync not implemented yet"))
+	if s.syncEngine == nil {
+		return false, dbus.MakeFailedError(fmt.Errorf("sync engine not available"))
+	}
+
+	if err := s.syncEngine.Stop(); err != nil {
+		log.Printf("❌ Failed to stop sync: %v", err)
+		return false, dbus.MakeFailedError(err)
+	}
+
+	log.Println("✅ Screen sync stopped")
+	return true, nil
 }
 
 // IsSyncing returns whether sync is active
 func (s *Service) IsSyncing() (bool, *dbus.Error) {
-	// TODO: Implement sync engine state
-	return false, nil
+	if s.syncEngine == nil {
+		return false, nil
+	}
+	return s.syncEngine.IsRunning(), nil
 }
 
 // GetState returns the current power and brightness state
