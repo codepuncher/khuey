@@ -125,20 +125,29 @@ func (sc *ScreenCapture) CaptureFrame() (*image.RGBA, error) {
 
 // generateMockFrame creates a test frame with a gradient for pipeline testing
 func (sc *ScreenCapture) generateMockFrame() *image.RGBA {
-	// Create a test image with gradient colors
-	// This simulates screen content for testing color extraction
+	// Create a test image with solid colors per zone for easy testing
+	// Left = RED, Center = GREEN, Right = BLUE
 	width, height := 1920, 1080
 	img := image.NewRGBA(image.Rect(0, 0, width, height))
 	
-	// Generate gradient: red->green->blue across width
+	// Divide into 3 zones
+	leftBoundary := width / 3
+	rightBoundary := 2 * width / 3
+	
 	for y := 0; y < height; y++ {
 		for x := 0; x < width; x++ {
-			// Horizontal gradient
-			r := uint8((x * 255) / width)
-			g := uint8((y * 255) / height)
-			b := uint8(((width - x) * 255) / width)
-			
-			img.Set(x, y, color.RGBA{R: r, G: g, B: b, A: 255})
+			var c color.RGBA
+			if x < leftBoundary {
+				// Left zone: RED
+				c = color.RGBA{R: 255, G: 0, B: 0, A: 255}
+			} else if x < rightBoundary {
+				// Center zone: GREEN
+				c = color.RGBA{R: 0, G: 255, B: 0, A: 255}
+			} else {
+				// Right zone: BLUE
+				c = color.RGBA{R: 0, G: 0, B: 255, A: 255}
+			}
+			img.Set(x, y, c)
 		}
 	}
 	
