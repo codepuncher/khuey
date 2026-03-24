@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"time"
@@ -26,20 +27,58 @@ func main() {
 	}
 	fmt.Println()
 
-	// Create authenticator with ClientKey generation enabled
-	authenticator, err := openhue.NewAuthenticator(
-		bridgeIP,
-		openhue.WithDeviceType("khuey#desktop"),
-		openhue.WithGenerateClientKey(true), // This is the key part!
-	)
+	// Use the lower-level API to get full response including clientkey
+	client, err := openhue.NewClientWithResponses("https://" + bridgeIP)
 	if err != nil {
-		log.Fatalf("Failed to create authenticator: %v", err)
+		log.Fatalf("Failed to create client: %v", err)
 	}
 
 	fmt.Println("\n📡 Attempting registration...")
-	username, clientKey, err := authenticator.Authenticate()
+	
+	// Make authentication request with generateclientkey
+	deviceType := "khuey#desktop"
+	generateKey := true
+	resp, err := client.AuthenticateWithResponse(context.Background(), openhue.AuthenticateJSONRequestBody{
+		Devicetype:        &deviceType,
+		Generateclientkey: &generateKey,
+	})
 	if err != nil {
 		log.Fatalf("Failed to authenticate: %v\n\nDid you press the link button?", err)
+	}
+
+	// Check for errors in response
+	if resp.JSON200 == nil || len(*resp.JSON200) == 0 {
+		log.Fatalf("Invalid response from bridge")
+	}
+
+	result := (*resp.JSON200)[0]
+	
+	// Check for error
+	if result.Error != nil {
+		desc := "Unknown error"
+		if result.Error.Description != nil {
+			desc = *result.Error.Description
+		}
+		log.Fatalf("Bridge error: %s\n\nDid you press the link button?", desc)
+	}
+
+	// Check for success
+	if result.Success == nil {
+		log.Fatalf("No success data in response")
+	}
+
+	username := ""
+	if result.Success.Username != nil {
+		username = *result.Success.Username
+	}
+
+	clientKey := ""
+	if result.Success.Clientkey != nil {
+		clientKey = *result.Success.Clientkey
+	}
+
+	if username == "" || clientKey == "" {
+		log.Fatalf("Missing username or clientkey in response")
 	}
 
 	fmt.Println("\n✅ Registration successful!")
