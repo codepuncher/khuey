@@ -33,10 +33,11 @@ type Engine struct {
 
 // NewEngine creates a new sync engine
 func NewEngine(cfg *config.Config) (*Engine, error) {
-	// Create screen capture with mock frames for now
+	// Create screen capture - use mock frames for now (real capture needs CGo + libpipewire)
 	capturer, err := capture.NewScreenCapture(capture.Config{
-		FPS:     30, // Default 30 FPS
-		Monitor: -1, // All monitors
+		FPS:           30,   // Default 30 FPS
+		Monitor:       -1,   // All monitors
+		UseMockFrames: true, // Use mock gradient for now (TODO: implement real capture)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create screen capture: %w", err)
@@ -111,8 +112,14 @@ func (e *Engine) Start() error {
 	// Give bridge a moment to activate
 	time.Sleep(500 * time.Millisecond)
 
+	// Start screen capture
+	if err := e.capturer.Start(); err != nil {
+		return fmt.Errorf("failed to start screen capture: %w", err)
+	}
+
 	// Connect to Entertainment API
 	if err := e.client.Connect(); err != nil {
+		e.capturer.Stop() // Clean up capture on connection failure
 		return fmt.Errorf("failed to connect to Entertainment API: %w", err)
 	}
 
@@ -141,6 +148,9 @@ func (e *Engine) Stop() error {
 	if e.cancel != nil {
 		e.cancel()
 	}
+
+	// Stop screen capture
+	e.capturer.Stop()
 
 	// Close Entertainment API connection
 	if err := e.client.Close(); err != nil {

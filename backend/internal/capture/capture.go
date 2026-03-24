@@ -1,10 +1,15 @@
 package capture
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"image"
 	"image/color"
+	"image/jpeg"
+	"os"
+	"os/exec"
+	"sync"
 	"time"
 
 	"github.com/godbus/dbus/v5"
@@ -18,12 +23,19 @@ type ScreenCapture struct {
 	fps           int
 	ctx           context.Context
 	cancel        context.CancelFunc
+	
+	// Real Pipewire capture
+	gstCmd        *exec.Cmd
+	frameBuffer   *image.RGBA
+	frameMutex    sync.RWMutex
+	useMockFrames bool
 }
 
 // Config holds screen capture configuration
 type Config struct {
-	FPS     int  // Target frames per second (10-60)
-	Monitor int  // Monitor index (-1 for all monitors)
+	FPS           int  // Target frames per second (10-60)
+	Monitor       int  // Monitor index (-1 for all monitors)
+	UseMockFrames bool // Use mock gradient instead of real capture (for testing)
 }
 
 // NewScreenCapture creates a new screen capture instance
@@ -42,10 +54,11 @@ func NewScreenCapture(cfg Config) (*ScreenCapture, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &ScreenCapture{
-		conn:   conn,
-		fps:    cfg.FPS,
-		ctx:    ctx,
-		cancel: cancel,
+		conn:          conn,
+		fps:           cfg.FPS,
+		ctx:           ctx,
+		cancel:        cancel,
+		useMockFrames: cfg.UseMockFrames,
 	}, nil
 }
 
@@ -71,14 +84,37 @@ func (sc *ScreenCapture) Start() error {
 	sc.streamNode = streamNode
 
 	fmt.Printf("Screen capture started: session=%s, node=%d\n", sessionHandle, streamNode)
+	
+	// Start real Pipewire capture if not using mock frames
+	if !sc.useMockFrames {
+		if err := sc.startPipewireCapture(); err != nil {
+			return fmt.Errorf("failed to start Pipewire capture: %w", err)
+		}
+	}
+	
 	return nil
 }
 
 // CaptureFrame captures a single frame
 func (sc *ScreenCapture) CaptureFrame() (*image.RGBA, error) {
-	// TODO: Implement real Pipewire frame reading
-	// For now, return a mock gradient frame for testing the pipeline
-	return sc.generateMockFrame(), nil
+	if sc.useMockFrames {
+		return sc.generateMockFrame(), nil
+	}
+	
+	// Return latest frame from Pipewire capture
+	sc.frameMutex.RLock()
+	defer sc.frameMutex.RUnlock()
+	
+	if sc.frameBuffer == nil {
+		return nil, fmt.Errorf("no frame available yet")
+	}
+	
+	// Return a copy to avoid race conditions
+	bounds := sc.frameBuffer.Bounds()
+	frame := image.NewRGBA(bounds)
+	copy(frame.Pix, sc.frameBuffer.Pix)
+	
+	return frame, nil
 }
 
 // generateMockFrame creates a test frame with a gradient for pipeline testing
@@ -105,11 +141,89 @@ func (sc *ScreenCapture) generateMockFrame() *image.RGBA {
 
 // Stop stops the capture session
 func (sc *ScreenCapture) Stop() {
+	// Stop gstreamer pipeline
+	if sc.gstCmd != nil && sc.gstCmd.Process != nil {
+		sc.gstCmd.Process.Kill()
+	}
+	
 	if sc.cancel != nil {
 		sc.cancel()
 	}
 	if sc.conn != nil {
 		sc.conn.Close()
+	}
+}
+
+// startPipewireCapture starts capturing frames from Pipewire using gstreamer
+func (sc *ScreenCapture) startPipewireCapture() error {
+	// Use gstreamer to capture frames from Pipewire node
+	// Simplified pipeline: pipewiresrc -> videoconvert -> jpegenc -> filesink
+	// We capture snapshots at the target FPS rate
+	
+	pipeline := fmt.Sprintf(
+		"pipewiresrc path=%d ! "+
+			"videorate ! video/x-raw,framerate=%d/1 ! "+
+			"videoconvert ! "+
+			"jpegenc ! "+
+			"multifilesink location=/tmp/hue-frame-%%05d.jpg post-messages=true max-files=2",
+		sc.streamNode,
+		sc.fps,
+	)
+	
+	// Start gstreamer pipeline
+	sc.gstCmd = exec.CommandContext(sc.ctx, "gst-launch-1.0", "-q", pipeline)
+	
+	if err := sc.gstCmd.Start(); err != nil {
+		return fmt.Errorf("failed to start gstreamer: %w", err)
+	}
+	
+	// Start goroutine to read frames
+	go sc.frameReaderLoop()
+	
+	fmt.Printf("✅ Real Pipewire capture started (gstreamer pipeline)\n")
+	return nil
+}
+
+// frameReaderLoop reads frames written by gstreamer
+func (sc *ScreenCapture) frameReaderLoop() {
+	ticker := time.NewTicker(sc.GetFrameInterval())
+	defer ticker.Stop()
+	
+	frameNum := 0
+	
+	for {
+		select {
+		case <-sc.ctx.Done():
+			return
+		case <-ticker.C:
+			// Read the latest frame file
+			// Gstreamer writes to /tmp/hue-frame-00000.jpg, hue-frame-00001.jpg in rotation
+			framePath := fmt.Sprintf("/tmp/hue-frame-%05d.jpg", frameNum%2)
+			
+			// Try to read the frame
+			if data, err := os.ReadFile(framePath); err == nil {
+				if frame, err := jpeg.Decode(bytes.NewReader(data)); err == nil {
+					// Convert to RGBA if needed
+					rgba, ok := frame.(*image.RGBA)
+					if !ok {
+						bounds := frame.Bounds()
+						rgba = image.NewRGBA(bounds)
+						for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+							for x := bounds.Min.X; x < bounds.Max.X; x++ {
+								rgba.Set(x, y, frame.At(x, y))
+							}
+						}
+					}
+					
+					// Update frame buffer
+					sc.frameMutex.Lock()
+					sc.frameBuffer = rgba
+					sc.frameMutex.Unlock()
+				}
+			}
+			
+			frameNum++
+		}
 	}
 }
 
