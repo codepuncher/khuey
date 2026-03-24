@@ -34,8 +34,13 @@ type GroupedLight struct {
 	Type string // "room" or "zone"
 }
 
-// NewClient creates a new Hue client
-func NewClient(bridgeAddr, apiKey string) (*Client, error) {
+// NewClient creates a new Hue client with a cancellable context
+// The context should be the application's main context so API calls can be
+// cancelled during shutdown
+func NewClient(ctx context.Context, bridgeAddr, apiKey string) (*Client, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if bridgeAddr == "" {
 		return nil, fmt.Errorf("bridge address is required")
 	}
@@ -44,11 +49,17 @@ func NewClient(bridgeAddr, apiKey string) (*Client, error) {
 	}
 
 	// Create HTTP client that accepts self-signed certificates
-	// (Hue bridges use self-signed certs)
+	// WARNING: InsecureSkipVerify disables TLS certificate verification.
+	// This is necessary because Philips Hue bridges use self-signed certificates,
+	// but it makes the connection vulnerable to man-in-the-middle attacks on the
+	// local network. This is generally acceptable for local IoT devices but not
+	// for internet-facing services.
+	// TODO: Consider implementing certificate pinning by storing and verifying
+	// the bridge's certificate fingerprint during initial setup for better security.
 	httpClient := &http.Client{
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: true,
+				InsecureSkipVerify: true, // Required for Hue bridge self-signed certs
 			},
 		},
 		Timeout: 10 * time.Second,
@@ -74,7 +85,7 @@ func NewClient(bridgeAddr, apiKey string) (*Client, error) {
 		client:     client,
 		bridgeAddr: bridgeAddr,
 		apiKey:     apiKey,
-		ctx:        context.Background(),
+		ctx:        ctx,
 	}, nil
 }
 

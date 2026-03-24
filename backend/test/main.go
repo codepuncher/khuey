@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -62,7 +63,7 @@ func main() {
 			log.Fatal("API key required")
 		}
 
-		client, err := hue.NewClient(addr, key)
+		client, err := hue.NewClient(context.Background(), addr, key)
 		if err != nil {
 			log.Fatalf("Failed: %v", err)
 		}

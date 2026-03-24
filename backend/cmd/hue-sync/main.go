@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -16,6 +17,10 @@ const version = "0.1.0"
 
 func main() {
 	log.Printf("Plasma Hue Widget Backend v%s starting...", version)
+
+	// Create cancellable context for graceful shutdown
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	// Initialize configuration
 	cfg, err := config.Load()
@@ -39,7 +44,7 @@ func main() {
 	// Initialize Hue client (only if configured)
 	var hueClient *hue.Client
 	if cfg.IsConfigured() {
-		hueClient, err = hue.NewClient(cfg.Bridge, cfg.Key)
+		hueClient, err = hue.NewClient(ctx, cfg.Bridge, cfg.Key)
 		if err != nil {
 			log.Printf("WARNING: Failed to create Hue client: %v", err)
 			log.Println("Continuing without Hue control...")
@@ -83,5 +88,12 @@ func main() {
 
 	log.Println()
 	log.Println("Shutting down...")
+	
+	// Cancel context to stop all ongoing operations
+	cancel()
+	
+	// Stop DBus service
+	dbusService.Stop()
+	
 	fmt.Println("Goodbye!")
 }

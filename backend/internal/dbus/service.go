@@ -3,6 +3,7 @@ package dbus
 import (
 	"fmt"
 	"log"
+	"sync"
 
 	"github.com/godbus/dbus/v5"
 	"github.com/godbus/dbus/v5/introspect"
@@ -21,6 +22,7 @@ type Service struct {
 	conn      *dbus.Conn
 	config    *config.Config
 	hueClient *hue.Client
+	mu        sync.RWMutex // Protects config access from concurrent DBus calls
 }
 
 // NewService creates a new DBus service
@@ -77,6 +79,8 @@ func (s *Service) Start() error {
 // Stop stops the DBus service
 func (s *Service) Stop() {
 	if s.conn != nil {
+		// Release the DBus name before closing connection to prevent resource leak
+		s.conn.ReleaseName(dbusName)
 		s.conn.Close()
 	}
 }
@@ -175,11 +179,15 @@ func (s *Service) SetPower(on bool) (bool, *dbus.Error) {
 		return false, dbus.MakeFailedError(fmt.Errorf("hue client not initialized"))
 	}
 
-	if s.config.GroupedLightID == "" {
+	s.mu.RLock()
+	groupedLightID := s.config.GroupedLightID
+	s.mu.RUnlock()
+
+	if groupedLightID == "" {
 		return false, dbus.MakeFailedError(fmt.Errorf("no grouped light configured"))
 	}
 
-	err := s.hueClient.SetLightPower(s.config.GroupedLightID, on)
+	err := s.hueClient.SetLightPower(groupedLightID, on)
 	if err != nil {
 		log.Printf("❌ Failed to set power: %v", err)
 		return false, dbus.MakeFailedError(err)
@@ -199,11 +207,15 @@ func (s *Service) SetBrightness(brightness int32) (bool, *dbus.Error) {
 		return false, dbus.MakeFailedError(fmt.Errorf("brightness must be 0-100"))
 	}
 
-	if s.config.GroupedLightID == "" {
+	s.mu.RLock()
+	groupedLightID := s.config.GroupedLightID
+	s.mu.RUnlock()
+
+	if groupedLightID == "" {
 		return false, dbus.MakeFailedError(fmt.Errorf("no grouped light configured"))
 	}
 
-	err := s.hueClient.SetLightBrightness(s.config.GroupedLightID, float32(brightness))
+	err := s.hueClient.SetLightBrightness(groupedLightID, float32(brightness))
 	if err != nil {
 		log.Printf("❌ Failed to set brightness: %v", err)
 		return false, dbus.MakeFailedError(err)
@@ -326,11 +338,15 @@ func (s *Service) GetState() (bool, int32, bool, *dbus.Error) {
 		return false, 0, false, dbus.MakeFailedError(fmt.Errorf("hue client not initialized"))
 	}
 
-	if s.config.GroupedLightID == "" {
+	s.mu.RLock()
+	groupedLightID := s.config.GroupedLightID
+	s.mu.RUnlock()
+
+	if groupedLightID == "" {
 		return false, 0, false, dbus.MakeFailedError(fmt.Errorf("no grouped light configured"))
 	}
 
-	power, brightness, err := s.hueClient.GetGroupedLightState(s.config.GroupedLightID)
+	power, brightness, err := s.hueClient.GetGroupedLightState(groupedLightID)
 	if err != nil {
 		log.Printf("❌ Failed to get state: %v", err)
 		return false, 0, false, dbus.MakeFailedError(err)
@@ -348,9 +364,12 @@ func (s *Service) SetGroupedLight(groupedLightID string) (bool, *dbus.Error) {
 		return false, dbus.MakeFailedError(fmt.Errorf("grouped light ID cannot be empty"))
 	}
 
+	s.mu.Lock()
 	s.config.GroupedLightID = groupedLightID
+	err := s.config.Save()
+	s.mu.Unlock()
 	
-	if err := s.config.Save(); err != nil {
+	if err != nil {
 		log.Printf("❌ Failed to save config: %v", err)
 		return false, dbus.MakeFailedError(err)
 	}
