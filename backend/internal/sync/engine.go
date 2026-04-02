@@ -33,11 +33,13 @@ type Engine struct {
 
 // NewEngine creates a new sync engine
 func NewEngine(cfg *config.Config) (*Engine, error) {
-	// Create screen capture - use mock frames for now (real capture needs CGo + libpipewire)
+	// Create screen capture - use screenshot method for real desktop capture
 	capturer, err := capture.NewScreenCapture(capture.Config{
-		FPS:           30,   // Default 30 FPS
-		Monitor:       -1,   // All monitors
-		UseMockFrames: true, // Use mock gradient for now (TODO: implement real capture)
+		FPS:           30,    // Default 30 FPS
+		Monitor:       -1,    // All monitors
+		UseMockFrames: false, // Disable mock frames
+		UseScreenshot: true,  // Enable real screenshot capture
+		ScreenshotTool: "",   // Auto-detect (spectacle, grim, or import)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create screen capture: %w", err)
