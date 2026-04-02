@@ -5,8 +5,10 @@
 A KDE system tray application for controlling Philips Hue lights with real-time screen synchronization. The project consists of:
 
 - **Backend**: Go service providing DBus interface and Hue API integration
-- **Tray App**: Qt6/C++ application using KStatusNotifierItem for system tray integration
+- **Tray App**: Qt6/C++ standalone application using KStatusNotifierItem for system tray integration
 - **Communication**: DBus session bus (`org.kde.plasma.hue`)
+
+**Note:** The install script and some documentation references a "plasmoid" (Plasma widget), but the actual implementation is a standalone tray application. The `plasmoid/` directory referenced in `scripts/install.sh` does not exist.
 
 ## Build Commands
 
@@ -26,8 +28,22 @@ cmake . && make
 
 ### Full Installation
 
+**Note:** The install script (`scripts/install.sh`) is currently outdated - it attempts to install a non-existent `plasmoid` directory and does not build the trayapp. Use manual installation instead.
+
 ```bash
-./scripts/install.sh  # Builds both components, installs systemd service
+# Manual installation
+cd backend && go build -o hue-sync ./cmd/hue-sync && cd ..
+cd trayapp && cmake . && make && cd ..
+
+# Install systemd service
+mkdir -p ~/.config/systemd/user/
+cp systemd/hue-backend.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now hue-backend
+
+# Install autostart for tray app
+mkdir -p ~/.config/autostart/
+cp systemd/hue-tray.desktop ~/.config/autostart/
 ```
 
 ## Test Commands
@@ -296,6 +312,10 @@ Focus on:
 - Scene parsing and formatting
 
 ## Common Pitfalls
+
+### Install Script is Broken
+
+The `scripts/install.sh` script references a non-existent `plasmoid/` directory and will fail. Use manual installation steps instead. The script is outdated and doesn't build the trayapp.
 
 ### DBus Service Name
 
