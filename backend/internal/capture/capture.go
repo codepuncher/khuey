@@ -34,6 +34,8 @@ type ScreenCapture struct {
 	// Screenshot-based capture
 	useScreenshot  bool
 	screenshotTool string
+	captureWidth   int
+	captureHeight  int
 }
 
 // Config holds screen capture configuration
@@ -43,6 +45,8 @@ type Config struct {
 	UseMockFrames   bool   // Use mock gradient instead of real capture (for testing)
 	UseScreenshot   bool   // Use screenshot method for real capture (simple, higher CPU)
 	ScreenshotTool  string // Screenshot tool to use: "spectacle", "import", etc (auto-detect if empty)
+	CaptureWidth    int    // Downsample width (0 = full resolution, e.g. 640 for faster)
+	CaptureHeight   int    // Downsample height (0 = full resolution, e.g. 360 for faster)
 }
 
 // NewScreenCapture creates a new screen capture instance
@@ -78,6 +82,8 @@ func NewScreenCapture(cfg Config) (*ScreenCapture, error) {
 		useMockFrames:  cfg.UseMockFrames,
 		useScreenshot:  cfg.UseScreenshot,
 		screenshotTool: screenshotTool,
+		captureWidth:   cfg.CaptureWidth,
+		captureHeight:  cfg.CaptureHeight,
 	}, nil
 }
 
@@ -94,9 +100,13 @@ func detectScreenshotTool() string {
 
 // Start begins screen capture
 func (sc *ScreenCapture) Start() error {
-	// If using mock frames, skip portal setup
-	if sc.useMockFrames {
-		fmt.Println("Using mock frames - skipping XDG Portal setup")
+	// If using mock frames or screenshots, skip portal setup
+	if sc.useMockFrames || sc.useScreenshot {
+		if sc.useMockFrames {
+			fmt.Println("Using mock frames - skipping XDG Portal setup")
+		} else {
+			fmt.Printf("Using screenshot capture (%s) - skipping XDG Portal setup\n", sc.screenshotTool)
+		}
 		return nil
 	}
 	
@@ -202,6 +212,19 @@ func (sc *ScreenCapture) captureScreenshot() (*image.RGBA, error) {
 		if err = cmd.Run(); err != nil {
 			return nil, fmt.Errorf("spectacle failed: %w", err)
 		}
+		
+		// If downsampling requested, use ImageMagick convert
+		if sc.captureWidth > 0 && sc.captureHeight > 0 {
+			// Use convert to resize: convert input.png -resize WxH output.png
+			resizeCmd := exec.CommandContext(sc.ctx, "convert", tmpfile,
+				"-resize", fmt.Sprintf("%dx%d!", sc.captureWidth, sc.captureHeight),
+				tmpfile)
+			if err = resizeCmd.Run(); err != nil {
+				os.Remove(tmpfile)
+				return nil, fmt.Errorf("resize failed: %w", err)
+			}
+		}
+		
 		output, err = os.ReadFile(tmpfile)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read screenshot: %w", err)
@@ -209,16 +232,26 @@ func (sc *ScreenCapture) captureScreenshot() (*image.RGBA, error) {
 		os.Remove(tmpfile) // Clean up
 		
 	case "grim":
-		// Grim (Wayland): capture to stdout
-		cmd = exec.CommandContext(sc.ctx, "grim", "-")
+		// Grim (Wayland): capture to stdout with optional scale
+		args := []string{}
+		if sc.captureWidth > 0 && sc.captureHeight > 0 {
+			args = append(args, "-s", fmt.Sprintf("%d,%d", sc.captureWidth, sc.captureHeight))
+		}
+		args = append(args, "-")
+		cmd = exec.CommandContext(sc.ctx, "grim", args...)
 		output, err = cmd.Output()
 		if err != nil {
 			return nil, fmt.Errorf("grim failed: %w", err)
 		}
 		
 	case "import":
-		// ImageMagick import: capture root window
-		cmd = exec.CommandContext(sc.ctx, "import", "-window", "root", "png:-")
+		// ImageMagick import: capture root window with optional resize
+		args := []string{"-window", "root"}
+		if sc.captureWidth > 0 && sc.captureHeight > 0 {
+			args = append(args, "-resize", fmt.Sprintf("%dx%d!", sc.captureWidth, sc.captureHeight))
+		}
+		args = append(args, "png:-")
+		cmd = exec.CommandContext(sc.ctx, "import", args...)
 		output, err = cmd.Output()
 		if err != nil {
 			return nil, fmt.Errorf("import failed: %w", err)

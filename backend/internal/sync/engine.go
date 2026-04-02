@@ -33,13 +33,16 @@ type Engine struct {
 
 // NewEngine creates a new sync engine
 func NewEngine(cfg *config.Config) (*Engine, error) {
-	// Create screen capture - use screenshot method for real desktop capture
+	// Create screen capture - optimized screenshot method with downsampling
+	// Capturing at 640x360 is ~6x less pixels than 1920x1080, much faster
 	capturer, err := capture.NewScreenCapture(capture.Config{
-		FPS:           30,    // Default 30 FPS
-		Monitor:       -1,    // All monitors
-		UseMockFrames: false, // Disable mock frames
-		UseScreenshot: true,  // Enable real screenshot capture
-		ScreenshotTool: "",   // Auto-detect (spectacle, grim, or import)
+		FPS:            30,    // Default 30 FPS
+		Monitor:        -1,    // All monitors
+		UseMockFrames:  false, // Disable mock frames
+		UseScreenshot:  true,  // Enable real screenshot capture
+		ScreenshotTool: "",    // Auto-detect (spectacle, grim, or import)
+		CaptureWidth:   640,   // Downsample to 640px width (faster)
+		CaptureHeight:  360,   // Downsample to 360px height (faster)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create screen capture: %w", err)
