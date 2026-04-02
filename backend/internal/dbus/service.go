@@ -9,7 +9,7 @@ import (
 	"github.com/godbus/dbus/v5/introspect"
 	"github.com/codepuncher/khuey/internal/config"
 	"github.com/codepuncher/khuey/internal/hue"
-	"github.com/codepuncher/khuey/internal/sync"
+	syncengine "github.com/codepuncher/khuey/internal/sync"
 )
 
 const (
@@ -23,7 +23,7 @@ type Service struct {
 	conn       *dbus.Conn
 	config     *config.Config
 	hueClient  *hue.Client
-	syncEngine *sync.Engine
+	syncEngine *syncengine.Engine
 	mu         sync.RWMutex // Protects config access from concurrent DBus calls
 }
 
@@ -35,9 +35,9 @@ func NewService(cfg *config.Config, client *hue.Client) (*Service, error) {
 	}
 
 	// Create sync engine if Entertainment API is configured
-	var syncEngine *sync.Engine
+	var engine *syncengine.Engine
 	if cfg.EntertainmentConfigurationID != "" && cfg.ClientKey != "" {
-		syncEngine, err = sync.NewEngine(cfg)
+		engine, err = syncengine.NewEngine(cfg)
 		if err != nil {
 			log.Printf("⚠️  Failed to create sync engine: %v", err)
 			log.Println("   Screen sync will be unavailable")
@@ -52,7 +52,7 @@ func NewService(cfg *config.Config, client *hue.Client) (*Service, error) {
 		conn:       conn,
 		config:     cfg,
 		hueClient:  client,
-		syncEngine: syncEngine,
+		syncEngine: engine,
 	}, nil
 }
 
