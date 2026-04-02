@@ -219,9 +219,9 @@ Scenes returned by `GetScenes()` include room names:
 ### Auto-start Integration
 
 Two systemd components:
-1. **Backend service**: `~/.config/systemd/user/plasma-hue-backend.service`
+1. **Backend service**: `~/.config/systemd/user/hue-backend.service`
    - Starts backend daemon
-   - Managed via `systemctl --user enable/start plasma-hue-backend`
+   - Managed via `systemctl --user enable/start hue-backend`
 
 2. **Tray autostart**: `~/.config/autostart/hue-tray.desktop`
    - Launches tray app on KDE login
@@ -261,7 +261,7 @@ Key config parameters:
    # Edit code
    go test ./internal/your-package  # Test
    go build -o hue-sync ./cmd/hue-sync  # Build
-   systemctl --user restart plasma-hue-backend  # Restart service
+   systemctl --user restart hue-backend  # Restart service
    ```
 
 2. **Tray app changes**:
@@ -343,9 +343,9 @@ Must be `~/.openhue/config.yaml` for compatibility with openhue-cli. Don't use a
 
 ### systemd Service Names
 
-- Backend service: `plasma-hue-backend.service` (created by install script)
+- Backend service: `hue-backend.service`
 - Use `systemctl --user` (user services, not system-wide)
-- Note: README.md references `hue-backend.service` but the install script creates `plasma-hue-backend.service`
+- Service file installed to: `~/.config/systemd/user/hue-backend.service`
 
 ### KStatusNotifierItem vs QSystemTrayIcon
 
@@ -389,7 +389,7 @@ Key dependencies:
 
 ```bash
 # Via systemd
-journalctl --user -u plasma-hue-backend -f
+journalctl --user -u hue-backend -f
 
 # Manual run (direct output)
 ./backend/hue-sync
