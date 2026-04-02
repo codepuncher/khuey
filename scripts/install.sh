@@ -1,68 +1,82 @@
 #!/bin/bash
-# Installation script for Plasma Hue Widget
+# Installation script for KDE Hue Control
 
 set -e
 
-echo "=== Plasma Hue Widget Installation ==="
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+echo "=== KDE Hue Control Installation ==="
 echo ""
 
-# Check if backend is built
-if [ ! -f "backend/hue-sync" ]; then
-    echo "Building backend..."
-    cd backend
-    go build -o hue-sync ./cmd/hue-sync
-    cd ..
-    echo "✓ Backend built"
-fi
+# Build backend
+echo "Building backend..."
+cd "$PROJECT_ROOT/backend"
+go build -o hue-sync ./cmd/hue-sync
+echo "✓ Backend built: backend/hue-sync"
 
-# Install plasmoid
-echo "Installing plasmoid..."
-if kpackagetool6 --list | grep -q "org.kde.plasma.hue"; then
-    echo "Widget already installed, upgrading..."
-    kpackagetool6 --upgrade plasmoid --type Plasma/Applet
-else
-    kpackagetool6 --install plasmoid --type Plasma/Applet
+# Build tray app
+echo ""
+echo "Building tray application..."
+cd "$PROJECT_ROOT/trayapp"
+if [ ! -f "Makefile" ]; then
+    echo "  Running cmake..."
+    cmake .
 fi
-echo "✓ Plasmoid installed"
+make
+echo "✓ Tray app built: trayapp/hue-tray"
 
-# Create systemd user service for backend
-echo "Creating systemd service..."
+# Install systemd service for backend
+echo ""
+echo "Installing systemd service for backend..."
 mkdir -p ~/.config/systemd/user/
 
-cat > ~/.config/systemd/user/plasma-hue-backend.service << EOF
-[Unit]
-Description=Plasma Hue Widget Backend
-After=graphical-session.target
-
-[Service]
-Type=simple
-ExecStart=$(pwd)/backend/hue-sync
-Restart=on-failure
-RestartSec=5
-
-[Install]
-WantedBy=default.target
-EOF
+# Use the pre-configured service file and update the path
+sed "s|ExecStart=.*|ExecStart=$PROJECT_ROOT/backend/hue-sync|" \
+    "$PROJECT_ROOT/systemd/hue-backend.service" \
+    > ~/.config/systemd/user/hue-backend.service
 
 systemctl --user daemon-reload
-echo "✓ Systemd service created"
+echo "✓ Systemd service installed: ~/.config/systemd/user/hue-backend.service"
+
+# Install autostart for tray app
+echo ""
+echo "Installing tray app autostart..."
+mkdir -p ~/.config/autostart/
+
+# Use the pre-configured desktop file and update the path
+sed "s|Exec=.*|Exec=$PROJECT_ROOT/trayapp/hue-tray|" \
+    "$PROJECT_ROOT/systemd/hue-tray.desktop" \
+    > ~/.config/autostart/hue-tray.desktop
+
+echo "✓ Autostart installed: ~/.config/autostart/hue-tray.desktop"
+
+# Enable and start services
+echo ""
+echo "Enabling and starting services..."
+systemctl --user enable hue-backend.service
+systemctl --user start hue-backend.service
+echo "✓ Backend service started"
+
+# Start tray app
+echo ""
+echo "Starting tray application..."
+"$PROJECT_ROOT/trayapp/hue-tray" &
+echo "✓ Tray app started"
 
 echo ""
 echo "=== Installation Complete! ==="
 echo ""
-echo "To start the backend:"
-echo "  systemctl --user start plasma-hue-backend"
+echo "Services installed:"
+echo "  - Backend: systemctl --user status hue-backend"
+echo "  - Tray app: Will auto-start on next login"
 echo ""
-echo "To enable auto-start on login:"
-echo "  systemctl --user enable plasma-hue-backend"
+echo "The Hue Control icon should now appear in your system tray."
 echo ""
-echo "To add widget to system tray:"
-echo "  1. Right-click system tray"
-echo "  2. Configure System Tray..."
-echo "  3. Add Widgets..."
-echo "  4. Search for 'Hue Control'"
+echo "Configuration file: ~/.openhue/config.yaml"
+echo "  (Run 'openhue setup' if not configured yet)"
 echo ""
-echo "Restarting plasmashell..."
-kquitapp6 plasmashell && plasmashell &
+echo "Logs:"
+echo "  Backend: journalctl --user -u hue-backend -f"
+echo "  Tray app: Check manually if issues occur"
 echo ""
-echo "Done! Check your system tray for the Hue Control widget."
