@@ -7,6 +7,7 @@ import (
 	"image"
 	"image/color"
 	"image/jpeg"
+	_ "image/png" // Register PNG decoder
 	"os"
 	"os/exec"
 	"sync"
@@ -29,13 +30,19 @@ type ScreenCapture struct {
 	frameBuffer   *image.RGBA
 	frameMutex    sync.RWMutex
 	useMockFrames bool
+	
+	// Screenshot-based capture
+	useScreenshot  bool
+	screenshotTool string
 }
 
 // Config holds screen capture configuration
 type Config struct {
-	FPS           int  // Target frames per second (10-60)
-	Monitor       int  // Monitor index (-1 for all monitors)
-	UseMockFrames bool // Use mock gradient instead of real capture (for testing)
+	FPS             int    // Target frames per second (10-60)
+	Monitor         int    // Monitor index (-1 for all monitors)
+	UseMockFrames   bool   // Use mock gradient instead of real capture (for testing)
+	UseScreenshot   bool   // Use screenshot method for real capture (simple, higher CPU)
+	ScreenshotTool  string // Screenshot tool to use: "spectacle", "import", etc (auto-detect if empty)
 }
 
 // NewScreenCapture creates a new screen capture instance
@@ -52,14 +59,37 @@ func NewScreenCapture(cfg Config) (*ScreenCapture, error) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
+	
+	// Auto-detect screenshot tool if UseScreenshot is enabled
+	screenshotTool := cfg.ScreenshotTool
+	if cfg.UseScreenshot && screenshotTool == "" {
+		screenshotTool = detectScreenshotTool()
+		if screenshotTool == "" {
+			cancel()
+			return nil, fmt.Errorf("no screenshot tool available (need spectacle, grim, or import)")
+		}
+	}
 
 	return &ScreenCapture{
-		conn:          conn,
-		fps:           cfg.FPS,
-		ctx:           ctx,
-		cancel:        cancel,
-		useMockFrames: cfg.UseMockFrames,
+		conn:           conn,
+		fps:            cfg.FPS,
+		ctx:            ctx,
+		cancel:         cancel,
+		useMockFrames:  cfg.UseMockFrames,
+		useScreenshot:  cfg.UseScreenshot,
+		screenshotTool: screenshotTool,
 	}, nil
+}
+
+// detectScreenshotTool finds an available screenshot tool
+func detectScreenshotTool() string {
+	tools := []string{"spectacle", "grim", "import"}
+	for _, tool := range tools {
+		if _, err := exec.LookPath(tool); err == nil {
+			return tool
+		}
+	}
+	return ""
 }
 
 // Start begins screen capture
@@ -107,6 +137,10 @@ func (sc *ScreenCapture) CaptureFrame() (*image.RGBA, error) {
 		return sc.generateMockFrame(), nil
 	}
 	
+	if sc.useScreenshot {
+		return sc.captureScreenshot()
+	}
+	
 	// Return latest frame from Pipewire capture
 	sc.frameMutex.RLock()
 	defer sc.frameMutex.RUnlock()
@@ -152,6 +186,67 @@ func (sc *ScreenCapture) generateMockFrame() *image.RGBA {
 	}
 	
 	return img
+}
+
+// captureScreenshot captures a screenshot using the configured tool
+func (sc *ScreenCapture) captureScreenshot() (*image.RGBA, error) {
+	var cmd *exec.Cmd
+	var output []byte
+	var err error
+	
+	switch sc.screenshotTool {
+	case "spectacle":
+		// Spectacle doesn't support stdout, use temp file
+		tmpfile := "/tmp/hue-screenshot.png"
+		cmd = exec.CommandContext(sc.ctx, "spectacle", "-b", "-n", "-o", tmpfile)
+		if err = cmd.Run(); err != nil {
+			return nil, fmt.Errorf("spectacle failed: %w", err)
+		}
+		output, err = os.ReadFile(tmpfile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read screenshot: %w", err)
+		}
+		os.Remove(tmpfile) // Clean up
+		
+	case "grim":
+		// Grim (Wayland): capture to stdout
+		cmd = exec.CommandContext(sc.ctx, "grim", "-")
+		output, err = cmd.Output()
+		if err != nil {
+			return nil, fmt.Errorf("grim failed: %w", err)
+		}
+		
+	case "import":
+		// ImageMagick import: capture root window
+		cmd = exec.CommandContext(sc.ctx, "import", "-window", "root", "png:-")
+		output, err = cmd.Output()
+		if err != nil {
+			return nil, fmt.Errorf("import failed: %w", err)
+		}
+		
+	default:
+		return nil, fmt.Errorf("unsupported screenshot tool: %s", sc.screenshotTool)
+	}
+	
+	// Decode PNG image
+	img, _, err := image.Decode(bytes.NewReader(output))
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode screenshot: %w", err)
+	}
+	
+	// Convert to RGBA
+	rgba, ok := img.(*image.RGBA)
+	if !ok {
+		bounds := img.Bounds()
+		rgba = image.NewRGBA(bounds)
+		for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+			for x := bounds.Min.X; x < bounds.Max.X; x++ {
+				rgba.Set(x, y, img.At(x, y))
+			}
+		}
+	}
+	
+	return rgba, nil
 }
 
 // Stop stops the capture session
