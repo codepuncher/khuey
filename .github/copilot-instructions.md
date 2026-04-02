@@ -1,5 +1,21 @@
 # Copilot Instructions: KDE Hue Control
 
+## Git Workflow Requirements
+
+**CRITICAL**: All changes must use branches and pull requests. Never commit directly to `main`.
+
+### Standard Workflow
+1. Create feature branch: `git checkout -b descriptive-branch-name`
+2. Make changes and commit
+3. Push branch: `git push -u origin descriptive-branch-name`
+4. Create PR: `gh pr create --title "..." --body "..."`
+5. Review, approve, and merge via GitHub
+
+### Branch Naming
+- Features: `feature-name` or `add-feature-name`
+- Fixes: `fix-issue-name`
+- Improvements: `improve-component-name`
+
 ## Project Overview
 
 A KDE system tray application for controlling Philips Hue lights with real-time screen synchronization. The project consists of:
