@@ -114,11 +114,11 @@ Path: `/org/kde/plasma/hue`
 Interface: `org.kde.plasma.hue`
 
 Key Methods:
-- `GetStatus() → (string status, string message)`
+- `GetStatus() → string`
 - `GetScenes() → []Scene`
-- `ActivateScene(string sceneId) → (bool success, string message)`
-- `SetPower(bool on) → (bool success, string message)`
-- `SetBrightness(int value) → (bool success, string message)`
+- `ActivateScene(string sceneId) → (string, *dbus.Error)`
+- `SetPower(bool on) → (bool, *dbus.Error)`
+- `SetBrightness(int value) → (bool, *dbus.Error)`
 - `StartSync() / StopSync() / IsSyncing() → bool`
 
 ## Key Conventions
@@ -136,17 +136,34 @@ sync:
   fps: 30
   subsampleWidth: 64
 channels:
-  - name: "channel0"
-    lights: ["1", "2"]
-    uv: [0.0, 0.0, 0.5, 1.0]  # [x1, y1, x2, y2] screen coordinates
+  - id: 0
+    active: true
+    deviceName: "Left Light"
+    gammaFactor: 2.2
+    uvA:
+      x: 0.0
+      y: 0.0
+    uvB:
+      x: 0.5
+      y: 1.0
+  - id: 1
+    active: true
+    deviceName: "Right Light"
+    gammaFactor: 2.2
+    uvA:
+      x: 0.5
+      y: 0.0
+    uvB:
+      x: 1.0
+      y: 1.0
 ```
 
 ### UV Coordinates
 
-Screen zones use UV coordinates (0.0-1.0) for monitor-agnostic mapping:
-- `[0.0, 0.0, 0.5, 1.0]` = left half of screen
-- `[0.5, 0.0, 1.0, 1.0]` = right half of screen
-- `[0.0, 0.0, 1.0, 0.5]` = top half of screen
+Screen zones use UV coordinates (0.0-1.0) for monitor-agnostic mapping. Each channel has `uvA` (top-left) and `uvB` (bottom-right) corners:
+- Left half of screen: `uvA: {x: 0.0, y: 0.0}`, `uvB: {x: 0.5, y: 1.0}`
+- Right half of screen: `uvA: {x: 0.5, y: 0.0}`, `uvB: {x: 1.0, y: 1.0}`
+- Top half of screen: `uvA: {x: 0.0, y: 0.0}`, `uvB: {x: 1.0, y: 0.5}`
 
 ### DBus Communication Pattern
 
@@ -170,9 +187,9 @@ Scenes returned by `GetScenes()` include room names:
 ### Auto-start Integration
 
 Two systemd components:
-1. **Backend service**: `~/.config/systemd/user/hue-backend.service`
+1. **Backend service**: `~/.config/systemd/user/plasma-hue-backend.service`
    - Starts backend daemon
-   - Managed via `systemctl --user enable/start hue-backend`
+   - Managed via `systemctl --user enable/start plasma-hue-backend`
 
 2. **Tray autostart**: `~/.config/autostart/hue-tray.desktop`
    - Launches tray app on KDE login
@@ -212,7 +229,7 @@ Key config parameters:
    # Edit code
    go test ./internal/your-package  # Test
    go build -o hue-sync ./cmd/hue-sync  # Build
-   systemctl --user restart hue-backend  # Restart service
+   systemctl --user restart plasma-hue-backend  # Restart service
    ```
 
 2. **Tray app changes**:
@@ -290,8 +307,9 @@ Must be `~/.openhue/config.yaml` for compatibility with openhue-cli. Don't use a
 
 ### systemd Service Names
 
-- Backend service: `hue-backend.service` (not `plasma-hue-backend.service`)
+- Backend service: `plasma-hue-backend.service` (created by install script)
 - Use `systemctl --user` (user services, not system-wide)
+- Note: README.md references `hue-backend.service` but the install script creates `plasma-hue-backend.service`
 
 ### KStatusNotifierItem vs QSystemTrayIcon
 
@@ -335,7 +353,7 @@ Key dependencies:
 
 ```bash
 # Via systemd
-journalctl --user -u hue-backend -f
+journalctl --user -u plasma-hue-backend -f
 
 # Manual run (direct output)
 ./backend/hue-sync
