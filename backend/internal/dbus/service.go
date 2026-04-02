@@ -3,11 +3,13 @@ package dbus
 import (
 	"fmt"
 	"log"
+	"sync"
 
 	"github.com/godbus/dbus/v5"
 	"github.com/godbus/dbus/v5/introspect"
 	"github.com/codepuncher/khuey/internal/config"
 	"github.com/codepuncher/khuey/internal/hue"
+	syncengine "github.com/codepuncher/khuey/internal/sync"
 )
 
 const (
@@ -18,9 +20,11 @@ const (
 
 // Service provides DBus interface for the plasmoid
 type Service struct {
-	conn      *dbus.Conn
-	config    *config.Config
-	hueClient *hue.Client
+	conn       *dbus.Conn
+	config     *config.Config
+	hueClient  *hue.Client
+	syncEngine *syncengine.Engine
+	mu         sync.RWMutex // Protects config access from concurrent DBus calls
 }
 
 // NewService creates a new DBus service
@@ -30,10 +34,25 @@ func NewService(cfg *config.Config, client *hue.Client) (*Service, error) {
 		return nil, fmt.Errorf("failed to connect to session bus: %w", err)
 	}
 
+	// Create sync engine if Entertainment API is configured
+	var engine *syncengine.Engine
+	if cfg.EntertainmentConfigurationID != "" && cfg.ClientKey != "" {
+		engine, err = syncengine.NewEngine(cfg)
+		if err != nil {
+			log.Printf("⚠️  Failed to create sync engine: %v", err)
+			log.Println("   Screen sync will be unavailable")
+		} else {
+			log.Println("✅ Sync engine initialized")
+		}
+	} else {
+		log.Println("ℹ️  Entertainment API not configured - screen sync unavailable")
+	}
+
 	return &Service{
-		conn:      conn,
-		config:    cfg,
-		hueClient: client,
+		conn:       conn,
+		config:     cfg,
+		hueClient:  client,
+		syncEngine: engine,
 	}, nil
 }
 
@@ -77,6 +96,8 @@ func (s *Service) Start() error {
 // Stop stops the DBus service
 func (s *Service) Stop() {
 	if s.conn != nil {
+		// Release the DBus name before closing connection to prevent resource leak
+		s.conn.ReleaseName(dbusName)
 		s.conn.Close()
 	}
 }
@@ -175,11 +196,15 @@ func (s *Service) SetPower(on bool) (bool, *dbus.Error) {
 		return false, dbus.MakeFailedError(fmt.Errorf("hue client not initialized"))
 	}
 
-	if s.config.GroupedLightID == "" {
+	s.mu.RLock()
+	groupedLightID := s.config.GroupedLightID
+	s.mu.RUnlock()
+
+	if groupedLightID == "" {
 		return false, dbus.MakeFailedError(fmt.Errorf("no grouped light configured"))
 	}
 
-	err := s.hueClient.SetLightPower(s.config.GroupedLightID, on)
+	err := s.hueClient.SetLightPower(groupedLightID, on)
 	if err != nil {
 		log.Printf("❌ Failed to set power: %v", err)
 		return false, dbus.MakeFailedError(err)
@@ -199,11 +224,15 @@ func (s *Service) SetBrightness(brightness int32) (bool, *dbus.Error) {
 		return false, dbus.MakeFailedError(fmt.Errorf("brightness must be 0-100"))
 	}
 
-	if s.config.GroupedLightID == "" {
+	s.mu.RLock()
+	groupedLightID := s.config.GroupedLightID
+	s.mu.RUnlock()
+
+	if groupedLightID == "" {
 		return false, dbus.MakeFailedError(fmt.Errorf("no grouped light configured"))
 	}
 
-	err := s.hueClient.SetLightBrightness(s.config.GroupedLightID, float32(brightness))
+	err := s.hueClient.SetLightBrightness(groupedLightID, float32(brightness))
 	if err != nil {
 		log.Printf("❌ Failed to set brightness: %v", err)
 		return false, dbus.MakeFailedError(err)
@@ -302,22 +331,40 @@ func (s *Service) GetGroupedLights() ([]struct{ ID, Name, Type string }, *dbus.E
 
 // StartSync starts screen synchronization
 func (s *Service) StartSync() (bool, *dbus.Error) {
-	// TODO: Implement sync engine
-	log.Println("StartSync called (not implemented yet)")
-	return false, dbus.MakeFailedError(fmt.Errorf("sync not implemented yet"))
+	if s.syncEngine == nil {
+		return false, dbus.MakeFailedError(fmt.Errorf("sync engine not available - check Entertainment API configuration"))
+	}
+
+	if err := s.syncEngine.Start(); err != nil {
+		log.Printf("❌ Failed to start sync: %v", err)
+		return false, dbus.MakeFailedError(err)
+	}
+
+	log.Println("✅ Screen sync started")
+	return true, nil
 }
 
 // StopSync stops screen synchronization
 func (s *Service) StopSync() (bool, *dbus.Error) {
-	// TODO: Implement sync engine
-	log.Println("StopSync called (not implemented yet)")
-	return false, dbus.MakeFailedError(fmt.Errorf("sync not implemented yet"))
+	if s.syncEngine == nil {
+		return false, dbus.MakeFailedError(fmt.Errorf("sync engine not available"))
+	}
+
+	if err := s.syncEngine.Stop(); err != nil {
+		log.Printf("❌ Failed to stop sync: %v", err)
+		return false, dbus.MakeFailedError(err)
+	}
+
+	log.Println("✅ Screen sync stopped")
+	return true, nil
 }
 
 // IsSyncing returns whether sync is active
 func (s *Service) IsSyncing() (bool, *dbus.Error) {
-	// TODO: Implement sync engine state
-	return false, nil
+	if s.syncEngine == nil {
+		return false, nil
+	}
+	return s.syncEngine.IsRunning(), nil
 }
 
 // GetState returns the current power and brightness state
@@ -326,11 +373,15 @@ func (s *Service) GetState() (bool, int32, bool, *dbus.Error) {
 		return false, 0, false, dbus.MakeFailedError(fmt.Errorf("hue client not initialized"))
 	}
 
-	if s.config.GroupedLightID == "" {
+	s.mu.RLock()
+	groupedLightID := s.config.GroupedLightID
+	s.mu.RUnlock()
+
+	if groupedLightID == "" {
 		return false, 0, false, dbus.MakeFailedError(fmt.Errorf("no grouped light configured"))
 	}
 
-	power, brightness, err := s.hueClient.GetGroupedLightState(s.config.GroupedLightID)
+	power, brightness, err := s.hueClient.GetGroupedLightState(groupedLightID)
 	if err != nil {
 		log.Printf("❌ Failed to get state: %v", err)
 		return false, 0, false, dbus.MakeFailedError(err)
@@ -348,9 +399,12 @@ func (s *Service) SetGroupedLight(groupedLightID string) (bool, *dbus.Error) {
 		return false, dbus.MakeFailedError(fmt.Errorf("grouped light ID cannot be empty"))
 	}
 
+	s.mu.Lock()
 	s.config.GroupedLightID = groupedLightID
+	err := s.config.Save()
+	s.mu.Unlock()
 	
-	if err := s.config.Save(); err != nil {
+	if err != nil {
 		log.Printf("❌ Failed to save config: %v", err)
 		return false, dbus.MakeFailedError(err)
 	}

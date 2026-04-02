@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/spf13/viper"
 )
@@ -27,6 +28,9 @@ type Config struct {
 	
 	// Logging
 	LogLevel string `mapstructure:"log_level"`
+	
+	// Mutex to protect concurrent writes to config file
+	mu sync.Mutex
 }
 
 // ChannelConfig represents a single light channel in the Entertainment Area
@@ -129,6 +133,9 @@ func Load() (*Config, error) {
 
 // Save writes the configuration to ~/.openhue/config.yaml
 func (c *Config) Save() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	
 	configFile := getConfigFile()
 
 	// Set all values in viper

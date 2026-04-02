@@ -67,10 +67,10 @@ public:
         
         // Sync control
         auto syncLayout = new QHBoxLayout();
-        syncButton = new QPushButton("Screen Sync (Coming soon)", this);
-        syncButton->setEnabled(false);
+        syncButton = new QPushButton("Start Screen Sync", this);
+        syncButton->setEnabled(true); // Enable sync button - backend ready!
         syncLayout->addWidget(syncButton);
-        syncStatusLabel = new QLabel("Feature not yet implemented", this);
+        syncStatusLabel = new QLabel("Not syncing", this);
         syncLayout->addWidget(syncStatusLabel);
         syncLayout->addStretch();
         layout->addLayout(syncLayout);
@@ -148,7 +148,7 @@ public slots:
         QDBusReply<bool> syncReply = iface.call("IsSyncing");
         if (syncReply.isValid()) {
             bool syncing = syncReply.value();
-            syncButton->setText(syncing ? "Stop Sync" : "Start Sync");
+            syncButton->setText(syncing ? "Stop Screen Sync" : "Start Screen Sync");
             syncStatusLabel->setText(syncing ? "✅ Syncing" : "Not syncing");
         }
     }
