@@ -9,6 +9,23 @@ pre-commit:
   parallel: true   # Run all checks concurrently for speed
   
   commands:
+    # ===== Branch Protection =====
+    
+    # Prevent direct commits to main branch
+    block-main-commit:
+      run: |
+        BRANCH=$(git rev-parse --abbrev-ref HEAD)
+        if [ "$BRANCH" = "main" ]; then
+          echo ""
+          echo "❌ Direct commits to main branch are not allowed!"
+          echo "   Create a feature branch: git checkout -b feature-name"
+          echo ""
+          exit 1
+        fi
+      skip:
+        - merge
+        - rebase
+    
     # ===== Go Backend Checks =====
     
     # Format Go code (auto-fix)
