@@ -30,24 +30,24 @@ func main() {
 	// Start capture session
 	fmt.Println("Starting screen capture...")
 	fmt.Println("You may see a system permission dialog - please allow screen capture.")
-	
+
 	if err := cap.Start(); err != nil {
 		log.Fatalf("Failed to start capture: %v", err)
 	}
 
 	fmt.Println("✅ Screen capture started successfully!")
 	fmt.Printf("📊 FPS: %d (frame interval: %v)\n", 30, cap.GetFrameInterval())
-	
+
 	// Capture a test frame
 	fmt.Println("\n📸 Capturing test frame...")
 	frame, err := cap.CaptureFrame()
 	if err != nil {
 		log.Fatalf("Failed to capture frame: %v", err)
 	}
-	
+
 	fmt.Printf("✅ Frame captured: %dx%d\n", frame.Bounds().Dx(), frame.Bounds().Dy())
 	fmt.Println("   (Mock gradient frame for pipeline testing)")
-	
+
 	fmt.Println("\nPress Ctrl+C to stop...")
 
 	// Wait for interrupt
@@ -66,13 +66,13 @@ func main() {
 		case <-ticker.C:
 			frameCount++
 			elapsed := time.Since(startTime)
-			
+
 			// Capture frame (currently returns mock gradient)
 			_, err := cap.CaptureFrame()
 			if err != nil {
 				log.Printf("Frame capture error: %v", err)
 			}
-			
+
 			if frameCount%30 == 0 {
 				fps := float64(frameCount) / elapsed.Seconds()
 				fmt.Printf("📸 Captured %d frames (%.1f FPS actual)\n", frameCount, fps)

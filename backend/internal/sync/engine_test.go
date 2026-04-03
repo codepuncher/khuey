@@ -9,8 +9,8 @@ import (
 // TestZoneMapping tests the zone mapping logic for different channel counts
 func TestZoneMapping(t *testing.T) {
 	tests := []struct {
-		name         string
-		channelCount int
+		name          string
+		channelCount  int
 		expectedZones []color.Zone
 	}{
 		{
@@ -43,7 +43,7 @@ func TestZoneMapping(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Replicate zone mapping logic from NewEngine
 			zones := make([]color.Zone, tt.channelCount)
-			
+
 			switch tt.channelCount {
 			case 1:
 				zones[0] = color.Zone{ID: 0, U1: 0.0, V1: 0.0, U2: 1.0, V2: 1.0}
@@ -109,7 +109,7 @@ func TestZoneMapping_ManyChannels(t *testing.T) {
 			// Create zones using the default logic
 			zones := make([]color.Zone, tt.channelCount)
 			step := 1.0 / float64(tt.channelCount)
-			
+
 			for i := range zones {
 				zones[i] = color.Zone{
 					ID: i,
@@ -226,7 +226,7 @@ func TestSetFPS_Validation(t *testing.T) {
 // TestColor8BitTo16BitConversion tests the color bit conversion
 func TestColor8BitTo16BitConversion(t *testing.T) {
 	tests := []struct {
-		input8bit  uint8
+		input8bit     uint8
 		expected16bit uint16
 	}{
 		{input8bit: 0, expected16bit: 0},
@@ -265,10 +265,10 @@ func TestEngineInitialState(t *testing.T) {
 // TestStartStopValidation tests start/stop validation logic
 func TestStartStopValidation(t *testing.T) {
 	tests := []struct {
-		name             string
-		isRunning        bool
-		operation        string
-		expectError      bool
+		name        string
+		isRunning   bool
+		operation   string
+		expectError bool
 	}{
 		{
 			name:        "Start when not running",

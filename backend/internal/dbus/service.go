@@ -5,11 +5,11 @@ import (
 	"log"
 	"sync"
 
-	"github.com/godbus/dbus/v5"
-	"github.com/godbus/dbus/v5/introspect"
 	"github.com/codepuncher/khuey/internal/config"
 	"github.com/codepuncher/khuey/internal/hue"
 	syncengine "github.com/codepuncher/khuey/internal/sync"
+	"github.com/godbus/dbus/v5"
+	"github.com/godbus/dbus/v5/introspect"
 )
 
 const (
@@ -403,7 +403,7 @@ func (s *Service) SetGroupedLight(groupedLightID string) (bool, *dbus.Error) {
 	s.config.GroupedLightID = groupedLightID
 	err := s.config.Save()
 	s.mu.Unlock()
-	
+
 	if err != nil {
 		log.Printf("❌ Failed to save config: %v", err)
 		return false, dbus.MakeFailedError(err)

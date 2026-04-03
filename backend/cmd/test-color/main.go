@@ -98,7 +98,7 @@ func main() {
 	// Step 6: Performance test
 	fmt.Println("🔥 Performance test (100 extractions)...")
 	iterations := 100
-	
+
 	start := time.Now()
 	for i := 0; i < iterations; i++ {
 		_, err := extractor.ExtractColors(frame, zones)
@@ -107,14 +107,14 @@ func main() {
 		}
 	}
 	elapsed := time.Since(start)
-	
+
 	avgTime := elapsed / time.Duration(iterations)
 	fps := float64(time.Second) / float64(avgTime)
-	
+
 	fmt.Printf("✅ %d iterations in %v\n", iterations, elapsed)
 	fmt.Printf("   Average: %v per extraction\n", avgTime)
 	fmt.Printf("   Max FPS: %.1f\n", fps)
-	
+
 	if fps >= 30 {
 		fmt.Println("   ✅ Performance: Excellent (can support 30+ FPS)")
 	} else if fps >= 15 {
@@ -135,7 +135,7 @@ func colorBar(r, g, b uint8) string {
 	} else if b > r && b > g {
 		dominant = "Blue"
 	}
-	
+
 	// Create visual bar
 	bar := "█████████████████████"
 	return fmt.Sprintf("  Dominant: %s  %s", dominant, bar)

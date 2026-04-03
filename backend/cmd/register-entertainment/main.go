@@ -17,7 +17,7 @@ func main() {
 	fmt.Println()
 
 	bridgeIP := "192.168.0.9"
-	
+
 	fmt.Printf("Registering with bridge: %s\n", bridgeIP)
 	fmt.Println("\n⚠️  PLEASE PRESS THE LINK BUTTON ON YOUR HUE BRIDGE NOW!")
 	fmt.Println("    Attempting registration in 3 seconds...")
@@ -46,7 +46,7 @@ func main() {
 	}
 
 	fmt.Println("\n📡 Attempting registration...")
-	
+
 	// Make authentication request with generateclientkey
 	deviceType := "khuey#desktop"
 	generateKey := true
@@ -64,7 +64,7 @@ func main() {
 	}
 
 	result := (*resp.JSON200)[0]
-	
+
 	// Check for error
 	if result.Error != nil {
 		desc := "Unknown error"
@@ -104,7 +104,7 @@ func main() {
 	fmt.Println("\nUpdate your ~/.openhue/config.yaml with:")
 	fmt.Printf("  key: %s\n", username)
 	fmt.Printf("  clientkey: %s\n", clientKey)
-	
+
 	fmt.Println("\nNote: The clientkey is HEX-encoded and used for")
 	fmt.Println("      Entertainment API DTLS authentication.")
 }

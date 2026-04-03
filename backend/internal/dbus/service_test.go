@@ -44,7 +44,7 @@ func TestSetBrightness_Validation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Validate brightness range (logic from SetBrightness)
 			isValid := tt.brightness >= 0 && tt.brightness <= 100
-			
+
 			if tt.expectError && isValid {
 				t.Errorf("Expected brightness %d to be invalid", tt.brightness)
 			}
@@ -270,7 +270,7 @@ func TestConfigValidation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Test grouped light ID validation
 			groupedLightValid := tt.groupedLightID != ""
-			
+
 			// Test entertainment config validation
 			entertainmentValid := tt.entertainmentID != "" && tt.clientKey != ""
 
@@ -286,9 +286,9 @@ func TestConfigValidation(t *testing.T) {
 // TestSetGroupedLight_Validation tests grouped light ID validation
 func TestSetGroupedLight_Validation(t *testing.T) {
 	tests := []struct {
-		name            string
-		groupedLightID  string
-		expectError     bool
+		name           string
+		groupedLightID string
+		expectError    bool
 	}{
 		{
 			name:           "Valid ID",
@@ -320,9 +320,9 @@ func TestSetGroupedLight_Validation(t *testing.T) {
 // TestSceneDisplayNameFormatting tests scene display name formatting
 func TestSceneDisplayNameFormatting(t *testing.T) {
 	tests := []struct {
-		name        string
-		scene       hue.Scene
-		expected    string
+		name     string
+		scene    hue.Scene
+		expected string
 	}{
 		{
 			name: "Scene with room",
