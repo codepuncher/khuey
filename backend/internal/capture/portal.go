@@ -13,6 +13,20 @@ const (
 	screenCastIface = "org.freedesktop.portal.ScreenCast"
 )
 
+// PortalError represents an error from the XDG Desktop Portal
+type PortalError struct {
+	Type string // "connection", "permission_denied", "session_failed", etc.
+	Msg  string
+	Hint string // User-friendly guidance
+}
+
+func (e *PortalError) Error() string {
+	if e.Hint != "" {
+		return fmt.Sprintf("%s: %s (Hint: %s)", e.Type, e.Msg, e.Hint)
+	}
+	return fmt.Sprintf("%s: %s", e.Type, e.Msg)
+}
+
 // createSession creates a new ScreenCast session via XDG Desktop Portal
 func (sc *ScreenCapture) createSession() (string, error) {
 	obj := sc.conn.Object(portalDest, portalPath)
@@ -29,24 +43,36 @@ func (sc *ScreenCapture) createSession() (string, error) {
 	var requestPath dbus.ObjectPath
 	err := obj.Call(screenCastIface+".CreateSession", 0, options).Store(&requestPath)
 	if err != nil {
-		return "", fmt.Errorf("failed to create session: %w", err)
+		return "", &PortalError{
+			Type: "session_failed",
+			Msg:  "Failed to create portal session",
+			Hint: "Ensure xdg-desktop-portal is running and configured correctly",
+		}
 	}
 
 	// Wait for response via Request interface
 	result, err := sc.waitForResponse(requestPath)
 	if err != nil {
-		return "", fmt.Errorf("failed to get session handle: %w", err)
+		return "", err // Already wrapped by waitForResponse
 	}
 
 	// Extract session handle from result
 	sessionHandleVariant, ok := result["session_handle"]
 	if !ok {
-		return "", fmt.Errorf("session_handle not found in response")
+		return "", &PortalError{
+			Type: "session_failed",
+			Msg:  "Session handle not found in portal response",
+			Hint: "This may indicate a portal configuration issue",
+		}
 	}
 
 	sessionHandle, ok := sessionHandleVariant.(string)
 	if !ok {
-		return "", fmt.Errorf("session_handle is not a string")
+		return "", &PortalError{
+			Type: "session_failed",
+			Msg:  "Session handle has incorrect type",
+			Hint: "This may indicate a portal version mismatch",
+		}
 	}
 
 	return sessionHandle, nil
@@ -65,13 +91,17 @@ func (sc *ScreenCapture) selectSources(sessionHandle string) error {
 	var requestPath dbus.ObjectPath
 	err := obj.Call(screenCastIface+".SelectSources", 0, dbus.ObjectPath(sessionHandle), options).Store(&requestPath)
 	if err != nil {
-		return fmt.Errorf("failed to select sources: %w", err)
+		return &PortalError{
+			Type: "select_sources_failed",
+			Msg:  "Failed to call SelectSources",
+			Hint: "Ensure screen sharing is supported by your desktop environment",
+		}
 	}
 
 	// Wait for user to select source
 	_, err = sc.waitForResponse(requestPath)
 	if err != nil {
-		return fmt.Errorf("failed to get source selection: %w", err)
+		return err // Already wrapped by waitForResponse
 	}
 
 	return nil
@@ -127,7 +157,11 @@ func (sc *ScreenCapture) startStream(sessionHandle string) (uint32, error) {
 func (sc *ScreenCapture) waitForResponse(requestPath dbus.ObjectPath) (map[string]interface{}, error) {
 	// Add signal match for Response
 	if err := sc.conn.AddMatchSignal(dbus.WithMatchObjectPath(requestPath)); err != nil {
-		return nil, fmt.Errorf("failed to add match: %w", err)
+		return nil, &PortalError{
+			Type: "connection",
+			Msg:  "Failed to add signal match",
+			Hint: "DBus connection may be unstable",
+		}
 	}
 	defer sc.conn.RemoveMatchSignal(dbus.WithMatchObjectPath(requestPath))
 
@@ -139,17 +173,45 @@ func (sc *ScreenCapture) waitForResponse(requestPath dbus.ObjectPath) (map[strin
 	select {
 	case sig := <-signals:
 		if len(sig.Body) < 2 {
-			return nil, fmt.Errorf("invalid response body")
+			return nil, &PortalError{
+				Type: "invalid_response",
+				Msg:  "Portal response has invalid format",
+				Hint: "This may indicate a portal version mismatch",
+			}
 		}
 
 		responseCode, ok := sig.Body[0].(uint32)
-		if !ok || responseCode != 0 {
-			return nil, fmt.Errorf("request failed with code %d", responseCode)
+		if !ok {
+			return nil, &PortalError{
+				Type: "invalid_response",
+				Msg:  "Portal response code has wrong type",
+				Hint: "This may indicate a portal version mismatch",
+			}
+		}
+
+		if responseCode != 0 {
+			// Response code != 0 means user denied or cancelled
+			if responseCode == 1 {
+				return nil, &PortalError{
+					Type: "permission_denied",
+					Msg:  "Screen sharing permission was denied",
+					Hint: "Please approve the screen sharing dialog when prompted. You can try again by clicking 'Start Screen Sync'.",
+				}
+			}
+			return nil, &PortalError{
+				Type: "request_failed",
+				Msg:  fmt.Sprintf("Portal request failed with code %d", responseCode),
+				Hint: "The screen sharing request was cancelled or failed",
+			}
 		}
 
 		results, ok := sig.Body[1].(map[string]dbus.Variant)
 		if !ok {
-			return nil, fmt.Errorf("invalid results format")
+			return nil, &PortalError{
+				Type: "invalid_response",
+				Msg:  "Portal results have wrong type",
+				Hint: "This may indicate a portal version mismatch",
+			}
 		}
 
 		// Convert dbus.Variant map to regular map
@@ -161,6 +223,10 @@ func (sc *ScreenCapture) waitForResponse(requestPath dbus.ObjectPath) (map[strin
 		return result, nil
 
 	case <-sc.ctx.Done():
-		return nil, fmt.Errorf("context cancelled")
+		return nil, &PortalError{
+			Type: "cancelled",
+			Msg:  "Portal request was cancelled",
+			Hint: "The operation was interrupted",
+		}
 	}
 }

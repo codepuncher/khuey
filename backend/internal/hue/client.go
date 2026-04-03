@@ -6,10 +6,19 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/openhue/openhue-go"
 )
+
+// ConnectionStatus represents the current bridge connection state
+type ConnectionStatus struct {
+	Connected   bool
+	LastError   string
+	LastAttempt time.Time
+	BridgeAddr  string
+}
 
 // Client wraps the openhue-go client for basic Hue operations
 type Client struct {
@@ -17,6 +26,9 @@ type Client struct {
 	bridgeAddr string
 	apiKey     string
 	ctx        context.Context
+	// Connection tracking
+	connStatus ConnectionStatus
+	connMutex  sync.RWMutex
 }
 
 // Scene represents a Hue scene
@@ -81,12 +93,24 @@ func NewClient(ctx context.Context, bridgeAddr, apiKey string) (*Client, error) 
 		return nil, fmt.Errorf("failed to create Hue client: %w", err)
 	}
 
-	return &Client{
+	c := &Client{
 		client:     client,
 		bridgeAddr: bridgeAddr,
 		apiKey:     apiKey,
 		ctx:        ctx,
-	}, nil
+		connStatus: ConnectionStatus{
+			Connected:  false,
+			BridgeAddr: bridgeAddr,
+		},
+	}
+
+	// Initial connection check
+	if err := c.updateConnectionStatus(); err != nil {
+		// Don't fail initialization, just log the error
+		c.setConnectionError(err)
+	}
+
+	return c, nil
 }
 
 // SetLightPower turns a grouped light (room) on or off
@@ -175,13 +199,17 @@ func (c *Client) ActivateScene(sceneID string) error {
 
 	resp, err := c.client.UpdateSceneWithResponse(c.ctx, sceneID, body)
 	if err != nil {
+		c.setConnectionError(err)
 		return fmt.Errorf("failed to activate scene: %w", err)
 	}
 
 	if resp.StatusCode() != 200 {
-		return fmt.Errorf("failed to activate scene: status %d", resp.StatusCode())
+		err := fmt.Errorf("failed to activate scene: status %d", resp.StatusCode())
+		c.setConnectionError(err)
+		return err
 	}
 
+	c.setConnectionSuccess()
 	return nil
 }
 
@@ -189,12 +217,17 @@ func (c *Client) ActivateScene(sceneID string) error {
 func (c *Client) GetScenes() ([]Scene, error) {
 	resp, err := c.client.GetScenesWithResponse(c.ctx)
 	if err != nil {
+		c.setConnectionError(err)
 		return nil, fmt.Errorf("failed to get scenes: %w", err)
 	}
 
 	if resp.StatusCode() != 200 {
-		return nil, fmt.Errorf("failed to get scenes: status %d", resp.StatusCode())
+		err := fmt.Errorf("failed to get scenes: status %d", resp.StatusCode())
+		c.setConnectionError(err)
+		return nil, err
 	}
+
+	c.setConnectionSuccess()
 
 	// Get rooms to resolve names
 	roomsResp, err := c.client.GetRoomsWithResponse(c.ctx)
@@ -258,13 +291,17 @@ func (c *Client) GetScenes() ([]Scene, error) {
 func (c *Client) Ping() error {
 	resp, err := c.client.GetBridgesWithResponse(c.ctx)
 	if err != nil {
+		c.setConnectionError(err)
 		return fmt.Errorf("bridge unreachable: %w", err)
 	}
 
 	if resp.StatusCode() != 200 {
-		return fmt.Errorf("bridge returned status %d", resp.StatusCode())
+		err := fmt.Errorf("bridge returned status %d", resp.StatusCode())
+		c.setConnectionError(err)
+		return err
 	}
 
+	c.setConnectionSuccess()
 	return nil
 }
 
@@ -351,4 +388,61 @@ func (c *Client) GetGroupedLights() ([]GroupedLight, error) {
 // GetClientKey returns the API key (for Entertainment API setup)
 func (c *Client) GetClientKey() string {
 	return c.apiKey
+}
+
+// GetConnectionStatus returns the current connection status
+func (c *Client) GetConnectionStatus() ConnectionStatus {
+	c.connMutex.RLock()
+	defer c.connMutex.RUnlock()
+	return c.connStatus
+}
+
+// IsReachable checks if the bridge is currently reachable
+func (c *Client) IsReachable() (bool, error) {
+	ctx, cancel := context.WithTimeout(c.ctx, 5*time.Second)
+	defer cancel()
+
+	// Try to get bridge info
+	resp, err := c.client.GetBridgesWithResponse(ctx)
+	if err != nil {
+		c.setConnectionError(err)
+		return false, err
+	}
+
+	if resp.StatusCode() != 200 {
+		err := fmt.Errorf("bridge returned status %d", resp.StatusCode())
+		c.setConnectionError(err)
+		return false, err
+	}
+
+	c.setConnectionSuccess()
+	return true, nil
+}
+
+// updateConnectionStatus checks and updates the connection status
+func (c *Client) updateConnectionStatus() error {
+	c.connMutex.Lock()
+	c.connStatus.LastAttempt = time.Now()
+	c.connMutex.Unlock()
+
+	_, err := c.IsReachable()
+	return err
+}
+
+// setConnectionError marks the connection as failed with an error
+func (c *Client) setConnectionError(err error) {
+	c.connMutex.Lock()
+	defer c.connMutex.Unlock()
+	c.connStatus.Connected = false
+	c.connStatus.LastError = err.Error()
+	c.connStatus.LastAttempt = time.Now()
+}
+
+// setConnectionSuccess marks the connection as successful
+func (c *Client) setConnectionSuccess() {
+	c.connMutex.Lock()
+	defer c.connMutex.Unlock()
+	c.connStatus.Connected = true
+	c.connStatus.LastError = ""
+	c.connStatus.LastAttempt = time.Now()
 }
