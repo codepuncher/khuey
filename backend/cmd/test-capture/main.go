@@ -17,8 +17,9 @@ func main() {
 
 	// Create capture instance with 30 FPS
 	cfg := capture.Config{
-		FPS:     30,
-		Monitor: -1, // All monitors
+		FPS:              30,
+		Monitor:          -1, // All monitors
+		UseNativeCapture: true, // Use native CGo capture (default)
 	}
 
 	cap, err := capture.NewScreenCapture(cfg)
@@ -38,15 +39,19 @@ func main() {
 	fmt.Println("✅ Screen capture started successfully!")
 	fmt.Printf("📊 FPS: %d (frame interval: %v)\n", 30, cap.GetFrameInterval())
 
+	// Wait a moment for PipeWire to connect and start streaming
+	fmt.Println("\n⏳ Waiting for PipeWire connection...")
+	time.Sleep(2 * time.Second)
+
 	// Capture a test frame
 	fmt.Println("\n📸 Capturing test frame...")
 	frame, err := cap.CaptureFrame()
 	if err != nil {
-		log.Fatalf("Failed to capture frame: %v", err)
+		log.Printf("Warning: Failed to capture initial frame: %v", err)
+		fmt.Println("   (This is normal - frames will be available shortly)")
+	} else {
+		fmt.Printf("✅ Frame captured: %dx%d\n", frame.Bounds().Dx(), frame.Bounds().Dy())
 	}
-
-	fmt.Printf("✅ Frame captured: %dx%d\n", frame.Bounds().Dx(), frame.Bounds().Dy())
-	fmt.Println("   (Mock gradient frame for pipeline testing)")
 
 	fmt.Println("\nPress Ctrl+C to stop...")
 
@@ -68,14 +73,19 @@ func main() {
 			elapsed := time.Since(startTime)
 
 			// Capture frame (currently returns mock gradient)
-			_, err := cap.CaptureFrame()
+			frame, err := cap.CaptureFrame()
 			if err != nil {
-				log.Printf("Frame capture error: %v", err)
+				// Don't log every error during startup
+				if frameCount > 10 {
+					log.Printf("Frame capture error: %v", err)
+				}
+				continue
 			}
 
 			if frameCount%30 == 0 {
 				fps := float64(frameCount) / elapsed.Seconds()
-				fmt.Printf("📸 Captured %d frames (%.1f FPS actual)\n", frameCount, fps)
+				fmt.Printf("📸 Captured %d frames (%.1f FPS actual) - Size: %dx%d\n", 
+					frameCount, fps, frame.Bounds().Dx(), frame.Bounds().Dy())
 			}
 
 		case <-sigChan:

@@ -26,10 +26,12 @@ type ScreenCapture struct {
 	cancel        context.CancelFunc
 
 	// Real Pipewire capture
-	gstCmd        *exec.Cmd
-	frameBuffer   *image.RGBA
-	frameMutex    sync.RWMutex
-	useMockFrames bool
+	gstCmd         *exec.Cmd
+	nativeCapture  *NativePipeWireCapture
+	frameBuffer    *image.RGBA
+	frameMutex     sync.RWMutex
+	useMockFrames  bool
+	useNativeCapture bool
 
 	// Screenshot-based capture
 	useScreenshot  bool
@@ -40,13 +42,14 @@ type ScreenCapture struct {
 
 // Config holds screen capture configuration
 type Config struct {
-	FPS            int    // Target frames per second (10-60)
-	Monitor        int    // Monitor index (-1 for all monitors)
-	UseMockFrames  bool   // Use mock gradient instead of real capture (for testing)
-	UseScreenshot  bool   // Use screenshot method for real capture (simple, higher CPU)
-	ScreenshotTool string // Screenshot tool to use: "spectacle", "import", etc (auto-detect if empty)
-	CaptureWidth   int    // Downsample width (0 = full resolution, e.g. 640 for faster)
-	CaptureHeight  int    // Downsample height (0 = full resolution, e.g. 360 for faster)
+	FPS              int    // Target frames per second (10-60)
+	Monitor          int    // Monitor index (-1 for all monitors)
+	UseMockFrames    bool   // Use mock gradient instead of real capture (for testing)
+	UseNativeCapture bool   // Use native CGo PipeWire capture (default: true)
+	UseScreenshot    bool   // Use screenshot method for real capture (simple, higher CPU)
+	ScreenshotTool   string // Screenshot tool to use: "spectacle", "import", etc (auto-detect if empty)
+	CaptureWidth     int    // Downsample width (0 = full resolution, e.g. 640 for faster)
+	CaptureHeight    int    // Downsample height (0 = full resolution, e.g. 360 for faster)
 }
 
 // NewScreenCapture creates a new screen capture instance
@@ -75,15 +78,16 @@ func NewScreenCapture(cfg Config) (*ScreenCapture, error) {
 	}
 
 	return &ScreenCapture{
-		conn:           conn,
-		fps:            cfg.FPS,
-		ctx:            ctx,
-		cancel:         cancel,
-		useMockFrames:  cfg.UseMockFrames,
-		useScreenshot:  cfg.UseScreenshot,
-		screenshotTool: screenshotTool,
-		captureWidth:   cfg.CaptureWidth,
-		captureHeight:  cfg.CaptureHeight,
+		conn:              conn,
+		fps:               cfg.FPS,
+		ctx:               ctx,
+		cancel:            cancel,
+		useMockFrames:     cfg.UseMockFrames,
+		useNativeCapture:  cfg.UseNativeCapture,
+		useScreenshot:     cfg.UseScreenshot,
+		screenshotTool:    screenshotTool,
+		captureWidth:      cfg.CaptureWidth,
+		captureHeight:     cfg.CaptureHeight,
 	}, nil
 }
 
@@ -284,6 +288,12 @@ func (sc *ScreenCapture) captureScreenshot() (*image.RGBA, error) {
 
 // Stop stops the capture session
 func (sc *ScreenCapture) Stop() {
+	// Stop native capture if active
+	if sc.nativeCapture != nil {
+		sc.nativeCapture.Stop()
+		sc.nativeCapture = nil
+	}
+	
 	// Stop gstreamer pipeline
 	if sc.gstCmd != nil && sc.gstCmd.Process != nil {
 		sc.gstCmd.Process.Kill()
@@ -297,8 +307,66 @@ func (sc *ScreenCapture) Stop() {
 	}
 }
 
-// startPipewireCapture starts capturing frames from Pipewire using gstreamer
+// startPipewireCapture starts capturing frames from Pipewire
 func (sc *ScreenCapture) startPipewireCapture() error {
+	// Use native CGo capture if enabled (default)
+	if sc.useNativeCapture {
+		return sc.startNativePipewireCapture()
+	}
+	
+	// Fall back to GStreamer-based capture
+	return sc.startGStreamerCapture()
+}
+
+// startNativePipewireCapture starts native CGo-based PipeWire capture
+func (sc *ScreenCapture) startNativePipewireCapture() error {
+	// Create native capture
+	nativeCapture, err := NewNativePipeWireCapture(sc.streamNode)
+	if err != nil {
+		return fmt.Errorf("failed to create native capture: %w", err)
+	}
+	
+	sc.nativeCapture = nativeCapture
+	
+	// Start capture (runs in background)
+	if err := sc.nativeCapture.Start(); err != nil {
+		return fmt.Errorf("failed to start native capture: %w", err)
+	}
+	
+	// Start frame polling goroutine
+	go sc.nativeFrameReaderLoop()
+	
+	fmt.Printf("✅ Native PipeWire capture started (CGo + libpipewire)\n")
+	return nil
+}
+
+// nativeFrameReaderLoop polls frames from native capture
+func (sc *ScreenCapture) nativeFrameReaderLoop() {
+	ticker := time.NewTicker(sc.GetFrameInterval())
+	defer ticker.Stop()
+	
+	for {
+		select {
+		case <-sc.ctx.Done():
+			return
+		case <-ticker.C:
+			// Get frame from native capture
+			frame, err := sc.nativeCapture.GetFrame()
+			if err != nil {
+				// No frame available yet, skip
+				continue
+			}
+			
+			// Update frame buffer
+			sc.frameMutex.Lock()
+			sc.frameBuffer = frame
+			sc.frameMutex.Unlock()
+		}
+	}
+}
+
+// startGStreamerCapture starts capturing frames from Pipewire using gstreamer (fallback)
+func (sc *ScreenCapture) startGStreamerCapture() error {
 	// Use gstreamer to capture frames from Pipewire node
 	// Simplified pipeline: pipewiresrc -> videoconvert -> jpegenc -> filesink
 	// We capture snapshots at the target FPS rate
@@ -323,7 +391,7 @@ func (sc *ScreenCapture) startPipewireCapture() error {
 	// Start goroutine to read frames
 	go sc.frameReaderLoop()
 
-	fmt.Printf("✅ Real Pipewire capture started (gstreamer pipeline)\n")
+	fmt.Printf("✅ GStreamer Pipewire capture started (fallback)\n")
 	return nil
 }
 
