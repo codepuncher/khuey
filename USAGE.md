@@ -38,6 +38,43 @@ Click the Hue icon to open the control panel:
 - **Brightness Slider**: Adjust brightness (0-100%)
 - **Start Screen Sync**: Enable real-time color sync
 
+### 4. Configure Settings (NEW!)
+
+Right-click the tray icon and select **"⚙️ Settings..."** to access the Settings Dialog.
+
+The Settings Dialog provides a GUI to configure:
+
+#### Screen Sync Settings
+- **FPS**: Frame rate for screen sync (10-60 FPS, default: 30)
+  - Higher = smoother, but more CPU usage
+  - Recommended: 20-30 for balanced performance
+- **Subsample Width**: Processing quality (16-256 pixels, default: 64)
+  - Lower = better performance, less color precision
+  - Higher = more accurate colors, more CPU usage
+- **Monitor**: Select which monitor to sync (default: primary)
+
+**Note:** Screen Sync must be restarted for changes to take effect.
+
+#### Light Control Settings
+- **Room/Zone Selection**: Choose which room or zone to control with power and brightness buttons
+- **Refresh**: Reload available rooms/zones from the bridge
+- Shows format: "Room Name (room)" or "Zone Name (zone)"
+
+#### Connection Settings
+- **Bridge IP**: View your current bridge IP address
+- **Status**: Connection status (✓ Connected / ✗ Disconnected)
+- **Test Connection**: Verify bridge is reachable
+- **Reconnect**: Attempt to reconnect to the bridge
+
+**Tip:** To change bridge IP or API key, edit `~/.openhue/config.yaml` manually.
+
+#### Dialog Controls
+- **OK**: Save settings and close dialog
+- **Apply**: Save settings without closing
+- **Cancel**: Discard changes and close
+
+All settings are automatically saved to `~/.openhue/config.yaml` when you click Apply or OK.
+
 ## Screen Sync Feature
 
 ### How It Works

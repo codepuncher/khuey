@@ -651,7 +651,7 @@ journalctl --user -u hue-backend --since "30 seconds ago" | grep -i frame
 ❌ **"StartSync hangs forever"**
 - Reality: It's waiting for dialog approval
 
-❌ **"PipeWire capture broken"**  
+❌ **"PipeWire capture broken"**
 - Reality: PipeWire works, just waiting for permission
 
 ❌ **"No frames captured"**
