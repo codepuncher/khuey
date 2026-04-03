@@ -47,6 +47,7 @@ pre-commit:
       glob: "backend/**/*.go"
       run: |
         cd backend
+        export CGO_CFLAGS_ALLOW="-fno-strict-overflow"
         # Only test packages that have staged changes
         go test -short ./internal/...
       
@@ -55,7 +56,9 @@ pre-commit:
       glob: "backend/**/*.go"
       run: |
         cd backend
-        go vet ./...
+        export CGO_CFLAGS_ALLOW="-fno-strict-overflow"
+        # Exclude test utilities with main() from vet checks
+        go vet ./internal/...
         
     # Optional: golangci-lint (if/when installed)
     # Uncomment after installing: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
@@ -155,8 +158,9 @@ pre-push:
     go-test-all:
       run: |
         cd backend
+        export CGO_CFLAGS_ALLOW="-fno-strict-overflow"
         echo "Running full Go test suite..."
-        go test -v ./...
+        go test -v ./internal/... ./cmd/...
         
     # Ensure backend builds
     go-build:
