@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"image/draw"
 	"image/jpeg"
 	_ "image/png" // Register PNG decoder
 	"os"
@@ -72,7 +73,7 @@ func NewScreenCapture(cfg Config) (*ScreenCapture, error) {
 	if cfg.UseScreenshot && screenshotTool == "" {
 		screenshotTool = detectScreenshotTool()
 		if screenshotTool == "" {
-			cancel()
+			cancel() // Clean up context on error
 			return nil, fmt.Errorf("no screenshot tool available (need spectacle, grim, or import)")
 		}
 	}
@@ -124,11 +125,21 @@ func (sc *ScreenCapture) Start() error {
 	}
 
 	// Recreate context if it was cancelled (e.g., after Stop())
+	var contextCreated bool
 	if sc.ctx.Err() != nil {
 		ctx, cancel := context.WithCancel(context.Background())
 		sc.ctx = ctx
 		sc.cancel = cancel
+		contextCreated = true
 	}
+
+	// Cleanup context on error if we created it
+	var success bool
+	defer func() {
+		if !success && contextCreated && sc.cancel != nil {
+			sc.cancel()
+		}
+	}()
 
 	// Step 1: Create session
 	sessionHandle, err := sc.createSession()
@@ -158,6 +169,7 @@ func (sc *ScreenCapture) Start() error {
 		}
 	}
 
+	success = true
 	return nil
 }
 
@@ -287,16 +299,13 @@ func (sc *ScreenCapture) captureScreenshot() (*image.RGBA, error) {
 		return nil, fmt.Errorf("failed to decode screenshot: %w", err)
 	}
 
-	// Convert to RGBA
+	// Convert to RGBA using image/draw for better performance
 	rgba, ok := img.(*image.RGBA)
 	if !ok {
 		bounds := img.Bounds()
 		rgba = image.NewRGBA(bounds)
-		for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
-			for x := bounds.Min.X; x < bounds.Max.X; x++ {
-				rgba.Set(x, y, img.At(x, y))
-			}
-		}
+		// Use draw.Draw for efficient pixel copying instead of nested loops
+		draw.Draw(rgba, bounds, img, bounds.Min, draw.Src)
 	}
 
 	return rgba, nil
@@ -436,16 +445,13 @@ func (sc *ScreenCapture) frameReaderLoop() {
 			// Try to read the frame
 			if data, err := os.ReadFile(framePath); err == nil {
 				if frame, err := jpeg.Decode(bytes.NewReader(data)); err == nil {
-					// Convert to RGBA if needed
+					// Convert to RGBA using image/draw for better performance
 					rgba, ok := frame.(*image.RGBA)
 					if !ok {
 						bounds := frame.Bounds()
 						rgba = image.NewRGBA(bounds)
-						for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
-							for x := bounds.Min.X; x < bounds.Max.X; x++ {
-								rgba.Set(x, y, frame.At(x, y))
-							}
-						}
+						// Use draw.Draw for efficient pixel copying instead of nested loops
+						draw.Draw(rgba, bounds, frame, bounds.Min, draw.Src)
 					}
 
 					// Update frame buffer

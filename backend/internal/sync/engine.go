@@ -280,8 +280,8 @@ func (e *Engine) syncLoop(ctx context.Context) {
 	ticker := time.NewTicker(time.Second / time.Duration(e.fps))
 	defer ticker.Stop()
 
-	// Create extractor with subsample width 64px and gamma 2.2
-	extractor, err := color.NewExtractor(64, 2.2)
+	// Create extractor with configured subsample width and gamma 2.2
+	extractor, err := color.NewExtractor(e.config.Sync.SubsampleWidth, 2.2)
 	if err != nil {
 		log.Printf("❌ Failed to create extractor: %v", err)
 		return
@@ -352,10 +352,12 @@ func (e *Engine) activateEntertainmentArea() error {
 	body := []byte(`{"action":"start"}`)
 
 	// Create HTTP client with TLS skip (Hue bridge uses self-signed cert)
+	// SECURITY NOTE: See detailed security analysis in internal/hue/client.go
+	// This is an accepted risk for local IoT devices on trusted networks
 	client := &http.Client{
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: true,
+				InsecureSkipVerify: true, // Required for Hue bridge self-signed certs
 			},
 		},
 		Timeout: 5 * time.Second,

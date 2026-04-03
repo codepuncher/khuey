@@ -3,6 +3,7 @@ package dbus
 import (
 	"fmt"
 	"log"
+	"os"
 	"sync"
 
 	"github.com/codepuncher/khuey/internal/capture"
@@ -26,6 +27,7 @@ type Service struct {
 	hueClient  *hue.Client
 	syncEngine *syncengine.Engine
 	mu         sync.RWMutex // Protects config access from concurrent DBus calls
+	ownerUID   uint32       // UID of the service owner for access control
 }
 
 // NewService creates a new DBus service
@@ -54,11 +56,19 @@ func NewService(cfg *config.Config, client *hue.Client) (*Service, error) {
 		config:     cfg,
 		hueClient:  client,
 		syncEngine: engine,
+		ownerUID:   uint32(os.Getuid()), // Store owner UID for access control
 	}, nil
 }
 
 // Start begins the DBus service
 func (s *Service) Start() error {
+	var success bool
+	defer func() {
+		if !success && s.conn != nil {
+			s.conn.Close()
+		}
+	}()
+
 	// Request the bus name
 	reply, err := s.conn.RequestName(dbusName, dbus.NameFlagDoNotQueue)
 	if err != nil {
@@ -91,6 +101,7 @@ func (s *Service) Start() error {
 	}
 
 	log.Printf("DBus service started: %s at %s", dbusName, dbusPath)
+	success = true
 	return nil
 }
 
@@ -101,6 +112,34 @@ func (s *Service) Stop() {
 		s.conn.ReleaseName(dbusName)
 		s.conn.Close()
 	}
+}
+
+// getCallerUID retrieves the UID of the DBus caller for access control
+func (s *Service) getCallerUID(sender dbus.Sender) (uint32, error) {
+	obj := s.conn.Object("org.freedesktop.DBus", "/org/freedesktop/DBus")
+	var uid uint32
+	err := obj.Call("org.freedesktop.DBus.GetConnectionUnixUser", 0, sender).Store(&uid)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get caller UID: %w", err)
+	}
+	return uid, nil
+}
+
+// checkAccess verifies that the caller is the service owner
+// This prevents other users or processes from controlling your lights
+func (s *Service) checkAccess(sender dbus.Sender) error {
+	callerUID, err := s.getCallerUID(sender)
+	if err != nil {
+		log.Printf("⚠️  Failed to get caller UID: %v", err)
+		return fmt.Errorf("access denied: unable to verify caller identity")
+	}
+
+	if callerUID != s.ownerUID {
+		log.Printf("🚫 Access denied: caller UID %d != owner UID %d", callerUID, s.ownerUID)
+		return fmt.Errorf("access denied: only the service owner can perform this operation")
+	}
+
+	return nil
 }
 
 // Introspection methods
@@ -244,7 +283,13 @@ func (s *Service) GetStatus() (string, *dbus.Error) {
 }
 
 // SetPower turns lights on or off
-func (s *Service) SetPower(on bool) (bool, *dbus.Error) {
+func (s *Service) SetPower(on bool, sender dbus.Sender) (bool, *dbus.Error) {
+	// Access control: only service owner can control lights
+	if err := s.checkAccess(sender); err != nil {
+		log.Printf("🚫 SetPower access denied")
+		return false, dbus.MakeFailedError(err)
+	}
+
 	if s.hueClient == nil {
 		return false, dbus.MakeFailedError(fmt.Errorf("hue client not initialized"))
 	}
@@ -268,7 +313,13 @@ func (s *Service) SetPower(on bool) (bool, *dbus.Error) {
 }
 
 // SetBrightness sets the brightness (0-100)
-func (s *Service) SetBrightness(brightness int32) (bool, *dbus.Error) {
+func (s *Service) SetBrightness(brightness int32, sender dbus.Sender) (bool, *dbus.Error) {
+	// Access control: only service owner can control lights
+	if err := s.checkAccess(sender); err != nil {
+		log.Printf("🚫 SetBrightness access denied")
+		return false, dbus.MakeFailedError(err)
+	}
+
 	if s.hueClient == nil {
 		return false, dbus.MakeFailedError(fmt.Errorf("hue client not initialized"))
 	}
@@ -296,7 +347,13 @@ func (s *Service) SetBrightness(brightness int32) (bool, *dbus.Error) {
 }
 
 // ActivateScene activates a scene by name (with optional room prefix)
-func (s *Service) ActivateScene(displayName string) (string, *dbus.Error) {
+func (s *Service) ActivateScene(displayName string, sender dbus.Sender) (string, *dbus.Error) {
+	// Access control: only service owner can control lights
+	if err := s.checkAccess(sender); err != nil {
+		log.Printf("🚫 ActivateScene access denied")
+		return "", dbus.MakeFailedError(err)
+	}
+
 	if s.hueClient == nil {
 		return "", dbus.MakeFailedError(fmt.Errorf("hue client not initialized"))
 	}
@@ -383,7 +440,13 @@ func (s *Service) GetGroupedLights() ([]struct{ ID, Name, Type string }, *dbus.E
 }
 
 // StartSync starts screen synchronization
-func (s *Service) StartSync() (bool, *dbus.Error) {
+func (s *Service) StartSync(sender dbus.Sender) (bool, *dbus.Error) {
+	// Access control: only service owner can start sync
+	if err := s.checkAccess(sender); err != nil {
+		log.Printf("🚫 StartSync access denied")
+		return false, dbus.MakeFailedError(err)
+	}
+
 	if s.syncEngine == nil {
 		return false, dbus.MakeFailedError(fmt.Errorf("sync engine not available - check Entertainment API configuration"))
 	}
@@ -406,7 +469,13 @@ func (s *Service) StartSync() (bool, *dbus.Error) {
 }
 
 // StopSync stops screen synchronization
-func (s *Service) StopSync() (bool, *dbus.Error) {
+func (s *Service) StopSync(sender dbus.Sender) (bool, *dbus.Error) {
+	// Access control: only service owner can stop sync
+	if err := s.checkAccess(sender); err != nil {
+		log.Printf("🚫 StopSync access denied")
+		return false, dbus.MakeFailedError(err)
+	}
+
 	if s.syncEngine == nil {
 		return false, dbus.MakeFailedError(fmt.Errorf("sync engine not available"))
 	}
@@ -455,7 +524,13 @@ func (s *Service) GetState() (bool, int32, bool, *dbus.Error) {
 }
 
 // SetGroupedLight sets the grouped light ID in the config
-func (s *Service) SetGroupedLight(groupedLightID string) (bool, *dbus.Error) {
+func (s *Service) SetGroupedLight(groupedLightID string, sender dbus.Sender) (bool, *dbus.Error) {
+	// Access control: only service owner can modify settings
+	if err := s.checkAccess(sender); err != nil {
+		log.Printf("🚫 SetGroupedLight access denied")
+		return false, dbus.MakeFailedError(err)
+	}
+
 	if groupedLightID == "" {
 		return false, dbus.MakeFailedError(fmt.Errorf("grouped light ID cannot be empty"))
 	}
@@ -537,7 +612,13 @@ func (s *Service) GetSyncSettings() (map[string]interface{}, *dbus.Error) {
 
 // SetSyncSettings updates Screen Sync configuration
 // Note: Changes require restarting sync for them to take effect
-func (s *Service) SetSyncSettings(fps int32, subsampleWidth int32, monitor string) (bool, *dbus.Error) {
+func (s *Service) SetSyncSettings(fps int32, subsampleWidth int32, monitor string, sender dbus.Sender) (bool, *dbus.Error) {
+	// Access control: only service owner can modify settings
+	if err := s.checkAccess(sender); err != nil {
+		log.Printf("🚫 SetSyncSettings access denied")
+		return false, dbus.MakeFailedError(err)
+	}
+
 	// Validate FPS
 	if fps < 10 || fps > 60 {
 		return false, dbus.MakeFailedError(fmt.Errorf("FPS must be between 10 and 60 (got %d)", fps))
@@ -620,7 +701,13 @@ func (s *Service) GetSelectedRoom() (string, *dbus.Error) {
 }
 
 // SetSelectedRoom updates the room/zone selection
-func (s *Service) SetSelectedRoom(roomID string) (bool, *dbus.Error) {
+func (s *Service) SetSelectedRoom(roomID string, sender dbus.Sender) (bool, *dbus.Error) {
+	// Access control: only service owner can modify settings
+	if err := s.checkAccess(sender); err != nil {
+		log.Printf("🚫 SetSelectedRoom access denied")
+		return false, dbus.MakeFailedError(err)
+	}
+
 	if roomID == "" {
 		return false, dbus.MakeFailedError(fmt.Errorf("room ID cannot be empty"))
 	}

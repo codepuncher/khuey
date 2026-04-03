@@ -61,13 +61,26 @@ func NewClient(ctx context.Context, bridgeAddr, apiKey string) (*Client, error) 
 	}
 
 	// Create HTTP client that accepts self-signed certificates
-	// WARNING: InsecureSkipVerify disables TLS certificate verification.
-	// This is necessary because Philips Hue bridges use self-signed certificates,
-	// but it makes the connection vulnerable to man-in-the-middle attacks on the
-	// local network. This is generally acceptable for local IoT devices but not
-	// for internet-facing services.
-	// TODO: Consider implementing certificate pinning by storing and verifying
-	// the bridge's certificate fingerprint during initial setup for better security.
+	//
+	// SECURITY NOTE: InsecureSkipVerify is required for Philips Hue bridges which use
+	// self-signed certificates. This disables TLS certificate verification, making the
+	// connection vulnerable to man-in-the-middle attacks.
+	//
+	// MITIGATION: This is generally acceptable for local IoT devices on trusted networks
+	// because:
+	// 1. Hue bridges only communicate on local network (192.168.x.x)
+	// 2. Attack requires physical network access
+	// 3. Bridge API keys are user-specific and rate-limited
+	//
+	// FUTURE ENHANCEMENT: Consider implementing certificate pinning by storing the bridge's
+	// certificate fingerprint during initial setup and verifying it on subsequent connections.
+	// This would detect certificate changes that could indicate MITM attacks.
+	//
+	// Implementation approach for certificate pinning:
+	// 1. Add BridgeCertFingerprint field to config.Config
+	// 2. On first connection, compute SHA256 of bridge cert and save to config
+	// 3. On subsequent connections, verify cert fingerprint matches saved value
+	// 4. Prompt user if certificate changes (could indicate MITM or bridge replacement)
 	httpClient := &http.Client{
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{

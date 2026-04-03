@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sync"
@@ -123,6 +124,16 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
 
+	// Check file permissions - warn if too permissive (contains sensitive API keys)
+	if info, err := os.Stat(configFile); err == nil {
+		// Check if file is world-readable (0044) or group-readable (0044)
+		if info.Mode().Perm()&0044 != 0 {
+			log.Printf("⚠️  WARNING: Config file has insecure permissions: %o (should be 0600)", info.Mode().Perm())
+			log.Printf("   File contains sensitive API keys and should only be readable by owner")
+			log.Printf("   Fix with: chmod 600 %s", configFile)
+		}
+	}
+
 	// Unmarshal into our struct
 	if err := viper.Unmarshal(cfg); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
@@ -154,9 +165,17 @@ func (c *Config) Save() error {
 		return fmt.Errorf("API key is required")
 	}
 
+	configFile := getConfigFile()
+
 	// Write to file
 	if err := viper.WriteConfig(); err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)
+	}
+
+	// Secure the config file - set permissions to 0600 (owner read/write only)
+	// This is critical as the file contains sensitive API keys
+	if err := os.Chmod(configFile, 0600); err != nil {
+		return fmt.Errorf("failed to secure config file permissions: %w", err)
 	}
 
 	return nil
