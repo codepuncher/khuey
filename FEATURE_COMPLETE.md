@@ -46,7 +46,7 @@ All tests passed on real Hue hardware:
 
 ```
 f15b65c - Add changelog for power/brightness feature
-6a83e44 - Enable power and brightness controls in tray app  
+6a83e44 - Enable power and brightness controls in tray app
 7ed2c3c - Add grouped light configuration support
 ```
 

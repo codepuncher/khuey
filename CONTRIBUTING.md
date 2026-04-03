@@ -24,7 +24,7 @@ Thank you for your interest in contributing to KHuey! This guide will help you s
    # Install Go dependencies
    cd backend
    go mod download
-   
+
    # Qt6 and KDE Frameworks should already be installed on KDE Plasma 6
    ```
 
@@ -38,7 +38,7 @@ Thank you for your interest in contributing to KHuey! This guide will help you s
    ```bash
    # Install lefthook
    go install github.com/evilmartians/lefthook/v2@latest
-   
+
    # Install hooks into your local repository
    lefthook install
    ```
@@ -135,13 +135,13 @@ All changes must use feature branches and pull requests. Never commit directly t
    # Run backend tests
    cd backend
    go test ./...
-   
+
    # Run specific package tests
    go test ./internal/config -v
-   
+
    # Build backend
    go build -o hue-sync ./cmd/hue-sync
-   
+
    # Build tray app
    cd ../trayapp
    cmake . && make
@@ -151,11 +151,11 @@ All changes must use feature branches and pull requests. Never commit directly t
    ```bash
    git add .
    git commit -m "Add feature X to improve Y
-   
+
    - Implemented Z
    - Updated documentation
    - Added tests
-   
+
    Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
    ```
 

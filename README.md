@@ -52,7 +52,7 @@ cp ../systemd/hue-tray.desktop ~/.config/autostart/
 - **Auto-start**: Backend and tray app start automatically on login
 - **System Tray Integration**: Native KDE StatusNotifierItem integration
 
-### 🚧 In Development  
+### 🚧 In Development
 - **Screen Sync**: Synchronized lighting with screen colors (Entertainment API)
 - **Power/Brightness Controls**: Toggle and dim lights (needs grouped light config)
 - **Multi-zone Mapping**: Different screen areas control different lights
@@ -135,20 +135,20 @@ lefthook install
 
 **Progress: 10/15 components complete (67%)**
 
-✅ Project structure  
-✅ Configuration system  
-✅ Hue API client  
-✅ DBus service  
+✅ Project structure
+✅ Configuration system
+✅ Hue API client
+✅ DBus service
 ✅ Qt tray application (KStatusNotifierItem)
 ✅ Scene control with room names
 ✅ Alphabetical sorting
 ✅ Desktop notifications
 ✅ Auto-start integration (systemd + KDE)
 ✅ Installation scripts
-⏳ Power/brightness controls (needs room configuration)  
+⏳ Power/brightness controls (needs room configuration)
 ⏳ Screen capture (Wayland/Pipewire)
-⏳ Entertainment API streaming  
-⏳ Settings dialog  
+⏳ Entertainment API streaming
+⏳ Settings dialog
 
 ## Architecture
 

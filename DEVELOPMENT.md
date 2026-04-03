@@ -168,7 +168,7 @@ func (s *Service) MyNewMethod(param string) (bool, *dbus.Error) {
 
 3. Call from tray app (C++/Qt):
 ```cpp
-QDBusInterface iface("org.kde.plasma.hue", 
+QDBusInterface iface("org.kde.plasma.hue",
                      "/org/kde/plasma/hue",
                      "org.kde.plasma.hue",
                      QDBusConnection::sessionBus());

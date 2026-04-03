@@ -76,7 +76,7 @@ If you have a Philips Hue bridge, you can test basic functionality:
    ```bash
    # If you have openhue-cli installed:
    openhue setup
-   
+
    # Or manually:
    # 1. Find bridge IP on your network
    # 2. Press link button on bridge

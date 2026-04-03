@@ -163,8 +163,8 @@ go run ./cmd/test-zones-visual
 
 ### DBus Interface
 
-Service: `org.kde.plasma.hue`  
-Path: `/org/kde/plasma/hue`  
+Service: `org.kde.plasma.hue`
+Path: `/org/kde/plasma/hue`
 Interface: `org.kde.plasma.hue`
 
 Key Methods:
@@ -224,7 +224,7 @@ Screen zones use UV coordinates (0.0-1.0) for monitor-agnostic mapping. Each cha
 The tray app calls backend methods asynchronously and handles responses:
 
 ```cpp
-QDBusInterface iface("org.kde.plasma.hue", 
+QDBusInterface iface("org.kde.plasma.hue",
                      "/org/kde/plasma/hue",
                      "org.kde.plasma.hue",
                      QDBusConnection::sessionBus());

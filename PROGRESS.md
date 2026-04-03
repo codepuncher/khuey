@@ -6,7 +6,7 @@
 
 1. **Project Infrastructure** ✓
    - Go backend structure
-   - KDE Plasma widget structure  
+   - KDE Plasma widget structure
    - CMake build system
    - Git repository with clean commits
 
@@ -70,10 +70,10 @@
 
 ## What Works RIGHT NOW
 
-✅ **Scene Control** - You can activate any Hue scene from the widget  
-✅ **Bridge Connectivity** - Shows connection status  
-✅ **Real-time Updates** - Status updates every 5 seconds  
-✅ **System Tray Integration** - Native KDE experience  
+✅ **Scene Control** - You can activate any Hue scene from the widget
+✅ **Bridge Connectivity** - Shows connection status
+✅ **Real-time Updates** - Status updates every 5 seconds
+✅ **System Tray Integration** - Native KDE experience
 
 ## Installation Status
 
@@ -109,7 +109,7 @@ This will:
 
 The core widget is functional. Screen sync requires:
 - Wayland screen capture (Pipewire integration)
-- Image processing and zone extraction  
+- Image processing and zone extraction
 - Entertainment API DTLS streaming
 - Zone mapping UI
 
@@ -130,7 +130,7 @@ These are advanced features that can be added later.
 
 1. Initial implementation (project structure, config, UI)
 2. Hue client and testing utilities
-3. DBus service and tray app integration  
+3. DBus service and tray app integration
 4. Documentation and installation script
 5. Integration testing
 
