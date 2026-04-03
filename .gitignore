@@ -50,3 +50,12 @@ config.yaml
 # Temp files
 *.tmp
 .*.tmp
+
+# Lefthook
+lefthook-local.yml    # Local developer overrides
+
+# Additional build artifacts
+coverage.out
+*.prof
+compile_commands.json
+.cache/

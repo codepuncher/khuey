@@ -1,8 +1,8 @@
 # Autopilot Session Report
 
-**Duration:** 30 minutes  
-**Start Time:** ~14:50 UTC  
-**End Time:** ~15:20 UTC  
+**Duration:** 30 minutes
+**Start Time:** ~14:50 UTC
+**End Time:** ~15:20 UTC
 **Branch:** feature/power-brightness-controls
 
 ## Mission: Complete Power & Brightness Controls
@@ -74,7 +74,7 @@ f15b65c - Add changelog for power/brightness feature
 After merge:
 1. Start screen sync implementation (4 remaining todos)
 2. Wayland/Pipewire screen capture
-3. Zone-based color analysis  
+3. Zone-based color analysis
 4. Entertainment API streaming
 
 ### 💡 Notes for User

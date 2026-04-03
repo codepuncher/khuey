@@ -9,11 +9,11 @@ import (
 // TestNewExtractor tests the Extractor constructor
 func TestNewExtractor(t *testing.T) {
 	tests := []struct {
-		name            string
-		subsampleWidth  int
-		gamma           float64
-		expectError     bool
-		errorContains   string
+		name           string
+		subsampleWidth int
+		gamma          float64
+		expectError    bool
+		errorContains  string
 	}{
 		{
 			name:           "Valid parameters",
@@ -387,10 +387,10 @@ func TestCalculateMeanColor(t *testing.T) {
 // TestApplyGamma tests gamma correction
 func TestApplyGamma(t *testing.T) {
 	tests := []struct {
-		name     string
-		gamma    float64
-		input    uint8
-		expected uint8
+		name      string
+		gamma     float64
+		input     uint8
+		expected  uint8
 		tolerance uint8
 	}{
 		{

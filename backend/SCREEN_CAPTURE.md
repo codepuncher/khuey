@@ -47,10 +47,10 @@ import "C"
 
 func (sc *ScreenCapture) connectPipewire() error {
     C.pw_init(nil, nil)
-    
+
     // Create main loop
     loop := C.pw_main_loop_new(nil)
-    
+
     // Create pw_stream connected to sc.streamNode
     stream := C.pw_stream_new_simple(
         C.pw_main_loop_get_loop(loop),
@@ -58,10 +58,10 @@ func (sc *ScreenCapture) connectPipewire() error {
         props,
         &callbacks,
     )
-    
+
     // Connect to node
     C.pw_stream_connect(stream, ...)
-    
+
     return nil
 }
 
@@ -107,7 +107,7 @@ func (sc *ScreenCapture) CaptureFrame() (*image.RGBA, error) {
 }
 ```
 
-**Pros:** No CGo, works immediately  
+**Pros:** No CGo, works immediately
 **Cons:** 30 FPS = 30 screenshots/sec (inefficient)
 
 ### Option D: FFmpeg Pipewire Recording
@@ -120,7 +120,7 @@ ffmpeg -f pipewire -i <node-id> -f rawvideo -pix_fmt rgba -
 
 Read raw RGBA frames from stdout.
 
-**Pros:** No CGo  
+**Pros:** No CGo
 **Cons:** FFmpeg overhead, buffer management
 
 ## Recommended Path Forward

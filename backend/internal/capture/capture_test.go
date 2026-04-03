@@ -93,7 +93,7 @@ func TestGetFrameInterval(t *testing.T) {
 			if diff < 0 {
 				diff = -diff
 			}
-			
+
 			// Tolerance: 1 nanosecond
 			if diff > time.Nanosecond {
 				t.Errorf("Expected interval %v, got %v (diff: %v)", tt.expected, interval, diff)
@@ -105,7 +105,7 @@ func TestGetFrameInterval(t *testing.T) {
 // TestScreenshotToolDetection tests screenshot tool detection logic
 func TestScreenshotToolDetection(t *testing.T) {
 	tools := []string{"spectacle", "grim", "import"}
-	
+
 	tests := []struct {
 		name           string
 		availableTools []string
@@ -147,7 +147,7 @@ func TestScreenshotToolDetection(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Simulate tool detection logic (priority: spectacle > grim > import)
 			var detected string
-			
+
 			for _, tool := range tools {
 				for _, available := range tt.availableTools {
 					if tool == available {

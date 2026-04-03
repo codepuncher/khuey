@@ -54,7 +54,7 @@ Click the Hue icon to open the control panel:
 
 The screen sync currently uses a **mock gradient** for testing:
 - **Left zone** → BLUE
-- **Center zone** → GRAY  
+- **Center zone** → GRAY
 - **Right zone** → RED
 
 This perfectly demonstrates the Entertainment API pipeline. Real desktop screen capture is documented in `backend/SCREEN_CAPTURE.md`.

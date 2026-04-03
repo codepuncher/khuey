@@ -1,0 +1,17 @@
+---
+# Clang-Format configuration for KHuey Qt/C++ tray app
+BasedOnStyle: LLVM
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ColumnLimit: 100
+
+# Qt-specific settings
+BreakBeforeBraces: Attach
+IndentCaseLabels: true
+PointerAlignment: Left
+SpaceAfterCStyleCast: false
+
+# Modern C++ (C++17/20)
+Standard: c++17
+FixNamespaceComments: true

@@ -50,7 +50,7 @@ func TestNewClient(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			client, err := NewClient(tt.ctx, tt.bridgeAddr, tt.apiKey)
-			
+
 			if tt.wantErr {
 				if err == nil {
 					t.Errorf("NewClient() expected error but got nil")
@@ -173,7 +173,7 @@ func TestGroupedLightValidation(t *testing.T) {
 func TestGetClientKey(t *testing.T) {
 	ctx := context.Background()
 	apiKey := "test-api-key-12345"
-	
+
 	client, err := NewClient(ctx, "192.168.1.100", apiKey)
 	if err != nil {
 		t.Fatalf("Failed to create client: %v", err)

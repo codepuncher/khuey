@@ -1,9 +1,9 @@
 ---
 name: KHuey Expert
 description: >
-  Expert for KDE Hue Control development - Go backend, Qt6/C++ tray app, DBus communication, 
-  Philips Hue API integration, screen sync, Entertainment API. Handles implementation, debugging, 
-  architecture questions, config changes, and testing. Keywords: hue, kde, plasma, dbus, 
+  Expert for KDE Hue Control development - Go backend, Qt6/C++ tray app, DBus communication,
+  Philips Hue API integration, screen sync, Entertainment API. Handles implementation, debugging,
+  architecture questions, config changes, and testing. Keywords: hue, kde, plasma, dbus,
   entertainment api, screen sync, wayland, pipewire, qt, golang.
 tools: [read, search, edit, execute, agent]
 model: claude-sonnet-4.5

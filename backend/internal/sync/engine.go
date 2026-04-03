@@ -22,13 +22,13 @@ type Engine struct {
 	config   *config.Config
 	capturer *capture.ScreenCapture
 	client   *entertainment.Client
-	
-	mu       sync.RWMutex
-	running  bool
-	cancel   context.CancelFunc
-	
-	fps      int
-	zones    []color.Zone
+
+	mu      sync.RWMutex
+	running bool
+	cancel  context.CancelFunc
+
+	fps   int
+	zones []color.Zone
 }
 
 // NewEngine creates a new sync engine
@@ -225,7 +225,7 @@ func (e *Engine) syncLoop(ctx context.Context) {
 				if i < len(e.config.Channels) {
 					channelID = int(e.config.Channels[i].ID)
 				}
-				
+
 				// Convert 8-bit RGB to 16-bit (0-255 → 0-65535)
 				channelColors[i] = entertainment.ChannelColor{
 					ChannelID: channelID,
@@ -245,7 +245,7 @@ func (e *Engine) syncLoop(ctx context.Context) {
 			e.mu.RLock()
 			currentFPS := e.fps
 			e.mu.RUnlock()
-			
+
 			newInterval := time.Second / time.Duration(currentFPS)
 			if ticker.C != nil {
 				ticker.Reset(newInterval)

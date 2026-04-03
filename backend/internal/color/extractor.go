@@ -28,7 +28,7 @@ type ZoneColor struct {
 
 // Extractor handles color extraction from images
 type Extractor struct {
-	subsampleWidth int     // Target width for subsampling (32-128px)
+	subsampleWidth  int     // Target width for subsampling (32-128px)
 	gammaCorrection float64 // Gamma correction value (typically 2.2)
 }
 
@@ -37,7 +37,7 @@ func NewExtractor(subsampleWidth int, gamma float64) (*Extractor, error) {
 	if subsampleWidth < 16 || subsampleWidth > 256 {
 		return nil, fmt.Errorf("subsample width must be between 16 and 256, got %d", subsampleWidth)
 	}
-	
+
 	if gamma <= 0 {
 		return nil, fmt.Errorf("gamma must be positive, got %f", gamma)
 	}
@@ -59,7 +59,7 @@ func (e *Extractor) ExtractColors(img image.Image, zones []Zone) ([]ZoneColor, e
 
 	// Step 2: Extract colors from each zone
 	colors := make([]ZoneColor, 0, len(zones))
-	
+
 	for _, zone := range zones {
 		color, err := e.extractZoneColor(subsampled, zone)
 		if err != nil {
@@ -75,7 +75,7 @@ func (e *Extractor) ExtractColors(img image.Image, zones []Zone) ([]ZoneColor, e
 func (e *Extractor) subsampleImage(img image.Image) image.Image {
 	bounds := img.Bounds()
 	origWidth := bounds.Dx()
-	
+
 	// If image is already smaller, don't upscale
 	if origWidth <= e.subsampleWidth {
 		return img
@@ -154,12 +154,12 @@ func (e *Extractor) calculateMeanColor(img image.Image) (uint8, uint8, uint8) {
 func (e *Extractor) applyGamma(value uint8) uint8 {
 	// Normalize to 0-1
 	normalized := float64(value) / 255.0
-	
+
 	// Apply gamma correction
 	// For display->light: use 1/gamma
 	// We're going from display to light, so use 1/gamma
 	corrected := math.Pow(normalized, 1.0/e.gammaCorrection)
-	
+
 	// Convert back to 0-255
 	return uint8(corrected * 255.0)
 }

@@ -15,12 +15,13 @@ import (
 
 func main() {
 	fmt.Println("Visual Zone Test")
-	fmt.Println("================\n")
+	fmt.Println("================")
+	fmt.Println()
 
 	// Get test frame
 	cap, _ := capture.NewScreenCapture(capture.Config{FPS: 30, Monitor: -1})
 	defer cap.Stop()
-	
+
 	frame, _ := cap.CaptureFrame()
 	fmt.Printf("📸 Frame: %dx%d\n", frame.Bounds().Dx(), frame.Bounds().Dy())
 
@@ -59,7 +60,7 @@ func main() {
 		fmt.Printf("  Zone %d: RGB(%3d, %3d, %3d) #%02X%02X%02X\n",
 			c.ZoneID, c.R, c.G, c.B, c.R, c.G, c.B)
 	}
-	
+
 	fmt.Println("\nOpen the image with:")
 	fmt.Println("  xdg-open /tmp/zone-visualization.png")
 }
@@ -67,14 +68,14 @@ func main() {
 func visualizeZones(frame image.Image, zones []hucolor.Zone, colors []hucolor.ZoneColor) image.Image {
 	bounds := frame.Bounds()
 	viz := image.NewRGBA(bounds)
-	
+
 	// Draw original frame
 	draw.Draw(viz, bounds, frame, bounds.Min, draw.Src)
 
 	// Draw zone boundaries and labels
 	for i, zone := range zones {
 		c := colors[i]
-		
+
 		// Calculate pixel coordinates
 		x1 := int(zone.U1 * float64(bounds.Dx()))
 		y1 := int(zone.V1 * float64(bounds.Dy()))

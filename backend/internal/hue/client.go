@@ -125,7 +125,7 @@ func (c *Client) GetGroupedLightState(groupID string) (power bool, brightness fl
 	}
 
 	data := (*resp.JSON200.Data)[0]
-	
+
 	power = false
 	if data.On != nil && data.On.On != nil {
 		power = *data.On.On

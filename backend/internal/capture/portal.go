@@ -19,7 +19,7 @@ func (sc *ScreenCapture) createSession() (string, error) {
 
 	// Generate unique session token
 	sessionToken := fmt.Sprintf("khuey_session_%d", rand.Intn(999999))
-	
+
 	// Prepare options for CreateSession
 	options := map[string]dbus.Variant{
 		"session_handle_token": dbus.MakeVariant(sessionToken),
@@ -103,7 +103,7 @@ func (sc *ScreenCapture) startStream(sessionHandle string) (uint32, error) {
 	if !ok {
 		return 0, fmt.Errorf("streams field not found or wrong type")
 	}
-	
+
 	if len(streamsOuter) == 0 {
 		return 0, fmt.Errorf("no streams in response")
 	}

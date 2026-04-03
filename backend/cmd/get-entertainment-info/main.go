@@ -1,10 +1,9 @@
 package main
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
 	"log"
-	"os"
 
 	"github.com/codepuncher/khuey/internal/config"
 	"github.com/codepuncher/khuey/internal/hue"
@@ -12,7 +11,8 @@ import (
 
 func main() {
 	fmt.Println("Entertainment Area Information Tool")
-	fmt.Println("====================================\n")
+	fmt.Println("====================================")
+	fmt.Println()
 
 	// Load config
 	cfg, err := config.Load()
@@ -24,7 +24,7 @@ func main() {
 	fmt.Printf("Username: %s\n\n", cfg.Key)
 
 	// Create Hue client
-	client, err := hue.NewClient(cfg.Bridge, cfg.Key)
+	client, err := hue.NewClient(context.Background(), cfg.Bridge, cfg.Key)
 	if err != nil {
 		log.Fatalf("Failed to create client: %v\n", err)
 	}

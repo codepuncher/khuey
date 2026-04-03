@@ -13,19 +13,19 @@ import (
 
 // Client handles streaming to Hue Entertainment API
 type Client struct {
-	bridgeIP         string
-	username         string
-	clientKey        string
-	entertainmentID  string
-	
-	conn             net.Conn
-	sequenceID       uint8
-	channelCount     int
-	
-	mu               sync.Mutex
-	ctx              context.Context
-	cancel           context.CancelFunc
-	connected        bool
+	bridgeIP        string
+	username        string
+	clientKey       string
+	entertainmentID string
+
+	conn         net.Conn
+	sequenceID   uint8
+	channelCount int
+
+	mu        sync.Mutex
+	ctx       context.Context
+	cancel    context.CancelFunc
+	connected bool
 }
 
 // Config holds Entertainment API configuration
@@ -101,8 +101,8 @@ func (c *Client) Connect() error {
 			// Return decoded PSK bytes
 			return pskBytes, nil
 		},
-		PSKIdentityHint: []byte(c.username), // Username as identity
-		CipherSuites:    []dtls.CipherSuiteID{dtls.TLS_PSK_WITH_AES_128_GCM_SHA256},
+		PSKIdentityHint:      []byte(c.username), // Username as identity
+		CipherSuites:         []dtls.CipherSuiteID{dtls.TLS_PSK_WITH_AES_128_GCM_SHA256},
 		ExtendedMasterSecret: dtls.RequireExtendedMasterSecret,
 	}
 
@@ -179,7 +179,7 @@ func (c *Client) buildPacket(colors []ChannelColor) []byte {
 	packet[13] = 0x00 // Reserved
 	packet[14] = 0x00 // Color space: RGB
 	packet[15] = 0x00 // Reserved
-	
+
 	// Entertainment Configuration ID (bytes 16-51): UUID WITH hyphens (36 bytes)
 	// Huenicorn includes the hyphens - the UUID is exactly 36 characters
 	copy(packet[16:52], c.entertainmentID)

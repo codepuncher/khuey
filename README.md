@@ -52,7 +52,7 @@ cp ../systemd/hue-tray.desktop ~/.config/autostart/
 - **Auto-start**: Backend and tray app start automatically on login
 - **System Tray Integration**: Native KDE StatusNotifierItem integration
 
-### 🚧 In Development  
+### 🚧 In Development
 - **Screen Sync**: Synchronized lighting with screen colors (Entertainment API)
 - **Power/Brightness Controls**: Toggle and dim lights (needs grouped light config)
 - **Multi-zone Mapping**: Different screen areas control different lights
@@ -112,24 +112,43 @@ systemctl --user restart hue-tray
 ### Scenes work but power/brightness doesn't
 Power and brightness controls are disabled. They need grouped light configuration - coming in a future update!
 
+## Contributing
+
+We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for:
+- Development environment setup
+- Git hooks with Lefthook
+- Coding standards and conventions
+- Testing procedures
+- Pull request workflow
+
+### Quick Start for Contributors
+
+```bash
+# Install Lefthook for Git hooks
+go install github.com/evilmartians/lefthook/v2@latest
+lefthook install
+
+# This sets up automatic code formatting, testing, and validation
+```
+
 ## Development Status
 
 **Progress: 10/15 components complete (67%)**
 
-✅ Project structure  
-✅ Configuration system  
-✅ Hue API client  
-✅ DBus service  
+✅ Project structure
+✅ Configuration system
+✅ Hue API client
+✅ DBus service
 ✅ Qt tray application (KStatusNotifierItem)
 ✅ Scene control with room names
 ✅ Alphabetical sorting
 ✅ Desktop notifications
 ✅ Auto-start integration (systemd + KDE)
 ✅ Installation scripts
-⏳ Power/brightness controls (needs room configuration)  
+⏳ Power/brightness controls (needs room configuration)
 ⏳ Screen capture (Wayland/Pipewire)
-⏳ Entertainment API streaming  
-⏳ Settings dialog  
+⏳ Entertainment API streaming
+⏳ Settings dialog
 
 ## Architecture
 

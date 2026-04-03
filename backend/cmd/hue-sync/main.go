@@ -50,7 +50,7 @@ func main() {
 			log.Println("Continuing without Hue control...")
 		} else {
 			log.Println("Hue client initialized")
-			
+
 			// Test connection
 			if err := hueClient.Ping(); err != nil {
 				log.Printf("WARNING: Bridge unreachable: %v", err)
@@ -88,12 +88,12 @@ func main() {
 
 	log.Println()
 	log.Println("Shutting down...")
-	
+
 	// Cancel context to stop all ongoing operations
 	cancel()
-	
+
 	// Stop DBus service
 	dbusService.Stop()
-	
+
 	fmt.Println("Goodbye!")
 }

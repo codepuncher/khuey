@@ -34,7 +34,7 @@ This document summarizes the comprehensive unit test coverage added to the backe
   - Valid parameter ranges
   - Boundary conditions
   - Error cases for invalid inputs
-  
+
 - `TestExtractColors_NilImage` - Nil image handling
 - `TestExtractColors_EmptyZones` - Empty zone list
 - `TestExtractColors_FullScreen` - Full screen color extraction
@@ -43,21 +43,21 @@ This document summarizes the comprehensive unit test coverage added to the backe
   - Out of bounds zones
   - Inverted coordinates
   - Very small zones
-  
+
 - `TestSubsampleImage` - Image downsampling (3 cases)
   - Large image downsampling
   - Small image (no change)
   - Aspect ratio preservation
-  
+
 - `TestCalculateMeanColor` - Color averaging (3 cases)
   - Solid colors
   - Two-tone averaging
-  
+
 - `TestApplyGamma` - Gamma correction (4 cases)
   - No correction (gamma=1.0)
   - Standard gamma (2.2)
   - Edge cases (black, white)
-  
+
 - `TestMinMax` - Utility functions
 
 **Key achievements:**
@@ -76,19 +76,19 @@ This document summarizes the comprehensive unit test coverage added to the backe
   - All required field validation
   - Error message verification
   - Edge cases (negative, zero, large values)
-  
+
 - `TestBuildPacket` - HueStream v2 protocol (5 cases)
   - Header format verification
   - Version bytes (0x0200)
   - Entertainment ID embedding
   - Color channel encoding
   - Big-endian byte order
-  
+
 - `TestBuildPacket_SequenceIncrement` - Sequence ID behavior
   - Initial value (0)
   - Incrementing
   - Overflow handling (255)
-  
+
 - `TestIsConnected` - Connection state tracking
 - `TestConvert8BitTo16Bit` - Bit conversion (5 cases)
 - `TestConvert8BitTo16Bit_Roundtrip` - Conversion reversibility
@@ -108,7 +108,7 @@ This document summarizes the comprehensive unit test coverage added to the backe
 
 **Tests enhanced:**
 - Existing: `TestNewClient`, `TestSceneFormatting`, `TestGroupedLightValidation`
-  
+
 **Tests added:**
 - `TestGetClientKey` - API key getter
 - `TestSceneSorting` - Alphabetical scene sorting
@@ -129,7 +129,7 @@ This document summarizes the comprehensive unit test coverage added to the backe
   - With room names
   - Without room names
   - Partial match rejection
-  
+
 - `TestBrightnessRounding` - Brightness rounding logic (6 cases)
 - `TestGetStatusLogic` - Status message generation (4 cases)
 - `TestConfigValidation` - Configuration validation (4 cases)
@@ -152,12 +152,12 @@ This document summarizes the comprehensive unit test coverage added to the backe
   - 1 channel: Full screen
   - 2 channels: Left/right split (50/50)
   - 3 channels: Left/center/right (33/33/33)
-  
+
 - `TestZoneMapping_ManyChannels` - Even division (3 cases)
   - 4, 5, 10 channels
   - Gap verification
   - Full screen coverage
-  
+
 - `TestSetFPS_Validation` - FPS range 1-60 (6 cases)
 - `TestColor8BitTo16BitConversion` - Bit conversion (5 cases)
 - `TestEngineInitialState` - Initial state verification
@@ -178,10 +178,10 @@ This document summarizes the comprehensive unit test coverage added to the backe
 - `TestGetFrameInterval` - Frame timing calculation (4 cases)
   - 10, 30, 60, 1 FPS
   - Nanosecond precision
-  
+
 - `TestScreenshotToolDetection` - Tool priority (6 cases)
   - spectacle > grim > import
-  
+
 - `TestConfigDefaults` - Default configuration values
 - `TestMockFrameMode` - Capture mode selection (3 cases)
 - `TestCaptureResolution` - Resolution validation (4 cases)

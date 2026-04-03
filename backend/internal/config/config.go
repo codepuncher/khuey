@@ -19,28 +19,28 @@ type Config struct {
 	GroupedLightID string `mapstructure:"grouped_light_id"`
 
 	// Entertainment API specific
-	ClientKey                    string                 `mapstructure:"clientkey"`
-	EntertainmentConfigurationID string                 `mapstructure:"entertainmentConfigurationId"`
-	Channels                     []ChannelConfig        `mapstructure:"channels"`
-	
+	ClientKey                    string          `mapstructure:"clientkey"`
+	EntertainmentConfigurationID string          `mapstructure:"entertainmentConfigurationId"`
+	Channels                     []ChannelConfig `mapstructure:"channels"`
+
 	// Screen sync settings
 	Sync SyncConfig `mapstructure:"sync"`
-	
+
 	// Logging
 	LogLevel string `mapstructure:"log_level"`
-	
+
 	// Mutex to protect concurrent writes to config file
 	mu sync.Mutex
 }
 
 // ChannelConfig represents a single light channel in the Entertainment Area
 type ChannelConfig struct {
-	ID           uint8   `mapstructure:"id"`
-	Active       bool    `mapstructure:"active"`
-	DeviceName   string  `mapstructure:"deviceName"`
-	GammaFactor  float32 `mapstructure:"gammaFactor"`
-	UVA          UV      `mapstructure:"uvA"` // Top-left corner
-	UVB          UV      `mapstructure:"uvB"` // Bottom-right corner
+	ID          uint8   `mapstructure:"id"`
+	Active      bool    `mapstructure:"active"`
+	DeviceName  string  `mapstructure:"deviceName"`
+	GammaFactor float32 `mapstructure:"gammaFactor"`
+	UVA         UV      `mapstructure:"uvA"` // Top-left corner
+	UVB         UV      `mapstructure:"uvB"` // Bottom-right corner
 }
 
 // UV represents a 2D coordinate in the 0.0-1.0 range
@@ -135,7 +135,7 @@ func Load() (*Config, error) {
 func (c *Config) Save() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	
+
 	configFile := getConfigFile()
 
 	// Set all values in viper
@@ -171,7 +171,7 @@ func (c *Config) IsConfigured() bool {
 
 // HasEntertainmentConfig returns true if Entertainment API is configured
 func (c *Config) HasEntertainmentConfig() bool {
-	return c.IsConfigured() && 
-	       c.ClientKey != "" && 
-	       c.EntertainmentConfigurationID != ""
+	return c.IsConfigured() &&
+		c.ClientKey != "" &&
+		c.EntertainmentConfigurationID != ""
 }
