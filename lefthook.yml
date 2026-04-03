@@ -102,7 +102,7 @@ pre-commit:
         # Check if shellcheck is installed
         if ! command -v shellcheck > /dev/null 2>&1; then
           echo "⚠️  shellcheck not installed (optional)"
-          echo "   Install with: sudo apt install shellcheck"
+          echo "   Install with: sudo pacman -S shellcheck"
           exit 0  # Don't fail if not installed
         fi
         shellcheck --severity=warning {staged_files}
