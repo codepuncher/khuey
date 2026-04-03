@@ -9,7 +9,11 @@ find_package(Qt6 REQUIRED COMPONENTS Core Widgets DBus)
 find_package(KF6StatusNotifierItem REQUIRED)
 find_package(KF6Notifications REQUIRED)
 
-add_executable(hue-tray main.cpp)
+add_executable(hue-tray 
+    main.cpp
+    settingsdialog.cpp
+    settingsdialog.h
+)
 
 target_link_libraries(hue-tray
     Qt6::Core

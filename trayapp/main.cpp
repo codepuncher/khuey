@@ -4,6 +4,7 @@
 #include <QDBusInterface>
 #include <QDBusReply>
 #include <QDBusArgument>
+#include <QDBusMessage>
 #include <QDBusPendingCall>
 #include <QDBusPendingReply>
 #include <QMessageBox>
@@ -24,6 +25,7 @@
 #include <QProcess>
 #include <KStatusNotifierItem>
 #include <KNotification>
+#include "settingsdialog.h"
 
 class HueControlDialog : public QDialog {
     Q_OBJECT
@@ -338,17 +340,28 @@ private slots:
                            "org.kde.plasma.hue", QDBusConnection::sessionBus());
         
         // Get available grouped lights
-        QDBusReply<QDBusArgument> reply = iface.call("GetGroupedLights");
-        if (!reply.isValid()) {
-            QMessageBox::warning(this, "Error", "Failed to get grouped lights: " + reply.error().message());
+        QDBusMessage reply = iface.call("GetGroupedLights");
+        if (reply.type() == QDBusMessage::ErrorMessage) {
+            QMessageBox::warning(this, "Error", "Failed to get grouped lights: " + reply.errorMessage());
             return;
         }
         
-        // Parse the array of structs
+        if (reply.arguments().isEmpty()) {
+            QMessageBox::warning(this, "Error", "No data received from backend");
+            return;
+        }
+        
+        // Parse the array of structs - MUST use const QDBusArgument!
         QStringList items;
         QMap<QString, QString> idMap; // Display name -> ID
         
-        QDBusArgument arg = reply.value();
+        QVariant var = reply.arguments().at(0);
+        if (!var.canConvert<QDBusArgument>()) {
+            QMessageBox::warning(this, "Error", "Invalid data format from backend");
+            return;
+        }
+        
+        const QDBusArgument arg = var.value<QDBusArgument>();
         arg.beginArray();
         while (!arg.atEnd()) {
             arg.beginStructure();
@@ -519,6 +532,11 @@ public:
         auto showAction = menu->addAction("Show Control Panel");
         connect(showAction, &QAction::triggered, this, &HueTrayApp::showControlDialog);
         
+        menu->addSeparator();
+        
+        auto settingsAction = menu->addAction("⚙️ Settings...");
+        connect(settingsAction, &QAction::triggered, this, &HueTrayApp::showSettingsDialog);
+        
         sni->setContextMenu(menu);
         sni->setStandardActionsEnabled(true); // KStatusNotifierItem adds Quit automatically
         
@@ -538,6 +556,20 @@ private slots:
             controlDialog->raise();
             controlDialog->activateWindow();
             controlDialog->refresh();
+        }
+    }
+
+    void showSettingsDialog() {
+        qDebug() << "Opening settings dialog...";
+        try {
+            SettingsDialog *dialog = new SettingsDialog();
+            qDebug() << "Dialog created, showing...";
+            dialog->exec();
+            qDebug() << "Dialog closed";
+            delete dialog;
+        } catch (...) {
+            qDebug() << "Exception creating dialog!";
+            QMessageBox::critical(nullptr, "Error", "Failed to create settings dialog");
         }
     }
 

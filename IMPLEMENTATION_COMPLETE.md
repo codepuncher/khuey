@@ -28,18 +28,18 @@
   - Added `nativeFrameReaderLoop()` for frame polling
   - Updated `Stop()` method for native cleanup
   - Maintained backward compatibility with GStreamer/screenshot modes
-  
+
 - Modified `backend/internal/sync/engine.go`:
   - Enabled native capture by default
   - Removed downsampling (native is fast enough for full res)
-  
+
 - Modified `backend/cmd/test-capture/main.go`:
   - Enabled native capture in test utility
   - Added startup delay for PipeWire connection
   - Enhanced output to show frame dimensions
 
 ### Phase 4: Testing & Validation ✅
-- **All unit tests pass**: 
+- **All unit tests pass**:
   - ✅ internal/capture
   - ✅ internal/sync
   - ✅ internal/config
@@ -54,7 +54,7 @@
   - ✅ All CGo compilation successful
   - ✅ Created Makefile for easy builds
 
-- **API compatibility**: 
+- **API compatibility**:
   - ✅ No breaking changes
   - ✅ Falls back to GStreamer if native disabled
   - ✅ Falls back to screenshot if both disabled

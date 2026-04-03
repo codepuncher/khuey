@@ -190,6 +190,46 @@ func (s *Service) introspectionMethods() []introspect.Method {
 				{Name: "success", Type: "b", Direction: "out"},
 			},
 		},
+		{
+			Name: "GetSyncSettings",
+			Args: []introspect.Arg{
+				{Name: "settings", Type: "a{sv}", Direction: "out"}, // Map of string to variant
+			},
+		},
+		{
+			Name: "SetSyncSettings",
+			Args: []introspect.Arg{
+				{Name: "fps", Type: "i", Direction: "in"},
+				{Name: "subsampleWidth", Type: "i", Direction: "in"},
+				{Name: "monitor", Type: "s", Direction: "in"},
+				{Name: "success", Type: "b", Direction: "out"},
+			},
+		},
+		{
+			Name: "GetBridgeSettings",
+			Args: []introspect.Arg{
+				{Name: "settings", Type: "a{sv}", Direction: "out"}, // Map of string to variant
+			},
+		},
+		{
+			Name: "TestBridgeConnection",
+			Args: []introspect.Arg{
+				{Name: "success", Type: "b", Direction: "out"},
+			},
+		},
+		{
+			Name: "GetSelectedRoom",
+			Args: []introspect.Arg{
+				{Name: "roomID", Type: "s", Direction: "out"},
+			},
+		},
+		{
+			Name: "SetSelectedRoom",
+			Args: []introspect.Arg{
+				{Name: "roomID", Type: "s", Direction: "in"},
+				{Name: "success", Type: "b", Direction: "out"},
+			},
+		},
 	}
 }
 
@@ -480,4 +520,121 @@ func (s *Service) RetryConnection() (bool, *dbus.Error) {
 	}
 
 	return false, dbus.MakeFailedError(fmt.Errorf("bridge still unreachable"))
+}
+
+// GetSyncSettings returns current Screen Sync configuration
+func (s *Service) GetSyncSettings() (map[string]interface{}, *dbus.Error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return map[string]interface{}{
+		"fps":            s.config.Sync.FPS,
+		"subsampleWidth": s.config.Sync.SubsampleWidth,
+		"monitor":        s.config.Sync.Monitor,
+		"enabled":        s.config.Sync.Enabled,
+	}, nil
+}
+
+// SetSyncSettings updates Screen Sync configuration
+// Note: Changes require restarting sync for them to take effect
+func (s *Service) SetSyncSettings(fps int32, subsampleWidth int32, monitor string) (bool, *dbus.Error) {
+	// Validate FPS
+	if fps < 10 || fps > 60 {
+		return false, dbus.MakeFailedError(fmt.Errorf("FPS must be between 10 and 60 (got %d)", fps))
+	}
+
+	// Validate subsample width
+	if subsampleWidth < 16 || subsampleWidth > 256 {
+		return false, dbus.MakeFailedError(fmt.Errorf("subsample width must be between 16 and 256 (got %d)", subsampleWidth))
+	}
+
+	s.mu.Lock()
+	s.config.Sync.FPS = int(fps)
+	s.config.Sync.SubsampleWidth = int(subsampleWidth)
+	s.config.Sync.Monitor = monitor
+	err := s.config.Save()
+	s.mu.Unlock()
+
+	if err != nil {
+		log.Printf("❌ Failed to save sync settings: %v", err)
+		return false, dbus.MakeFailedError(err)
+	}
+
+	log.Printf("✅ Sync settings updated: FPS=%d, SubsampleWidth=%d, Monitor=%s", fps, subsampleWidth, monitor)
+	return true, nil
+}
+
+// GetBridgeSettings returns bridge connection information
+func (s *Service) GetBridgeSettings() (map[string]interface{}, *dbus.Error) {
+	s.mu.RLock()
+	bridgeIP := s.config.Bridge
+	s.mu.RUnlock()
+
+	var connected bool
+	var lastError string
+
+	if s.hueClient != nil {
+		status := s.hueClient.GetConnectionStatus()
+		connected = status.Connected
+		lastError = status.LastError
+	} else {
+		connected = false
+		lastError = "Hue client not initialized"
+	}
+
+	return map[string]interface{}{
+		"bridgeIP":  bridgeIP,
+		"connected": connected,
+		"lastError": lastError,
+	}, nil
+}
+
+// TestBridgeConnection tests connectivity to the bridge
+func (s *Service) TestBridgeConnection() (bool, *dbus.Error) {
+	if s.hueClient == nil {
+		return false, dbus.MakeFailedError(fmt.Errorf("hue client not initialized"))
+	}
+
+	log.Println("🔍 Testing bridge connection...")
+
+	reachable, err := s.hueClient.IsReachable()
+	if err != nil {
+		log.Printf("❌ Bridge test failed: %v", err)
+		return false, dbus.MakeFailedError(err)
+	}
+
+	if reachable {
+		log.Println("✅ Bridge is reachable")
+		return true, nil
+	}
+
+	return false, dbus.MakeFailedError(fmt.Errorf("bridge is not reachable"))
+}
+
+// GetSelectedRoom returns the currently selected room/zone for light control
+func (s *Service) GetSelectedRoom() (string, *dbus.Error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.config.GroupedLightID, nil
+}
+
+// SetSelectedRoom updates the room/zone selection
+func (s *Service) SetSelectedRoom(roomID string) (bool, *dbus.Error) {
+	if roomID == "" {
+		return false, dbus.MakeFailedError(fmt.Errorf("room ID cannot be empty"))
+	}
+
+	s.mu.Lock()
+	s.config.GroupedLightID = roomID
+	err := s.config.Save()
+	s.mu.Unlock()
+
+	if err != nil {
+		log.Printf("❌ Failed to save room selection: %v", err)
+		return false, dbus.MakeFailedError(err)
+	}
+
+	log.Printf("✅ Selected room set to: %s", roomID)
+	return true, nil
 }

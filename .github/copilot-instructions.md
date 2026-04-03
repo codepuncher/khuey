@@ -468,7 +468,7 @@ When testing or debugging Screen Sync:
 
 **Symptoms of Waiting for Dialog:**
 - `StartSync` DBus call times out or takes very long
-- Backend logs show "Screen capture started" but no frame activity  
+- Backend logs show "Screen capture started" but no frame activity
 - Process CPU usage is low (not actively syncing)
 - No errors in logs, just no progress
 

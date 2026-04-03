@@ -136,8 +136,6 @@ func (c *Config) Save() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	configFile := getConfigFile()
-
 	// Set all values in viper
 	viper.Set("Bridge", c.Bridge)
 	viper.Set("Key", c.Key)
@@ -157,7 +155,7 @@ func (c *Config) Save() error {
 	}
 
 	// Write to file
-	if err := viper.WriteConfigAs(configFile); err != nil {
+	if err := viper.WriteConfig(); err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)
 	}
 

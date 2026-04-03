@@ -96,7 +96,7 @@ If Screen Sync "doesn't work":
 ❌ **"Screen Sync hangs when I call StartSync"**
 ✅ It's waiting for you to approve the GUI dialog
 
-❌ **"The backend doesn't receive frames"**  
+❌ **"The backend doesn't receive frames"**
 ✅ Frames won't arrive until dialog is approved
 
 ❌ **"It worked before but now it doesn't"**
