@@ -448,3 +448,33 @@ cd backend
 go run ./cmd/get-entertainment-info  # Check Entertainment setup
 go run ./cmd/register-entertainment  # Register new Entertainment area
 ```
+
+## Screen Sync Feature - Critical Testing Notes
+
+**IMPORTANT: Screen Permission Dialog**
+
+When testing or debugging Screen Sync:
+
+1. **GUI Permission Dialog Appears:** The first time Screen Sync starts, the XDG Desktop Portal shows a GUI dialog asking which screen to share
+2. **CLI Testing Limitation:** When testing via terminal/CLI commands, you CANNOT see this GUI dialog, making it appear that the feature is "hanging" or not working
+3. **User Must Approve:** The user must click the dialog, select a screen, and approve sharing before frames will be captured
+4. **This is Expected Behavior:** This is normal Wayland/XDG Portal security - NOT a bug
+
+**When Testing:**
+- Always inform the user that a permission dialog will appear
+- If testing via DBus commands and sync appears to hang, it's waiting for the GUI dialog
+- The backend will log "Screen capture started: session=..." but won't receive frames until dialog is approved
+- Once approved, frames arrive and sync works perfectly at 30 FPS
+
+**Symptoms of Waiting for Dialog:**
+- `StartSync` DBus call times out or takes very long
+- Backend logs show "Screen capture started" but no frame activity  
+- Process CPU usage is low (not actively syncing)
+- No errors in logs, just no progress
+
+**After Dialog Approved:**
+- Native PipeWire capture starts
+- Logs show "✅ Screen sync started at 30 FPS"
+- Frames captured at 30 FPS
+- Lights sync to screen colors in real-time
+

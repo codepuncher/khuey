@@ -545,3 +545,164 @@ go run ./cmd/register-entertainment  # Register new Entertainment area
 # Technical Reference
 
 ## Architecture Overview
+
+## 🚨 CRITICAL: Screen Sync GUI Permission Dialog
+
+**This is the #1 source of confusion when testing Screen Sync. READ THIS CAREFULLY.**
+
+### The Reality
+
+Screen Sync works perfectly, but requires user interaction that is **INVISIBLE when testing via CLI**.
+
+### What Happens When Starting Screen Sync
+
+1. User clicks "Start Screen Sync" (or calls `StartSync` via DBus)
+2. Backend activates Entertainment Area ✅
+3. Backend initializes PipeWire capture ✅
+4. **XDG Desktop Portal shows GUI DIALOG** asking:
+   - "Which screen do you want to share?"
+   - User must select monitor and click "Share"
+5. User approves → PipeWire starts capturing frames ✅
+6. Lights sync to screen at 30 FPS ✅
+
+### The Problem When Testing via CLI
+
+**When you run DBus commands from terminal:**
+- The GUI dialog IS showing (on screen, visible to user)
+- You (CLI agent) CANNOT see it
+- Backend is waiting for user approval
+- It appears the feature is "broken" or "hanging"
+
+**THIS IS NOT A BUG - IT'S NORMAL WAYLAND BEHAVIOR**
+
+### Symptoms of Waiting for Dialog
+
+If you see these, the dialog is waiting for approval:
+
+```
+# Logs show:
+✅ Entertainment Area activated
+Screen capture started: session=/org/freedesktop/portal/.../session_123, node=94
+[Native] PipeWire capture started
+✅ Native PipeWire capture started (CGo + libpipewire)
+✅ Screen sync started at 30 FPS
+⚠️  Capture error: no frame available yet  <-- Dialog not approved yet
+⚠️  Capture error: no frame available yet
+```
+
+- `StartSync` DBus call times out or takes very long
+- Backend logs show "Screen capture started" but no frames
+- CPU usage low (not actively processing)
+- `IsSyncing` returns true but no visual activity
+
+### After Dialog is Approved (SUCCESS!)
+
+```
+# Logs show:
+✅ Screen sync started at 30 FPS
+[PipeWire] Stream state changed: CONNECTING -> STREAMING
+[PipeWire] Video format: 2560x1440, format=BGRx
+📸 Frames being captured
+(no more "no frame available" errors)
+```
+
+- CPU usage increases (processing 30 FPS)
+- Lights change colors based on screen
+- No timeout or hanging
+
+### How to Test Properly
+
+**RECOMMENDED: Use tray app**
+```bash
+systemctl --user start hue-backend
+cd ~/Code/misc/khuey/trayapp && ./hue-tray &
+
+# User clicks tray icon → "Start Screen Sync"
+# User sees dialog → approves
+# Feature works immediately
+```
+
+**If testing via DBus:**
+```bash
+# Tell the user FIRST:
+echo "A GUI dialog will appear asking to share screen - approve it!"
+
+# Start sync
+dbus-send --session --dest=org.kde.plasma.hue \
+  /org/kde/plasma/hue org.kde.plasma.hue.StartSync
+
+# WAIT - user is clicking the dialog you can't see
+sleep 10
+
+# Check if working
+dbus-send --session --print-reply --dest=org.kde.plasma.hue \
+  /org/kde/plasma/hue org.kde.plasma.hue.IsSyncing
+# Returns: boolean true
+
+# Check logs for frame activity
+journalctl --user -u hue-backend --since "30 seconds ago" | grep -i frame
+```
+
+### Common Mistakes
+
+❌ **"Screen Sync doesn't work"**
+- Reality: It works, you just didn't see/approve the dialog
+
+❌ **"StartSync hangs forever"**
+- Reality: It's waiting for dialog approval
+
+❌ **"PipeWire capture broken"**  
+- Reality: PipeWire works, just waiting for permission
+
+❌ **"No frames captured"**
+- Reality: Frames won't arrive until dialog approved
+
+### Always Tell the User
+
+When implementing or testing Screen Sync features:
+
+1. **Warn about the dialog**: "A permission dialog will appear"
+2. **Explain it's required**: "You must approve to share screen"
+3. **Set expectations**: "This is normal Wayland security"
+4. **Don't panic if it seems slow**: Dialog approval takes human time
+
+### Debug Checklist
+
+If Screen Sync "isn't working":
+
+1. ✅ Backend running? `systemctl --user status hue-backend`
+2. ✅ DBus working? `dbus-send ... GetStatus` returns "Ready"
+3. ✅ Entertainment configured? Check config.yaml
+4. ✅ **DID USER APPROVE DIALOG?** ← MOST IMPORTANT
+5. ✅ Check logs for "STREAMING" state
+6. ✅ Verify lights actually changing colors
+
+### Technical Details
+
+**Why dialog exists:**
+- Wayland requires explicit user consent for screen capture
+- XDG Desktop Portal mediates access
+- Same behavior as OBS, screen recorders, video calls
+- By design for security/privacy
+
+**Dialog frequency:**
+- First time: Always shows
+- Subsequent: Depends on "Remember choice" setting
+- May reappear after logout/reboot
+
+**Permission scope:**
+- Per-session (usually)
+- May be per-application
+- System settings control behavior
+
+### Bottom Line for Agents
+
+**When working with Screen Sync:**
+
+1. Always mention the permission dialog in instructions
+2. Don't diagnose it as "broken" if it's waiting for approval
+3. If testing via CLI, warn that dialog is invisible to you
+4. Success = lights change colors, not just DBus returns true
+5. Feature works perfectly - dialog is expected behavior
+
+**Screen Sync is production-ready. The dialog is a feature, not a bug.**
