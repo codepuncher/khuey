@@ -114,6 +114,22 @@ func (sc *ScreenCapture) Start() error {
 		return nil
 	}
 
+	// Recreate DBus connection if it was closed (e.g., after Stop())
+	if sc.conn == nil {
+		conn, err := dbus.ConnectSessionBus()
+		if err != nil {
+			return fmt.Errorf("failed to connect to session bus: %w", err)
+		}
+		sc.conn = conn
+	}
+
+	// Recreate context if it was cancelled (e.g., after Stop())
+	if sc.ctx.Err() != nil {
+		ctx, cancel := context.WithCancel(context.Background())
+		sc.ctx = ctx
+		sc.cancel = cancel
+	}
+
 	// Step 1: Create session
 	sessionHandle, err := sc.createSession()
 	if err != nil {
