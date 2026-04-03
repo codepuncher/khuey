@@ -135,6 +135,22 @@ pre-push:
   parallel: true
   
   commands:
+    # ===== Branch Protection =====
+    
+    # Prevent direct pushes to main branch
+    block-main-push:
+      run: |
+        BRANCH=$(git rev-parse --abbrev-ref HEAD)
+        if [ "$BRANCH" = "main" ]; then
+          echo ""
+          echo "❌ Direct pushes to main branch are not allowed!"
+          echo "   Use pull requests for all changes to main"
+          echo ""
+          exit 1
+        fi
+    
+    # ===== Full Test Suite =====
+    
     # Run full test suite before pushing
     go-test-all:
       run: |
