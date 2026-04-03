@@ -6,7 +6,7 @@
 
 1. **Project Structure**
    - Go backend with clean package organization
-   - KDE Plasma widget with QML UI
+   - Qt6/C++ tray application with KStatusNotifierItem
    - CMake build system
    - Testing utilities
 
@@ -26,11 +26,11 @@
    - Methods: GetStatus, SetPower, SetBrightness, ActivateScene, GetScenes
    - Sync controls (StartSync, StopSync, IsSyncing)
 
-5. **Plasmoid UI** (`plasmoid/contents/ui/`)
-   - Compact representation (system tray icon)
-   - Full representation (popup interface)
+5. **Tray Application UI** (`trayapp/`)
+   - System tray integration via KStatusNotifierItem
+   - Qt6/C++ implementation
    - DBus integration for real-time updates
-   - Scene selector with dynamic loading
+   - Scene control, power, brightness controls
 
 ### ⏳ TODO Components
 
@@ -51,7 +51,7 @@
    - RGB color streaming (16-bit channels)
    - Channel management
 
-4. **Settings Dialog** (`plasmoid/contents/ui/`)
+4. **Settings Dialog** (`trayapp/`)
    - Bridge configuration
    - Entertainment area selection
    - Zone mapping configuration
@@ -83,20 +83,22 @@ dbus-send --session --print-reply \
   org.kde.plasma.hue.GetScenes
 ```
 
-### Plasmoid Development
+### Tray Application Development
 
 ```bash
-# Install for testing
-kpackagetool6 --upgrade plasmoid --type Plasma/Applet
+cd trayapp
 
-# View QML errors
-journalctl -f | grep plasmashell
+# Build
+cmake . && make
 
-# Restart Plasma to reload
-kquitapp6 plasmashell && plasmashell &
+# Run for testing (backend must be running)
+./hue-tray
 
-# Check if installed
-kpackagetool6 --list | grep hue
+# Check for errors
+# Output will show in terminal
+
+# Restart after changes
+killall hue-tray && ./hue-tray &
 ```
 
 ### Integration Testing
@@ -106,21 +108,25 @@ kpackagetool6 --list | grep hue
 ./backend/hue-sync &
 BACKEND_PID=$!
 
-# 2. Test DBus
+# 2. Start tray app
+./trayapp/hue-tray &
+TRAY_PID=$!
+
+# 3. Test DBus
 dbus-send --session --print-reply \
   --dest=org.kde.plasma.hue \
   /org/kde/plasma/hue \
   org.kde.plasma.hue.GetStatus
 
-# 3. Test scene activation
+# 4. Test scene activation
 dbus-send --session --print-reply \
   --dest=org.kde.plasma.hue \
   /org/kde/plasma/hue \
   org.kde.plasma.hue.ActivateScene \
   string:"Relax"
 
-# 4. Stop backend
-kill $BACKEND_PID
+# 5. Stop both
+kill $BACKEND_PID $TRAY_PID
 ```
 
 ## Code Style
@@ -131,11 +137,11 @@ kill $BACKEND_PID
 - Document exported functions
 - Keep packages focused and cohesive
 
-### QML
-- Use Plasma Components where possible
-- Follow KDE HIG (Human Interface Guidelines)
-- Use property bindings over imperative code
-- Keep business logic in backend (DBus)
+### C++/Qt
+- Follow Qt naming conventions
+- Use Qt's memory management (parent-child ownership)
+- Leverage Qt signals/slots for communication
+- Keep UI logic separate from business logic
 
 ## Adding New Features
 
@@ -160,11 +166,16 @@ func (s *Service) MyNewMethod(param string) (bool, *dbus.Error) {
 }
 ```
 
-3. Call from QML:
-```qml
-dbusInterface.call("MyNewMethod", ["value"], function(result) {
-    console.log("Result:", result)
-})
+3. Call from tray app (C++/Qt):
+```cpp
+QDBusInterface iface("org.kde.plasma.hue", 
+                     "/org/kde/plasma/hue",
+                     "org.kde.plasma.hue",
+                     QDBusConnection::sessionBus());
+QDBusReply<bool> reply = iface.call("MyNewMethod", "value");
+if (reply.isValid()) {
+    bool result = reply.value();
+}
 ```
 
 ### Adding a Config Option
@@ -202,10 +213,10 @@ value := cfg.MyNewOption
 
 ### Why DBus for IPC?
 - Native to Linux desktop
-- Well-supported in Qt/QML
+- Well-supported in Qt/C++
 - Session bus for user services
 - Introspection support
-- Standard for Plasma widgets
+- Standard for KDE applications
 
 ### Why Wayland-only?
 - User's primary environment

@@ -9,49 +9,47 @@ You can test the backend components without having a full Hue setup:
 ```bash
 cd backend
 
-# Test configuration loading
-go run test/main.go -config
+# Run backend tests
+go test ./...
 
-# If you have a Hue bridge configured
-go run test/main.go -hue -bridge 192.168.1.100 -key YOUR_API_KEY
+# Run specific package tests
+go test ./internal/config -v
+go test ./internal/hue -v
+go test ./internal/dbus -v
+
+# Build backend
+go build -o hue-sync ./cmd/hue-sync
 ```
 
-### QML UI Components
+### Tray Application
 
-The plasmoid UI can be tested individually with `qmlscene`:
+To test the tray app:
 
 ```bash
-# Test individual QML files (will show errors about missing Plasmoid context - this is expected)
-qmlscene plasmoid/contents/ui/CompactRepresentation.qml
-qmlscene plasmoid/contents/ui/FullRepresentation.qml
+cd trayapp
+
+# Build tray app
+cmake . && make
+
+# Run tray app manually (backend must be running)
+./hue-tray
 ```
 
-## Installing the Plasmoid for Testing
+## Testing the Full Application
 
-To test the full widget in your Plasma desktop:
+To test with both backend and tray app:
 
 ```bash
-# Option 1: Build with CMake (recommended)
-mkdir build && cd build
-cmake ..
-sudo make install
-kquitapp6 plasmashell && plasmashell &
+# Terminal 1: Start backend
+cd backend
+./hue-sync
 
-# Option 2: Manual package installation
-kpackagetool6 --install plasmoid --type Plasma/Applet
-# Or to update:
-kpackagetool6 --upgrade plasmoid --type Plasma/Applet
-
-# To remove:
-kpackagetool6 --remove org.kde.plasma.hue --type Plasma/Applet
+# Terminal 2: Start tray app
+cd trayapp
+./hue-tray
 ```
 
-After installation:
-1. Right-click on your system tray
-2. Click "Configure System Tray..."
-3. Click "Add Widgets..."
-4. Search for "Hue Control"
-5. Add it to your system tray
+The tray icon should appear in your system tray and connect to the backend via DBus.
 
 ## Current Status
 
@@ -60,14 +58,15 @@ After installation:
 - ✅ Config compatibility with openhue-cli
 - ✅ Hue client initialization
 - ✅ Basic Hue API operations (scenes, power, brightness)
-- ✅ Plasmoid UI (visual only, no backend connection yet)
+- ✅ Tray app UI with system tray integration
+- ✅ DBus communication (tray app ↔ backend)
+- ✅ Scene control, power, and brightness controls
 
-**What's Missing (To Be Implemented):**
-- ⏳ DBus service (for plasmoid ↔ backend communication)
+**What's In Development:**
 - ⏳ Wayland screen capture
 - ⏳ DTLS Entertainment API streaming
 - ⏳ Screen color analysis and zone mapping
-- ⏳ Setup wizard for first-time configuration
+- ⏳ Settings dialog for configuration
 
 ## Testing with a Real Hue Bridge
 
@@ -111,18 +110,24 @@ vim backend/internal/hue/client.go
 
 # 2. Test it
 cd backend
-go run test/main.go -config
+go test ./internal/hue
 
-# 3. Build main binary
+# 3. Build and restart backend
 go build -o hue-sync ./cmd/hue-sync
-./hue-sync
+systemctl --user restart hue-backend
 
-# 4. For UI changes, reinstall plasmoid
-kpackagetool6 --upgrade plasmoid --type Plasma/Applet
-kquitapp6 plasmashell && plasmashell &
+# 4. For tray app changes, rebuild and restart
+cd trayapp
+cmake . && make
+killall hue-tray && ./hue-tray &
 ```
 
 ## Troubleshooting
+
+**"Backend not running"**
+- Check backend is running: `systemctl --user status hue-backend`
+- Check logs: `journalctl --user -u hue-backend -f`
+- Try manual start: `./backend/hue-sync`
 
 **"Bridge unreachable"**
 - Check your bridge IP is correct
@@ -133,9 +138,11 @@ kquitapp6 plasmashell && plasmashell &
 - Your API key is invalid or expired
 - Run setup again to create a new key
 
-**Plasmoid doesn't appear**
-- Check it's installed: `kpackagetool6 --list | grep hue`
-- Check for QML errors: `journalctl -f | grep plasmashell`
+**"Tray icon doesn't appear"**
+- Check tray app is running: `ps aux | grep hue-tray`
+- Try running manually: `./trayapp/hue-tray`
+- Check for Qt errors in terminal output
 
-**QML syntax errors**
-- Check individual files: `qmlscene plasmoid/contents/ui/main.qml`
+**DBus communication errors**
+- Verify backend is running and DBus service is registered
+- Test DBus: `dbus-send --session --print-reply --dest=org.kde.plasma.hue /org/kde/plasma/hue org.kde.plasma.hue.GetStatus`
