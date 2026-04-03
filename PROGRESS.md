@@ -28,12 +28,12 @@
    - Sync controls (StartSync, StopSync, IsSyncing)
    - **[TESTED & WORKING]**
 
-5. **Plasmoid UI** ✓
-   - Compact representation (system tray icon)
-   - Full representation (popup interface)
+5. **Tray Application UI** ✓
+   - System tray integration with KStatusNotifierItem
+   - Qt6/C++ implementation
    - Real-time DBus integration
    - Scene selector with dynamic loading
-   - **[QML VALIDATED]**
+   - **[TESTED & WORKING]**
 
 6. **Documentation** ✓
    - README with quick start
@@ -65,7 +65,7 @@
 2. **backend-screen-capture** - Wayland/Pipewire capture for sync
 3. **backend-zone-analysis** - Image processing for sync
 4. **backend-sync-engine** - Entertainment API streaming for sync
-5. **plasmoid-settings** - Settings dialog (can use config file for now)
+5. **tray-settings** - Settings dialog (can use config file for now)
 6. **Power/Brightness Control** - Needs room/grouped light configuration
 
 ## What Works RIGHT NOW
@@ -84,23 +84,21 @@
 ```
 
 This will:
-- Install the plasmoid
+- Build backend and tray app
 - Set up systemd service for auto-start
-- Restart Plasma to load the widget
+- Install tray app autostart
 
 ## Next Steps for User
 
-1. **Install the widget** (everything needed is complete)
+1. **Install the application** (everything needed is complete)
    ```bash
    cd /home/lee/Code/misc/khuey
    ./scripts/install.sh
    ```
 
-2. **Add to system tray**
-   - Right-click system tray
-   - "Configure System Tray..."
-   - "Add Widgets..."
-   - Search "Hue Control"
+2. **Check system tray**
+   - Tray icon should appear automatically
+   - Click to see scenes and controls
 
 3. **Use it!**
    - Click icon in system tray
@@ -132,14 +130,14 @@ These are advanced features that can be added later.
 
 1. Initial implementation (project structure, config, UI)
 2. Hue client and testing utilities
-3. DBus service and plasmoid integration  
+3. DBus service and tray app integration  
 4. Documentation and installation script
 5. Integration testing
 
 ## Files Created
 
 - Backend: 12 Go source files
-- Frontend: 4 QML files
+- Frontend: Qt6/C++ tray application
 - Scripts: 3 shell scripts
 - Docs: 4 markdown files
 - Tests: 2 test utilities
