@@ -5,6 +5,7 @@ import (
 	"log"
 	"sync"
 
+	"github.com/codepuncher/khuey/internal/capture"
 	"github.com/codepuncher/khuey/internal/config"
 	"github.com/codepuncher/khuey/internal/hue"
 	syncengine "github.com/codepuncher/khuey/internal/sync"
@@ -177,6 +178,18 @@ func (s *Service) introspectionMethods() []introspect.Method {
 				{Name: "success", Type: "b", Direction: "out"},
 			},
 		},
+		{
+			Name: "GetConnectionStatus",
+			Args: []introspect.Arg{
+				{Name: "status", Type: "a{sv}", Direction: "out"}, // Map of string to variant
+			},
+		},
+		{
+			Name: "RetryConnection",
+			Args: []introspect.Arg{
+				{Name: "success", Type: "b", Direction: "out"},
+			},
+		},
 	}
 }
 
@@ -337,6 +350,14 @@ func (s *Service) StartSync() (bool, *dbus.Error) {
 
 	if err := s.syncEngine.Start(); err != nil {
 		log.Printf("❌ Failed to start sync: %v", err)
+
+		// Check if it's a portal error and provide better error message
+		if portalErr, ok := err.(*capture.PortalError); ok {
+			// Format: "PortalError:TYPE:HINT" for easy parsing in tray app
+			errMsg := fmt.Sprintf("PortalError:%s:%s", portalErr.Type, portalErr.Hint)
+			return false, dbus.MakeFailedError(fmt.Errorf(errMsg))
+		}
+
 		return false, dbus.MakeFailedError(err)
 	}
 
@@ -411,4 +432,52 @@ func (s *Service) SetGroupedLight(groupedLightID string) (bool, *dbus.Error) {
 
 	log.Printf("✅ Grouped light ID set to: %s", groupedLightID)
 	return true, nil
+}
+
+// GetConnectionStatus returns the current bridge connection status
+func (s *Service) GetConnectionStatus() (map[string]interface{}, *dbus.Error) {
+	if s.hueClient == nil {
+		return map[string]interface{}{
+			"connected":   false,
+			"lastError":   "Hue client not initialized",
+			"bridgeIP":    s.config.Bridge,
+			"lastAttempt": "",
+		}, nil
+	}
+
+	status := s.hueClient.GetConnectionStatus()
+
+	lastAttemptStr := ""
+	if !status.LastAttempt.IsZero() {
+		lastAttemptStr = status.LastAttempt.Format("2006-01-02 15:04:05")
+	}
+
+	return map[string]interface{}{
+		"connected":   status.Connected,
+		"lastError":   status.LastError,
+		"bridgeIP":    status.BridgeAddr,
+		"lastAttempt": lastAttemptStr,
+	}, nil
+}
+
+// RetryConnection attempts to reconnect to the bridge
+func (s *Service) RetryConnection() (bool, *dbus.Error) {
+	if s.hueClient == nil {
+		return false, dbus.MakeFailedError(fmt.Errorf("hue client not initialized"))
+	}
+
+	log.Println("🔄 Retrying bridge connection...")
+
+	reachable, err := s.hueClient.IsReachable()
+	if err != nil {
+		log.Printf("❌ Retry failed: %v", err)
+		return false, dbus.MakeFailedError(err)
+	}
+
+	if reachable {
+		log.Println("✅ Bridge connection restored")
+		return true, nil
+	}
+
+	return false, dbus.MakeFailedError(fmt.Errorf("bridge still unreachable"))
 }
