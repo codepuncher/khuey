@@ -13,7 +13,7 @@ package capture
 
 // User data passed to callbacks
 struct user_data {
-	struct pw_main_loop *loop;
+	struct pw_thread_loop *loop;
 	struct pw_stream *stream;
 	
 	// Frame data
@@ -23,6 +23,7 @@ struct user_data {
 	int frame_stride;
 	uint32_t frame_format;
 	int frame_ready;
+	int process_count;  // Debug counter
 	
 	// For Go callbacks
 	void *go_context;
@@ -42,7 +43,7 @@ static void on_stream_state_changed(void *data, enum pw_stream_state old,
 	
 	if (state == PW_STREAM_STATE_ERROR) {
 		printf("[PipeWire] Stream error: %s\n", error);
-		pw_main_loop_quit(ud->loop);
+		pw_thread_loop_signal(ud->loop, false);
 	}
 }
 
@@ -75,6 +76,8 @@ static void on_stream_process(void *data)
 	struct user_data *ud = data;
 	struct pw_buffer *b;
 	struct spa_buffer *buf;
+	
+	ud->process_count++;
 	
 	// Dequeue buffer
 	b = pw_stream_dequeue_buffer(ud->stream);
@@ -123,7 +126,7 @@ static const struct pw_stream_events stream_events = {
 
 // Helper function to create and connect stream
 struct user_data* pw_stream_connect_to_node(uint32_t node_id) {
-	struct pw_main_loop *loop;
+	struct pw_thread_loop *loop;
 	struct pw_stream *stream;
 	struct user_data *ud;
 	const struct spa_pod *params[1];
@@ -133,24 +136,27 @@ struct user_data* pw_stream_connect_to_node(uint32_t node_id) {
 	// Initialize PipeWire
 	pw_init(NULL, NULL);
 	
-	// Create main loop
-	loop = pw_main_loop_new(NULL);
+	// Create thread loop (for multi-threaded applications)
+	loop = pw_thread_loop_new("khuey-pipewire", NULL);
 	if (!loop) {
-		printf("[PipeWire] Failed to create main loop\n");
+		printf("[PipeWire] Failed to create thread loop\n");
 		return NULL;
 	}
 	
 	// Allocate user data
 	ud = calloc(1, sizeof(struct user_data));
 	if (!ud) {
-		pw_main_loop_destroy(loop);
+		pw_thread_loop_destroy(loop);
 		return NULL;
 	}
 	ud->loop = loop;
 	
+	// Lock the loop before creating stream
+	pw_thread_loop_lock(loop);
+	
 	// Create stream
 	stream = pw_stream_new_simple(
-		pw_main_loop_get_loop(loop),
+		pw_thread_loop_get_loop(loop),
 		"khuey-screen-capture",
 		pw_properties_new(
 			PW_KEY_MEDIA_TYPE, "Video",
@@ -162,8 +168,9 @@ struct user_data* pw_stream_connect_to_node(uint32_t node_id) {
 	
 	if (!stream) {
 		printf("[PipeWire] Failed to create stream\n");
+		pw_thread_loop_unlock(loop);
 		free(ud);
-		pw_main_loop_destroy(loop);
+		pw_thread_loop_destroy(loop);
 		return NULL;
 	}
 	ud->stream = stream;
@@ -190,37 +197,46 @@ struct user_data* pw_stream_connect_to_node(uint32_t node_id) {
 			      params, 1) < 0) {
 		printf("[PipeWire] Failed to connect stream to node %u\n", node_id);
 		pw_stream_destroy(stream);
+		pw_thread_loop_unlock(loop);
 		free(ud);
-		pw_main_loop_destroy(loop);
+		pw_thread_loop_destroy(loop);
 		return NULL;
 	}
+	
+	// Unlock before starting the loop
+	pw_thread_loop_unlock(loop);
 	
 	printf("[PipeWire] Stream connected to node %u\n", node_id);
 	return ud;
 }
 
-// Run the main loop (blocks)
-void pw_run_loop(struct user_data *ud) {
+// Start the thread loop (non-blocking)
+int pw_start_loop(struct user_data *ud) {
 	if (ud && ud->loop) {
-		pw_main_loop_run(ud->loop);
+		return pw_thread_loop_start(ud->loop);
 	}
+	return -1;
 }
 
-// Stop the main loop
+// Stop the thread loop
 void pw_stop_loop(struct user_data *ud) {
 	if (ud && ud->loop) {
-		pw_main_loop_quit(ud->loop);
+		pw_thread_loop_stop(ud->loop);
 	}
 }
 
 // Cleanup
 void pw_cleanup(struct user_data *ud) {
 	if (ud) {
+		if (ud->loop) {
+			pw_thread_loop_lock(ud->loop);
+		}
 		if (ud->stream) {
 			pw_stream_destroy(ud->stream);
 		}
 		if (ud->loop) {
-			pw_main_loop_destroy(ud->loop);
+			pw_thread_loop_unlock(ud->loop);
+			pw_thread_loop_destroy(ud->loop);
 		}
 		if (ud->frame_data) {
 			free(ud->frame_data);
@@ -233,7 +249,15 @@ void pw_cleanup(struct user_data *ud) {
 // Get frame data (returns 0 if no frame ready, 1 if frame available)
 int pw_get_frame(struct user_data *ud, uint8_t **data, int *width, int *height, 
                  int *stride, uint32_t *format) {
-	if (ud == NULL || !ud->frame_ready) {
+	if (ud == NULL) {
+		return 0;
+	}
+	
+	// Lock the thread loop for thread-safe access
+	pw_thread_loop_lock(ud->loop);
+	
+	if (!ud->frame_ready) {
+		pw_thread_loop_unlock(ud->loop);
 		return 0;
 	}
 	
@@ -243,6 +267,8 @@ int pw_get_frame(struct user_data *ud, uint8_t **data, int *width, int *height,
 	*stride = ud->frame_stride;
 	*format = ud->frame_format;
 	
+	pw_thread_loop_unlock(ud->loop);
+	
 	return 1;
 }
 */
@@ -251,6 +277,7 @@ import (
 	"fmt"
 	"image"
 	"sync"
+	"time"
 	"unsafe"
 )
 
@@ -285,23 +312,21 @@ func (npc *NativePipeWireCapture) Start() error {
 		return fmt.Errorf("capture already running")
 	}
 	
+	// Start the PipeWire thread loop (non-blocking)
+	result := C.pw_start_loop(npc.userData)
+	if result < 0 {
+		return fmt.Errorf("failed to start PipeWire thread loop")
+	}
+	
 	npc.running = true
-	
-	// Run PipeWire main loop in a separate goroutine
-	go func() {
-		// This blocks until pw_main_loop_quit is called
-		C.pw_run_loop(npc.userData)
-		npc.running = false
-	}()
-	
 	fmt.Println("[Native] PipeWire capture started")
 	return nil
 }
 
 // GetFrame retrieves the latest captured frame
 func (npc *NativePipeWireCapture) GetFrame() (*image.RGBA, error) {
-	if npc.userData == nil {
-		return nil, fmt.Errorf("capture not initialized")
+	if npc.userData == nil || !npc.running {
+		return nil, fmt.Errorf("capture not initialized or stopped")
 	}
 	
 	// Get frame data from C
@@ -328,17 +353,20 @@ func (npc *NativePipeWireCapture) convertToRGBA(data *C.uint8_t, width, height, 
 	
 	// Format constants from spa/param/video/format.h
 	const (
-		SPA_VIDEO_FORMAT_BGRx  = 11
-		SPA_VIDEO_FORMAT_RGBx  = 10
-		SPA_VIDEO_FORMAT_BGRA  = 8
-		SPA_VIDEO_FORMAT_RGBA  = 7
-		SPA_VIDEO_FORMAT_BGR   = 13
+		SPA_VIDEO_FORMAT_BGRx  = 8
+		SPA_VIDEO_FORMAT_RGBx  = 7
+		SPA_VIDEO_FORMAT_BGRA  = 12
+		SPA_VIDEO_FORMAT_RGBA  = 11
+		SPA_VIDEO_FORMAT_BGR   = 16
+		SPA_VIDEO_FORMAT_RGB   = 15
+		SPA_VIDEO_FORMAT_xBGR  = 10
+		SPA_VIDEO_FORMAT_xRGB  = 9
 	)
 	
 	// Convert pixel format
 	switch format {
 	case SPA_VIDEO_FORMAT_BGRx, SPA_VIDEO_FORMAT_BGRA:
-		// BGRx/BGRA -> RGBA: swap R and B
+		// BGRx/BGRA -> RGBA: swap R and B (4 bytes per pixel)
 		for y := 0; y < height; y++ {
 			srcOffset := y * stride
 			dstOffset := y * img.Stride
@@ -354,8 +382,26 @@ func (npc *NativePipeWireCapture) convertToRGBA(data *C.uint8_t, width, height, 
 			}
 		}
 	
+	case SPA_VIDEO_FORMAT_xBGR:
+		// xBGR -> RGBA: swap R and B, alpha is first byte (4 bytes per pixel)
+		for y := 0; y < height; y++ {
+			srcOffset := y * stride
+			dstOffset := y * img.Stride
+			for x := 0; x < width; x++ {
+				// xBGR format: X B G R
+				r := srcSlice[srcOffset+x*4+3]
+				g := srcSlice[srcOffset+x*4+2]
+				b := srcSlice[srcOffset+x*4+1]
+				
+				img.Pix[dstOffset+x*4+0] = r
+				img.Pix[dstOffset+x*4+1] = g
+				img.Pix[dstOffset+x*4+2] = b
+				img.Pix[dstOffset+x*4+3] = 255
+			}
+		}
+	
 	case SPA_VIDEO_FORMAT_RGBx, SPA_VIDEO_FORMAT_RGBA:
-		// RGBx/RGBA -> RGBA: direct copy
+		// RGBx/RGBA -> RGBA: direct copy (4 bytes per pixel)
 		for y := 0; y < height; y++ {
 			srcOffset := y * stride
 			dstOffset := y * img.Stride
@@ -363,6 +409,24 @@ func (npc *NativePipeWireCapture) convertToRGBA(data *C.uint8_t, width, height, 
 				img.Pix[dstOffset+x*4+0] = srcSlice[srcOffset+x*4+0]
 				img.Pix[dstOffset+x*4+1] = srcSlice[srcOffset+x*4+1]
 				img.Pix[dstOffset+x*4+2] = srcSlice[srcOffset+x*4+2]
+				img.Pix[dstOffset+x*4+3] = 255
+			}
+		}
+	
+	case SPA_VIDEO_FORMAT_xRGB:
+		// xRGB -> RGBA: alpha is first byte (4 bytes per pixel)
+		for y := 0; y < height; y++ {
+			srcOffset := y * stride
+			dstOffset := y * img.Stride
+			for x := 0; x < width; x++ {
+				// xRGB format: X R G B
+				r := srcSlice[srcOffset+x*4+1]
+				g := srcSlice[srcOffset+x*4+2]
+				b := srcSlice[srcOffset+x*4+3]
+				
+				img.Pix[dstOffset+x*4+0] = r
+				img.Pix[dstOffset+x*4+1] = g
+				img.Pix[dstOffset+x*4+2] = b
 				img.Pix[dstOffset+x*4+3] = 255
 			}
 		}
@@ -376,6 +440,23 @@ func (npc *NativePipeWireCapture) convertToRGBA(data *C.uint8_t, width, height, 
 				b := srcSlice[srcOffset+x*3+0]
 				g := srcSlice[srcOffset+x*3+1]
 				r := srcSlice[srcOffset+x*3+2]
+				
+				img.Pix[dstOffset+x*4+0] = r
+				img.Pix[dstOffset+x*4+1] = g
+				img.Pix[dstOffset+x*4+2] = b
+				img.Pix[dstOffset+x*4+3] = 255
+			}
+		}
+	
+	case SPA_VIDEO_FORMAT_RGB:
+		// RGB -> RGBA (3 bytes per pixel)
+		for y := 0; y < height; y++ {
+			srcOffset := y * stride
+			dstOffset := y * img.Stride
+			for x := 0; x < width; x++ {
+				r := srcSlice[srcOffset+x*3+0]
+				g := srcSlice[srcOffset+x*3+1]
+				b := srcSlice[srcOffset+x*3+2]
 				
 				img.Pix[dstOffset+x*4+0] = r
 				img.Pix[dstOffset+x*4+1] = g
@@ -402,16 +483,17 @@ func (npc *NativePipeWireCapture) Stop() {
 		return
 	}
 	
-	// Stop the main loop
-	C.pw_stop_loop(npc.userData)
+	npc.running = false
 	
-	// Wait for loop to exit
-	<-npc.stopChan
+	// Give the frame reader loop time to exit
+	time.Sleep(100 * time.Millisecond)
+	
+	// Stop the thread loop
+	C.pw_stop_loop(npc.userData)
 	
 	// Cleanup
 	C.pw_cleanup(npc.userData)
 	npc.userData = nil
-	npc.running = false
 	
 	fmt.Println("[Native] PipeWire capture stopped")
 }
