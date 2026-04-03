@@ -15,7 +15,8 @@ import (
 
 func main() {
 	fmt.Println("Visual Zone Test")
-	fmt.Println("================\n")
+	fmt.Println("================")
+	fmt.Println()
 
 	// Get test frame
 	cap, _ := capture.NewScreenCapture(capture.Config{FPS: 30, Monitor: -1})

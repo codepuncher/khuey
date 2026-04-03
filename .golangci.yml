@@ -1,0 +1,24 @@
+linters:
+  enable:
+    - gofmt
+    - govet
+    - errcheck
+    - staticcheck
+    - unused
+    - gosimple
+    - ineffassign
+  
+  disable:
+    - structcheck  # Deprecated
+    - deadcode     # Deprecated
+
+issues:
+  # Exclude test utilities from some checks
+  exclude-rules:
+    - path: cmd/test-.*
+      linters:
+        - errcheck
+
+run:
+  timeout: 5m
+  tests: true

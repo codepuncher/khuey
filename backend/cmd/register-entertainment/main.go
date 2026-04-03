@@ -13,7 +13,8 @@ import (
 
 func main() {
 	fmt.Println("Hue Entertainment API Registration")
-	fmt.Println("===================================\n")
+	fmt.Println("===================================")
+	fmt.Println()
 
 	bridgeIP := "192.168.0.9"
 	

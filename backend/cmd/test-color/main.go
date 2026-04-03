@@ -11,7 +11,8 @@ import (
 
 func main() {
 	fmt.Println("Color Extraction Test - Milestone 2")
-	fmt.Println("====================================\n")
+	fmt.Println("====================================")
+	fmt.Println()
 
 	// Step 1: Get a test frame
 	fmt.Println("📸 Generating test frame...")
@@ -82,7 +83,8 @@ func main() {
 	}
 
 	// Step 5: Display results
-	fmt.Println("✅ Colors extracted!\n")
+	fmt.Println("✅ Colors extracted!")
+	fmt.Println()
 	fmt.Println("Results:")
 	fmt.Println("--------")
 	for i, zoneColor := range colors {

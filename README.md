@@ -112,6 +112,25 @@ systemctl --user restart hue-tray
 ### Scenes work but power/brightness doesn't
 Power and brightness controls are disabled. They need grouped light configuration - coming in a future update!
 
+## Contributing
+
+We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for:
+- Development environment setup
+- Git hooks with Lefthook
+- Coding standards and conventions
+- Testing procedures
+- Pull request workflow
+
+### Quick Start for Contributors
+
+```bash
+# Install Lefthook for Git hooks
+go install github.com/evilmartians/lefthook/v2@latest
+lefthook install
+
+# This sets up automatic code formatting, testing, and validation
+```
+
 ## Development Status
 
 **Progress: 10/15 components complete (67%)**

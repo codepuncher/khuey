@@ -10,7 +10,8 @@ import (
 
 func main() {
 	fmt.Println("Entertainment API Test - Milestone 3")
-	fmt.Println("=====================================\n")
+	fmt.Println("=====================================")
+	fmt.Println()
 
 	// Configuration (from your ~/.openhue/config.yaml)
 	cfg := entertainment.Config{
@@ -37,7 +38,8 @@ func main() {
 	if err := client.Connect(); err != nil {
 		log.Fatalf("Failed to connect: %v\n\nNote: Make sure your Entertainment Area is activated in the Hue app!", err)
 	}
-	fmt.Println("✅ Connected via DTLS!\n")
+	fmt.Println("✅ Connected via DTLS!")
+	fmt.Println()
 
 	// Test 1: Send red to all lights
 	fmt.Println("🔴 Test 1: Sending RED to all 3 lights...")

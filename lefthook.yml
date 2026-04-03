@@ -1,0 +1,167 @@
+# Lefthook configuration for KDE Hue Control
+# Fast, parallel Git hooks for Go backend + Qt/C++ tray app
+
+# Global skip conditions
+skip_output:
+  - meta           # Don't show lefthook meta info (cleaner output)
+  
+pre-commit:
+  parallel: true   # Run all checks concurrently for speed
+  
+  commands:
+    # ===== Go Backend Checks =====
+    
+    # Format Go code (auto-fix)
+    go-fmt:
+      glob: "backend/**/*.go"
+      run: |
+        cd backend
+        gofmt -w {staged_files}
+      stage_fixed: true  # Re-stage formatted files
+      
+    # Run Go tests for modified packages
+    go-test:
+      glob: "backend/**/*.go"
+      run: |
+        cd backend
+        # Only test packages that have staged changes
+        go test -short ./internal/...
+      
+    # Go vet for common mistakes
+    go-vet:
+      glob: "backend/**/*.go"
+      run: |
+        cd backend
+        go vet ./...
+        
+    # Optional: golangci-lint (if/when installed)
+    # Uncomment after installing: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+    # go-lint:
+    #   glob: "backend/**/*.go"
+    #   run: |
+    #     cd backend
+    #     golangci-lint run --new-from-rev=HEAD~1
+    
+    # ===== C++/Qt Tray App Checks =====
+    
+    # Format C++ code with clang-format
+    cpp-format:
+      glob: "trayapp/**/*.{cpp,h}"
+      run: clang-format -i {staged_files}
+      stage_fixed: true
+      
+    # Check CMakeLists.txt syntax
+    cmake-lint:
+      glob: "trayapp/CMakeLists.txt"
+      run: cmake -P trayapp/CMakeLists.txt --check-system-vars 2>&1 | grep -v "Configuring done"
+      skip:
+        - merge
+        - rebase
+      
+    # ===== Documentation Checks =====
+    
+    # Check markdown files for basic issues
+    markdown-lint:
+      glob: "*.md"
+      run: |
+        # Basic markdown validation (no tool required)
+        for file in {staged_files}; do
+          # Check for trailing whitespace
+          if grep -n " $" "$file" > /dev/null; then
+            echo "Trailing whitespace found in $file"
+            exit 1
+          fi
+        done
+      skip:
+        - merge
+        
+    # ===== Shell Script Checks =====
+    
+    # Validate shell scripts
+    shellcheck:
+      glob: "scripts/*.sh"
+      run: shellcheck --severity=warning {staged_files}
+      skip:
+        - merge
+
+  # Skip pre-commit entirely during merge/rebase (avoids friction)
+  skip:
+    - merge
+    - rebase
+
+pre-push:
+  parallel: true
+  
+  commands:
+    # Run full test suite before pushing
+    go-test-all:
+      run: |
+        cd backend
+        echo "Running full Go test suite..."
+        go test -v ./...
+        
+    # Ensure backend builds
+    go-build:
+      run: |
+        cd backend
+        echo "Building backend..."
+        go build -o hue-sync ./cmd/hue-sync
+        
+    # Ensure tray app builds
+    cpp-build:
+      run: |
+        cd trayapp
+        if [ ! -f "Makefile" ]; then
+          echo "Running cmake..."
+          cmake .
+        fi
+        echo "Building tray app..."
+        make
+  
+  # Only run on feature branches (not main)
+  skip:
+    - ref: main
+    - ref: master
+
+commit-msg:
+  commands:
+    # Enforce commit message format
+    # Current format: "Title (#PR)" or "Title\n\nBody\n\nCo-authored-by: Copilot"
+    validate-message:
+      run: |
+        MSG_FILE={1}
+        
+        # Read first line
+        TITLE=$(head -n1 "$MSG_FILE")
+        
+        # Check minimum length
+        if [ ${#TITLE} -lt 10 ]; then
+          echo "❌ Commit message too short (minimum 10 characters)"
+          exit 1
+        fi
+        
+        # Check maximum length for first line
+        if [ ${#TITLE} -gt 72 ]; then
+          echo "⚠️  Warning: First line exceeds 72 characters (${#TITLE})"
+          echo "   Consider keeping under 72 for better git log readability"
+        fi
+        
+        # Ensure there's a Co-authored-by trailer (as required by project)
+        if ! grep -q "Co-authored-by: Copilot" "$MSG_FILE"; then
+          echo ""
+          echo "⚠️  Warning: Missing Co-authored-by trailer"
+          echo "   The project requires:"
+          echo "   Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
+          echo ""
+          echo "   Add it manually or this will be added by GitHub when squash merging."
+        fi
+        
+        echo "✅ Commit message validated"
+
+# Local overrides (not committed to repo)
+# Developers can create lefthook-local.yml for personal customizations
+# Example lefthook-local.yml:
+# pre-commit:
+#   commands:
+#     go-test:
+#       skip: true  # Skip tests locally if they're slow
