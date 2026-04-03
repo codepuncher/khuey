@@ -59,34 +59,8 @@ func NewEngine(cfg *config.Config) (*Engine, error) {
 		return nil, fmt.Errorf("failed to create entertainment client: %w", err)
 	}
 
-	// Define zones based on channels (simple left/center/right for 3 lights)
-	zones := make([]color.Zone, len(cfg.Channels))
-	switch len(cfg.Channels) {
-	case 1:
-		// Single light - whole screen
-		zones[0] = color.Zone{ID: 0, U1: 0.0, V1: 0.0, U2: 1.0, V2: 1.0}
-	case 2:
-		// Two lights - left/right split
-		zones[0] = color.Zone{ID: 0, U1: 0.0, V1: 0.0, U2: 0.5, V2: 1.0}
-		zones[1] = color.Zone{ID: 1, U1: 0.5, V1: 0.0, U2: 1.0, V2: 1.0}
-	case 3:
-		// Three lights - left/center/right
-		zones[0] = color.Zone{ID: 0, U1: 0.0, V1: 0.0, U2: 0.33, V2: 1.0}
-		zones[1] = color.Zone{ID: 1, U1: 0.33, V1: 0.0, U2: 0.67, V2: 1.0}
-		zones[2] = color.Zone{ID: 2, U1: 0.67, V1: 0.0, U2: 1.0, V2: 1.0}
-	default:
-		// More lights - divide evenly
-		step := 1.0 / float64(len(cfg.Channels))
-		for i := range zones {
-			zones[i] = color.Zone{
-				ID: i,
-				U1: float64(i) * step,
-				V1: 0.0,
-				U2: float64(i+1) * step,
-				V2: 1.0,
-			}
-		}
-	}
+	// Create zones from config channels
+	zones := createZonesFromConfig(cfg)
 
 	return &Engine{
 		config:   cfg,
@@ -96,6 +70,122 @@ func NewEngine(cfg *config.Config) (*Engine, error) {
 		fps:      30, // Default 30 FPS
 		zones:    zones,
 	}, nil
+}
+
+// createZonesFromConfig creates zones based on channel UV coordinates
+// Falls back to auto-split if UV coordinates are not configured
+func createZonesFromConfig(cfg *config.Config) []color.Zone {
+	zones := make([]color.Zone, 0, len(cfg.Channels))
+	activeChannels := 0
+
+	// First pass: count active channels
+	for _, ch := range cfg.Channels {
+		if ch.Active {
+			activeChannels++
+		}
+	}
+
+	// Track position for auto-split fallback
+	autoSplitIndex := 0
+
+	for _, ch := range cfg.Channels {
+		if !ch.Active {
+			continue
+		}
+
+		var zone color.Zone
+
+		// Check if UV coordinates are configured (non-zero values)
+		hasUVConfig := (ch.UVA.X != 0 || ch.UVA.Y != 0 || ch.UVB.X != 0 || ch.UVB.Y != 0)
+
+		if hasUVConfig {
+			// Validate UV coordinates
+			if err := validateUVCoordinates(&ch.UVA, &ch.UVB); err != nil {
+				log.Printf("⚠️  Warning: Invalid UV coordinates for channel %d (%s): %v. Using auto-split.",
+					ch.ID, ch.DeviceName, err)
+				zone = createDefaultZone(autoSplitIndex, activeChannels)
+			} else {
+				// Use configured UV coordinates
+				zone = color.Zone{
+					ID:   int(ch.ID),
+					U1:   float64(ch.UVA.X),
+					V1:   float64(ch.UVA.Y),
+					U2:   float64(ch.UVB.X),
+					V2:   float64(ch.UVB.Y),
+					Name: ch.DeviceName,
+				}
+				log.Printf("📍 Zone %d (%s): UV [%.2f,%.2f] to [%.2f,%.2f]",
+					ch.ID, ch.DeviceName, ch.UVA.X, ch.UVA.Y, ch.UVB.X, ch.UVB.Y)
+			}
+		} else {
+			// No UV config - use auto-split
+			zone = createDefaultZone(autoSplitIndex, activeChannels)
+			log.Printf("📍 Zone %d (%s): Auto-split [%.2f,%.2f] to [%.2f,%.2f]",
+				ch.ID, ch.DeviceName, zone.U1, zone.V1, zone.U2, zone.V2)
+		}
+
+		zones = append(zones, zone)
+		autoSplitIndex++
+	}
+
+	return zones
+}
+
+// validateUVCoordinates ensures UV coordinates are valid
+func validateUVCoordinates(uvA, uvB *config.UV) error {
+	// Check bounds [0.0, 1.0]
+	if uvA.X < 0 || uvA.X > 1 || uvA.Y < 0 || uvA.Y > 1 {
+		return fmt.Errorf("uvA out of bounds: (%.2f, %.2f)", uvA.X, uvA.Y)
+	}
+	if uvB.X < 0 || uvB.X > 1 || uvB.Y < 0 || uvB.Y > 1 {
+		return fmt.Errorf("uvB out of bounds: (%.2f, %.2f)", uvB.X, uvB.Y)
+	}
+
+	// Ensure uvB > uvA (non-zero area)
+	if uvB.X <= uvA.X || uvB.Y <= uvA.Y {
+		return fmt.Errorf("uvB (%.2f,%.2f) must be greater than uvA (%.2f,%.2f)",
+			uvB.X, uvB.Y, uvA.X, uvA.Y)
+	}
+
+	return nil
+}
+
+// createDefaultZone creates auto-split zone for channel at given index
+// Uses the same logic as the previous hardcoded implementation
+func createDefaultZone(index, total int) color.Zone {
+	zone := color.Zone{ID: index}
+
+	switch total {
+	case 1:
+		// Single light - whole screen
+		zone.U1, zone.V1, zone.U2, zone.V2 = 0.0, 0.0, 1.0, 1.0
+	case 2:
+		// Two lights - left/right split
+		if index == 0 {
+			zone.U1, zone.V1, zone.U2, zone.V2 = 0.0, 0.0, 0.5, 1.0
+		} else {
+			zone.U1, zone.V1, zone.U2, zone.V2 = 0.5, 0.0, 1.0, 1.0
+		}
+	case 3:
+		// Three lights - left/center/right
+		switch index {
+		case 0:
+			zone.U1, zone.V1, zone.U2, zone.V2 = 0.0, 0.0, 0.33, 1.0
+		case 1:
+			zone.U1, zone.V1, zone.U2, zone.V2 = 0.33, 0.0, 0.67, 1.0
+		case 2:
+			zone.U1, zone.V1, zone.U2, zone.V2 = 0.67, 0.0, 1.0, 1.0
+		}
+	default:
+		// More lights - divide evenly
+		step := 1.0 / float64(total)
+		zone.U1 = float64(index) * step
+		zone.V1 = 0.0
+		zone.U2 = float64(index+1) * step
+		zone.V2 = 1.0
+	}
+
+	return zone
 }
 
 // Start begins screen synchronization
