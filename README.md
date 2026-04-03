@@ -72,6 +72,8 @@ Screen-to-lights synchronization using Entertainment API for gaming/movies.
 
 Config file: `~/.openhue/config.yaml`
 
+### Basic Configuration
+
 ```yaml
 Bridge: "192.168.1.X"          # Your bridge IP
 Key: "YOUR-API-KEY"             # API key from setup
@@ -81,6 +83,69 @@ sync:
   fps: 30                       # Sync frame rate (10-60)
   subsampleWidth: 64            # Performance tuning
 ```
+
+### Zone-Based Screen Mapping
+
+Each light can be mapped to a specific screen region for the Ambilight effect. Configure zones using UV coordinates (0.0-1.0):
+
+- **U (x-axis):** 0.0 = left edge, 1.0 = right edge
+- **V (y-axis):** 0.0 = top edge, 1.0 = bottom edge
+
+#### Example: Three Lights (Left/Center/Right)
+
+```yaml
+channels:
+  - id: 0
+    active: true
+    deviceName: "Left Light"
+    gammaFactor: 2.2
+    uvA: {x: 0.0, y: 0.0}    # Top-left corner
+    uvB: {x: 0.33, y: 1.0}   # Bottom-right corner
+  - id: 1
+    active: true
+    deviceName: "Center Light"
+    gammaFactor: 2.2
+    uvA: {x: 0.33, y: 0.0}
+    uvB: {x: 0.67, y: 1.0}
+  - id: 2
+    active: true
+    deviceName: "Right Light"
+    gammaFactor: 2.2
+    uvA: {x: 0.67, y: 0.0}
+    uvB: {x: 1.0, y: 1.0}
+```
+
+#### Example: Two Lights (Left/Right Split)
+
+```yaml
+channels:
+  - id: 0
+    uvA: {x: 0.0, y: 0.0}
+    uvB: {x: 0.5, y: 1.0}    # Left half of screen
+  - id: 1
+    uvA: {x: 0.5, y: 0.0}
+    uvB: {x: 1.0, y: 1.0}    # Right half of screen
+```
+
+#### Example: TV Backlighting (4 Lights)
+
+```yaml
+channels:
+  - id: 0  # Left edge
+    uvA: {x: 0.0, y: 0.25}
+    uvB: {x: 0.1, y: 0.75}
+  - id: 1  # Top edge
+    uvA: {x: 0.25, y: 0.0}
+    uvB: {x: 0.75, y: 0.1}
+  - id: 2  # Right edge
+    uvA: {x: 0.9, y: 0.25}
+    uvB: {x: 1.0, y: 0.75}
+  - id: 3  # Bottom edge
+    uvA: {x: 0.25, y: 0.9}
+    uvB: {x: 0.75, y: 1.0}
+```
+
+**Note:** If UV coordinates are not specified, lights will auto-split the screen evenly (backward compatible).
 
 ## Troubleshooting
 

@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/codepuncher/khuey/internal/color"
+	"github.com/codepuncher/khuey/internal/config"
 )
 
 // TestZoneMapping tests the zone mapping logic for different channel counts
@@ -326,4 +327,260 @@ func floatClose(a, b, tolerance float64) bool {
 		diff = -diff
 	}
 	return diff <= tolerance
+}
+
+// TestValidateUVCoordinates tests UV coordinate validation
+func TestValidateUVCoordinates(t *testing.T) {
+	tests := []struct {
+		name        string
+		uvA         config.UV
+		uvB         config.UV
+		expectError bool
+	}{
+		{
+			name:        "Valid coordinates",
+			uvA:         config.UV{X: 0.0, Y: 0.0},
+			uvB:         config.UV{X: 0.5, Y: 1.0},
+			expectError: false,
+		},
+		{
+			name:        "Full screen",
+			uvA:         config.UV{X: 0.0, Y: 0.0},
+			uvB:         config.UV{X: 1.0, Y: 1.0},
+			expectError: false,
+		},
+		{
+			name:        "uvA.X out of bounds (negative)",
+			uvA:         config.UV{X: -0.1, Y: 0.0},
+			uvB:         config.UV{X: 0.5, Y: 1.0},
+			expectError: true,
+		},
+		{
+			name:        "uvA.X out of bounds (>1)",
+			uvA:         config.UV{X: 1.5, Y: 0.0},
+			uvB:         config.UV{X: 2.0, Y: 1.0},
+			expectError: true,
+		},
+		{
+			name:        "uvB.X out of bounds (>1)",
+			uvA:         config.UV{X: 0.0, Y: 0.0},
+			uvB:         config.UV{X: 1.5, Y: 1.0},
+			expectError: true,
+		},
+		{
+			name:        "uvB.X <= uvA.X (zero width)",
+			uvA:         config.UV{X: 0.5, Y: 0.0},
+			uvB:         config.UV{X: 0.5, Y: 1.0},
+			expectError: true,
+		},
+		{
+			name:        "uvB.X < uvA.X (inverted)",
+			uvA:         config.UV{X: 0.7, Y: 0.0},
+			uvB:         config.UV{X: 0.3, Y: 1.0},
+			expectError: true,
+		},
+		{
+			name:        "uvB.Y <= uvA.Y (zero height)",
+			uvA:         config.UV{X: 0.0, Y: 0.5},
+			uvB:         config.UV{X: 1.0, Y: 0.5},
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateUVCoordinates(&tt.uvA, &tt.uvB)
+			hasError := err != nil
+
+			if tt.expectError && !hasError {
+				t.Errorf("Expected error but got none")
+			}
+			if !tt.expectError && hasError {
+				t.Errorf("Unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+// TestCreateZonesFromConfig tests zone creation from config
+func TestCreateZonesFromConfig(t *testing.T) {
+	tests := []struct {
+		name          string
+		config        *config.Config
+		expectedZones int
+		checkFirst    *color.Zone // Check first zone properties
+	}{
+		{
+			name: "Three channels with UV coordinates",
+			config: &config.Config{
+				Channels: []config.ChannelConfig{
+					{
+						ID:          0,
+						Active:      true,
+						DeviceName:  "Left",
+						GammaFactor: 2.2,
+						UVA:         config.UV{X: 0.0, Y: 0.0},
+						UVB:         config.UV{X: 0.33, Y: 1.0},
+					},
+					{
+						ID:          1,
+						Active:      true,
+						DeviceName:  "Center",
+						GammaFactor: 2.2,
+						UVA:         config.UV{X: 0.33, Y: 0.0},
+						UVB:         config.UV{X: 0.67, Y: 1.0},
+					},
+					{
+						ID:          2,
+						Active:      true,
+						DeviceName:  "Right",
+						GammaFactor: 2.2,
+						UVA:         config.UV{X: 0.67, Y: 0.0},
+						UVB:         config.UV{X: 1.0, Y: 1.0},
+					},
+				},
+			},
+			expectedZones: 3,
+			checkFirst:    &color.Zone{ID: 0, U1: 0.0, V1: 0.0, U2: 0.33, V2: 1.0, Name: "Left"},
+		},
+		{
+			name: "Two channels without UV (auto-split)",
+			config: &config.Config{
+				Channels: []config.ChannelConfig{
+					{ID: 0, Active: true, DeviceName: "Left"},
+					{ID: 1, Active: true, DeviceName: "Right"},
+				},
+			},
+			expectedZones: 2,
+			checkFirst:    &color.Zone{ID: 0, U1: 0.0, V1: 0.0, U2: 0.5, V2: 1.0},
+		},
+		{
+			name: "One inactive channel filtered out",
+			config: &config.Config{
+				Channels: []config.ChannelConfig{
+					{
+						ID:         0,
+						Active:     true,
+						DeviceName: "Active",
+						UVA:        config.UV{X: 0.0, Y: 0.0},
+						UVB:        config.UV{X: 1.0, Y: 1.0},
+					},
+					{ID: 1, Active: false, DeviceName: "Inactive"},
+				},
+			},
+			expectedZones: 1,
+			checkFirst:    &color.Zone{ID: 0, U1: 0.0, V1: 0.0, U2: 1.0, V2: 1.0, Name: "Active"},
+		},
+		{
+			name: "Invalid UV coordinates fall back to auto-split",
+			config: &config.Config{
+				Channels: []config.ChannelConfig{
+					{
+						ID:         0,
+						Active:     true,
+						DeviceName: "Bad UV",
+						UVA:        config.UV{X: 1.0, Y: 0.0}, // Invalid: uvB would need to be > 1.0
+						UVB:        config.UV{X: 0.5, Y: 1.0}, // X < uvA.X
+					},
+				},
+			},
+			expectedZones: 1,
+			checkFirst:    &color.Zone{ID: 0, U1: 0.0, V1: 0.0, U2: 1.0, V2: 1.0}, // Auto-split for 1 channel
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			zones := createZonesFromConfig(tt.config)
+
+			if len(zones) != tt.expectedZones {
+				t.Errorf("Expected %d zones, got %d", tt.expectedZones, len(zones))
+			}
+
+			if tt.checkFirst != nil && len(zones) > 0 {
+				zone := zones[0]
+				if zone.ID != tt.checkFirst.ID {
+					t.Errorf("Zone ID: expected %d, got %d", tt.checkFirst.ID, zone.ID)
+				}
+				if !floatClose(zone.U1, tt.checkFirst.U1, 0.01) {
+					t.Errorf("Zone U1: expected %.2f, got %.2f", tt.checkFirst.U1, zone.U1)
+				}
+				if !floatClose(zone.V1, tt.checkFirst.V1, 0.01) {
+					t.Errorf("Zone V1: expected %.2f, got %.2f", tt.checkFirst.V1, zone.V1)
+				}
+				if !floatClose(zone.U2, tt.checkFirst.U2, 0.01) {
+					t.Errorf("Zone U2: expected %.2f, got %.2f", tt.checkFirst.U2, zone.U2)
+				}
+				if !floatClose(zone.V2, tt.checkFirst.V2, 0.01) {
+					t.Errorf("Zone V2: expected %.2f, got %.2f", tt.checkFirst.V2, zone.V2)
+				}
+				if zone.Name != tt.checkFirst.Name {
+					t.Errorf("Zone Name: expected %s, got %s", tt.checkFirst.Name, zone.Name)
+				}
+			}
+		})
+	}
+}
+
+// TestCreateDefaultZone tests the auto-split zone creation
+func TestCreateDefaultZone(t *testing.T) {
+	tests := []struct {
+		name     string
+		index    int
+		total    int
+		expected color.Zone
+	}{
+		{
+			name:     "Single channel",
+			index:    0,
+			total:    1,
+			expected: color.Zone{ID: 0, U1: 0.0, V1: 0.0, U2: 1.0, V2: 1.0},
+		},
+		{
+			name:     "Two channels - first",
+			index:    0,
+			total:    2,
+			expected: color.Zone{ID: 0, U1: 0.0, V1: 0.0, U2: 0.5, V2: 1.0},
+		},
+		{
+			name:     "Two channels - second",
+			index:    1,
+			total:    2,
+			expected: color.Zone{ID: 1, U1: 0.5, V1: 0.0, U2: 1.0, V2: 1.0},
+		},
+		{
+			name:     "Three channels - middle",
+			index:    1,
+			total:    3,
+			expected: color.Zone{ID: 1, U1: 0.33, V1: 0.0, U2: 0.67, V2: 1.0},
+		},
+		{
+			name:     "Four channels - third",
+			index:    2,
+			total:    4,
+			expected: color.Zone{ID: 2, U1: 0.5, V1: 0.0, U2: 0.75, V2: 1.0},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			zone := createDefaultZone(tt.index, tt.total)
+
+			if zone.ID != tt.expected.ID {
+				t.Errorf("Zone ID: expected %d, got %d", tt.expected.ID, zone.ID)
+			}
+			if !floatClose(zone.U1, tt.expected.U1, 0.01) {
+				t.Errorf("Zone U1: expected %.2f, got %.2f", tt.expected.U1, zone.U1)
+			}
+			if !floatClose(zone.V1, tt.expected.V1, 0.01) {
+				t.Errorf("Zone V1: expected %.2f, got %.2f", tt.expected.V1, zone.V1)
+			}
+			if !floatClose(zone.U2, tt.expected.U2, 0.01) {
+				t.Errorf("Zone U2: expected %.2f, got %.2f", tt.expected.U2, zone.U2)
+			}
+			if !floatClose(zone.V2, tt.expected.V2, 0.01) {
+				t.Errorf("Zone V2: expected %.2f, got %.2f", tt.expected.V2, zone.V2)
+			}
+		})
+	}
 }

@@ -39,6 +39,8 @@ dbus-send --session --print-reply \
 
 Edit `~/.openhue/config.yaml`:
 
+### Basic Sync Settings
+
 ```yaml
 sync:
   enabled: false        # Initial state
@@ -46,6 +48,63 @@ sync:
   subsamplewidth: 64   # Downsample width for processing
   monitor: ""          # Monitor to capture (empty = all)
 ```
+
+### Zone-Based Screen Mapping
+
+Map each light to specific screen regions using UV coordinates (0.0-1.0):
+
+#### Three Lights (Left/Center/Right)
+```yaml
+channels:
+  - id: 0
+    active: true
+    deviceName: "Left Light"
+    gammaFactor: 2.2
+    uvA: {x: 0.0, y: 0.0}    # Top-left corner
+    uvB: {x: 0.33, y: 1.0}   # Bottom-right corner (left third)
+  - id: 1
+    active: true
+    deviceName: "Center Light"
+    gammaFactor: 2.2
+    uvA: {x: 0.33, y: 0.0}
+    uvB: {x: 0.67, y: 1.0}   # Center third
+  - id: 2
+    active: true
+    deviceName: "Right Light"
+    gammaFactor: 2.2
+    uvA: {x: 0.67, y: 0.0}
+    uvB: {x: 1.0, y: 1.0}    # Right third
+```
+
+#### Two Lights (Left/Right)
+```yaml
+channels:
+  - id: 0
+    uvA: {x: 0.0, y: 0.0}
+    uvB: {x: 0.5, y: 1.0}    # Left half
+  - id: 1
+    uvA: {x: 0.5, y: 0.0}
+    uvB: {x: 1.0, y: 1.0}    # Right half
+```
+
+#### TV Ambilight (4 Lights - Edges Only)
+```yaml
+channels:
+  - id: 0  # Left edge
+    uvA: {x: 0.0, y: 0.25}
+    uvB: {x: 0.1, y: 0.75}
+  - id: 1  # Top edge
+    uvA: {x: 0.25, y: 0.0}
+    uvB: {x: 0.75, y: 0.1}
+  - id: 2  # Right edge
+    uvA: {x: 0.9, y: 0.25}
+    uvB: {x: 1.0, y: 0.75}
+  - id: 3  # Bottom edge
+    uvA: {x: 0.25, y: 0.9}
+    uvB: {x: 0.75, y: 1.0}
+```
+
+**Note:** If UV coordinates are not configured, the system automatically splits the screen evenly based on the number of active lights.
 
 ## How It Works
 
