@@ -31,10 +31,12 @@ func main() {
 	fmt.Println("\r                                ")
 
 	// Create HTTP client with insecure TLS (Hue bridge uses self-signed cert)
+	// SECURITY NOTE: See detailed security analysis in internal/hue/client.go
+	// This is an accepted risk for local IoT devices on trusted networks
 	httpClient := &http.Client{
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: true,
+				InsecureSkipVerify: true, // Required for Hue bridge self-signed certs
 			},
 		},
 	}

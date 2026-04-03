@@ -1,8 +1,9 @@
 package capture
 
 import (
+	"crypto/rand"
 	"fmt"
-	"math/rand"
+	"math/big"
 
 	"github.com/godbus/dbus/v5"
 )
@@ -31,17 +32,34 @@ func (e *PortalError) Error() string {
 func (sc *ScreenCapture) createSession() (string, error) {
 	obj := sc.conn.Object(portalDest, portalPath)
 
-	// Generate unique session token
-	sessionToken := fmt.Sprintf("khuey_session_%d", rand.Intn(999999))
+	// Generate unique session token using crypto/rand
+	sessionNum, err := rand.Int(rand.Reader, big.NewInt(999999))
+	if err != nil {
+		return "", &PortalError{
+			Type: "session_failed",
+			Msg:  "Failed to generate session token",
+			Hint: "Cryptographic random number generation failed",
+		}
+	}
+	sessionToken := fmt.Sprintf("khuey_session_%d", sessionNum.Int64())
+
+	handleNum, err := rand.Int(rand.Reader, big.NewInt(999999))
+	if err != nil {
+		return "", &PortalError{
+			Type: "session_failed",
+			Msg:  "Failed to generate handle token",
+			Hint: "Cryptographic random number generation failed",
+		}
+	}
 
 	// Prepare options for CreateSession
 	options := map[string]dbus.Variant{
 		"session_handle_token": dbus.MakeVariant(sessionToken),
-		"handle_token":         dbus.MakeVariant(fmt.Sprintf("khuey_%d", rand.Intn(999999))),
+		"handle_token":         dbus.MakeVariant(fmt.Sprintf("khuey_%d", handleNum.Int64())),
 	}
 
 	var requestPath dbus.ObjectPath
-	err := obj.Call(screenCastIface+".CreateSession", 0, options).Store(&requestPath)
+	err = obj.Call(screenCastIface+".CreateSession", 0, options).Store(&requestPath)
 	if err != nil {
 		return "", &PortalError{
 			Type: "session_failed",
@@ -82,14 +100,23 @@ func (sc *ScreenCapture) createSession() (string, error) {
 func (sc *ScreenCapture) selectSources(sessionHandle string) error {
 	obj := sc.conn.Object(portalDest, portalPath)
 
+	handleNum, err := rand.Int(rand.Reader, big.NewInt(999999))
+	if err != nil {
+		return &PortalError{
+			Type: "select_sources_failed",
+			Msg:  "Failed to generate handle token",
+			Hint: "Cryptographic random number generation failed",
+		}
+	}
+
 	options := map[string]dbus.Variant{
 		"types":        dbus.MakeVariant(uint32(1)), // 1 = monitor, 2 = window
 		"multiple":     dbus.MakeVariant(false),     // Single monitor for now
-		"handle_token": dbus.MakeVariant(fmt.Sprintf("khuey_%d", rand.Intn(999999))),
+		"handle_token": dbus.MakeVariant(fmt.Sprintf("khuey_%d", handleNum.Int64())),
 	}
 
 	var requestPath dbus.ObjectPath
-	err := obj.Call(screenCastIface+".SelectSources", 0, dbus.ObjectPath(sessionHandle), options).Store(&requestPath)
+	err = obj.Call(screenCastIface+".SelectSources", 0, dbus.ObjectPath(sessionHandle), options).Store(&requestPath)
 	if err != nil {
 		return &PortalError{
 			Type: "select_sources_failed",
@@ -111,12 +138,17 @@ func (sc *ScreenCapture) selectSources(sessionHandle string) error {
 func (sc *ScreenCapture) startStream(sessionHandle string) (uint32, error) {
 	obj := sc.conn.Object(portalDest, portalPath)
 
+	handleNum, err := rand.Int(rand.Reader, big.NewInt(999999))
+	if err != nil {
+		return 0, fmt.Errorf("failed to generate handle token: %w", err)
+	}
+
 	options := map[string]dbus.Variant{
-		"handle_token": dbus.MakeVariant(fmt.Sprintf("khuey_%d", rand.Intn(999999))),
+		"handle_token": dbus.MakeVariant(fmt.Sprintf("khuey_%d", handleNum.Int64())),
 	}
 
 	var requestPath dbus.ObjectPath
-	err := obj.Call(screenCastIface+".Start", 0, dbus.ObjectPath(sessionHandle), "", options).Store(&requestPath)
+	err = obj.Call(screenCastIface+".Start", 0, dbus.ObjectPath(sessionHandle), "", options).Store(&requestPath)
 	if err != nil {
 		return 0, fmt.Errorf("failed to start stream: %w", err)
 	}
