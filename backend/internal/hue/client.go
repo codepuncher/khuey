@@ -2,14 +2,15 @@ package hue
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"net/http"
 	"sort"
 	"sync"
 	"time"
 
+	"github.com/codepuncher/khuey/internal/common"
 	"github.com/openhue/openhue-go"
+	"golang.org/x/time/rate"
 )
 
 // ConnectionStatus represents the current bridge connection state
@@ -29,6 +30,8 @@ type Client struct {
 	// Connection tracking
 	connStatus ConnectionStatus
 	connMutex  sync.RWMutex
+	// Rate limiting (10 req/sec, burst 20)
+	limiter *rate.Limiter
 }
 
 // Scene represents a Hue scene
@@ -60,35 +63,8 @@ func NewClient(ctx context.Context, bridgeAddr, apiKey string) (*Client, error) 
 		return nil, fmt.Errorf("API key is required")
 	}
 
-	// Create HTTP client that accepts self-signed certificates
-	//
-	// SECURITY NOTE: InsecureSkipVerify is required for Philips Hue bridges which use
-	// self-signed certificates. This disables TLS certificate verification, making the
-	// connection vulnerable to man-in-the-middle attacks.
-	//
-	// MITIGATION: This is generally acceptable for local IoT devices on trusted networks
-	// because:
-	// 1. Hue bridges only communicate on local network (192.168.x.x)
-	// 2. Attack requires physical network access
-	// 3. Bridge API keys are user-specific and rate-limited
-	//
-	// FUTURE ENHANCEMENT: Consider implementing certificate pinning by storing the bridge's
-	// certificate fingerprint during initial setup and verifying it on subsequent connections.
-	// This would detect certificate changes that could indicate MITM attacks.
-	//
-	// Implementation approach for certificate pinning:
-	// 1. Add BridgeCertFingerprint field to config.Config
-	// 2. On first connection, compute SHA256 of bridge cert and save to config
-	// 3. On subsequent connections, verify cert fingerprint matches saved value
-	// 4. Prompt user if certificate changes (could indicate MITM or bridge replacement)
-	httpClient := &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: true, // Required for Hue bridge self-signed certs
-			},
-		},
-		Timeout: 10 * time.Second,
-	}
+	// Create HTTP client using common utility (QUAL-004 fix)
+	httpClient := common.NewHueHTTPClient()
 
 	// Create API key auth function
 	apiKeyAuth := func(ctx context.Context, req *http.Request) error {
@@ -115,6 +91,8 @@ func NewClient(ctx context.Context, bridgeAddr, apiKey string) (*Client, error) 
 			Connected:  false,
 			BridgeAddr: bridgeAddr,
 		},
+		// SEC-006: Rate limiter - 10 requests/sec, burst up to 20
+		limiter: rate.NewLimiter(rate.Limit(10), 20),
 	}
 
 	// Initial connection check
@@ -126,8 +104,17 @@ func NewClient(ctx context.Context, bridgeAddr, apiKey string) (*Client, error) 
 	return c, nil
 }
 
+// waitForRateLimit waits for rate limiter before making API call
+func (c *Client) waitForRateLimit() error {
+	return c.limiter.Wait(c.ctx)
+}
+
 // SetLightPower turns a grouped light (room) on or off
 func (c *Client) SetLightPower(groupID string, on bool) error {
+	if err := c.waitForRateLimit(); err != nil {
+		return fmt.Errorf("rate limit error: %w", err)
+	}
+
 	body := openhue.UpdateGroupedLightJSONRequestBody{
 		On: &openhue.On{
 			On: &on,
@@ -148,6 +135,10 @@ func (c *Client) SetLightPower(groupID string, on bool) error {
 
 // GetGroupedLightState gets the current power and brightness state of a grouped light
 func (c *Client) GetGroupedLightState(groupID string) (power bool, brightness float32, err error) {
+	if err := c.waitForRateLimit(); err != nil {
+		return false, 0, fmt.Errorf("rate limit error: %w", err)
+	}
+
 	resp, err := c.client.GetGroupedLightWithResponse(c.ctx, groupID)
 	if err != nil {
 		return false, 0, fmt.Errorf("failed to get grouped light: %w", err)
@@ -182,6 +173,10 @@ func (c *Client) SetLightBrightness(groupID string, brightness float32) error {
 		return fmt.Errorf("brightness must be between 0 and 100")
 	}
 
+	if err := c.waitForRateLimit(); err != nil {
+		return fmt.Errorf("rate limit error: %w", err)
+	}
+
 	body := openhue.UpdateGroupedLightJSONRequestBody{
 		Dimming: &openhue.Dimming{
 			Brightness: &brightness,
@@ -202,6 +197,10 @@ func (c *Client) SetLightBrightness(groupID string, brightness float32) error {
 
 // ActivateScene activates a scene
 func (c *Client) ActivateScene(sceneID string) error {
+	if err := c.waitForRateLimit(); err != nil {
+		return fmt.Errorf("rate limit error: %w", err)
+	}
+
 	action := openhue.SceneRecallActionActive
 
 	body := openhue.UpdateSceneJSONRequestBody{
@@ -228,6 +227,10 @@ func (c *Client) ActivateScene(sceneID string) error {
 
 // GetScenes lists all available scenes with their room names
 func (c *Client) GetScenes() ([]Scene, error) {
+	if err := c.waitForRateLimit(); err != nil {
+		return nil, fmt.Errorf("rate limit error: %w", err)
+	}
+
 	resp, err := c.client.GetScenesWithResponse(c.ctx)
 	if err != nil {
 		c.setConnectionError(err)
@@ -302,6 +305,10 @@ func (c *Client) GetScenes() ([]Scene, error) {
 
 // Ping checks if the bridge is reachable
 func (c *Client) Ping() error {
+	if err := c.waitForRateLimit(); err != nil {
+		return fmt.Errorf("rate limit error: %w", err)
+	}
+
 	resp, err := c.client.GetBridgesWithResponse(c.ctx)
 	if err != nil {
 		c.setConnectionError(err)
@@ -320,6 +327,10 @@ func (c *Client) Ping() error {
 
 // GetGroupedLights lists all available rooms and zones with grouped lights
 func (c *Client) GetGroupedLights() ([]GroupedLight, error) {
+	if err := c.waitForRateLimit(); err != nil {
+		return nil, fmt.Errorf("rate limit error: %w", err)
+	}
+
 	var groupedLights []GroupedLight
 	var errors []error
 
@@ -415,6 +426,7 @@ func (c *Client) IsReachable() (bool, error) {
 	ctx, cancel := context.WithTimeout(c.ctx, 5*time.Second)
 	defer cancel()
 
+	// Note: No rate limiting on health check to avoid blocking status checks
 	// Try to get bridge info
 	resp, err := c.client.GetBridgesWithResponse(ctx)
 	if err != nil {
