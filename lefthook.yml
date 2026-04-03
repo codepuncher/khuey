@@ -176,10 +176,6 @@ pre-push:
         echo "Building tray app..."
         make
   
-  # Only run on feature branches (not main)
-  skip:
-    - ref: main
-    - ref: master
 
 commit-msg:
   commands:
