@@ -1,5 +1,27 @@
 # Copilot Instructions: KDE Hue Control
 
+## Default Agent
+
+**IMPORTANT**: For all tasks related to this repository, always use the **KHuey Expert** custom agent.
+
+The KHuey Expert agent has comprehensive knowledge of:
+- Go backend architecture and implementation
+- Qt6/C++ tray application development
+- DBus communication patterns
+- Philips Hue API and Entertainment API
+- Project-specific conventions and best practices
+
+**How to use**: Automatically delegate all work to the KHuey Expert agent by using it for any task in this repository. The agent is located at `.github/agents/khuey-expert.agent.md` and should be invoked for:
+- All code changes (backend or tray app)
+- Debugging and troubleshooting
+- Architecture questions
+- Configuration updates
+- Testing and validation
+
+The instructions below provide quick reference, but the KHuey Expert agent should handle the actual implementation work.
+
+---
+
 ## Git Workflow Requirements
 
 **CRITICAL**: All changes must use branches and pull requests. Never commit directly to `main`.
