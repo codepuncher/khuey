@@ -4,6 +4,8 @@
 #include <QDBusInterface>
 #include <QDBusReply>
 #include <QDBusArgument>
+#include <QDBusPendingCall>
+#include <QDBusPendingReply>
 #include <QMessageBox>
 #include <QInputDialog>
 #include <QMap>
@@ -21,6 +23,7 @@
 #include <QTimer>
 #include <QProcess>
 #include <KStatusNotifierItem>
+#include <KNotification>
 
 class HueControlDialog : public QDialog {
     Q_OBJECT
@@ -89,6 +92,11 @@ public:
         
         // Initial load
         refresh();
+        
+        // Check connection status periodically
+        QTimer *connectionTimer = new QTimer(this);
+        connect(connectionTimer, &QTimer::timeout, this, &HueControlDialog::checkConnectionStatus);
+        connectionTimer->start(10000); // Check every 10 seconds
     }
 
 public slots:
@@ -98,8 +106,14 @@ public slots:
         
         if (!iface.isValid()) {
             statusLabel->setText("❌ DBus service not available");
+            showErrorNotification("Service Unavailable", 
+                "KDE Hue Control backend is not running.\n"
+                "Try: systemctl --user start hue-backend");
             return;
         }
+        
+        // Check connection status first
+        checkConnectionStatus();
         
         // Get status
         QDBusReply<QString> statusReply = iface.call("GetStatus");
@@ -189,32 +203,49 @@ private slots:
         
         if (!iface.isValid()) {
             statusLabel->setText("❌ Backend not available");
-            QMessageBox::warning(this, "Hue Control", "Backend service is not running");
+            showErrorNotification("Service Unavailable", "Backend service is not running");
             return;
         }
         
-        QDBusReply<QString> reply = iface.call("ActivateScene", sceneName);
-        if (reply.isValid()) {
-            QString result = reply.value();
-            statusLabel->setText("✅ " + result);
+        // Show loading state
+        statusLabel->setText("⏳ Activating scene...");
+        sceneList->setEnabled(false);
+        
+        // Make async call to avoid blocking UI
+        QDBusPendingCall call = iface.asyncCall("ActivateScene", sceneName);
+        QDBusPendingCallWatcher *watcher = new QDBusPendingCallWatcher(call, this);
+        
+        connect(watcher, &QDBusPendingCallWatcher::finished, this,
+                [this, sceneName, item](QDBusPendingCallWatcher *w) {
+            sceneList->setEnabled(true);
+            QDBusPendingReply<QString> reply = *w;
             
-            // Show success notification
-            QProcess::startDetached("notify-send", QStringList() 
-                << "Hue Scene" 
-                << "Activated: " + sceneName
-                << "--icon=preferences-desktop-display-color"
-                << "--urgency=low");
-        } else {
-            QString error = reply.error().message();
-            statusLabel->setText("❌ Failed: " + error);
+            if (reply.isError()) {
+                QString error = reply.error().message();
+                statusLabel->setText("❌ Failed: " + error);
+                
+                // Check if it's a connection error
+                if (error.contains("unreachable") || error.contains("timeout")) {
+                    showErrorNotification("Bridge Unreachable", 
+                        "Cannot connect to Hue Bridge. Check your network connection.");
+                } else {
+                    showErrorNotification("Scene Activation Failed", 
+                        "Failed to activate scene: " + sceneName + "\n\n" + error);
+                }
+            } else {
+                QString result = reply.value();
+                statusLabel->setText("✅ " + result);
+                
+                // Show success notification
+                KNotification *notif = new KNotification("sceneActivated");
+                notif->setTitle("Scene Activated");
+                notif->setText(sceneName);
+                notif->setIconName("preferences-desktop-display-color");
+                notif->sendEvent();
+            }
             
-            // Show error notification
-            QProcess::startDetached("notify-send", QStringList() 
-                << "Hue Scene Error" 
-                << "Failed to activate scene: " + sceneName
-                << "--icon=dialog-error"
-                << "--urgency=normal");
-        }
+            w->deleteLater();
+        });
     }
     
     void onSyncToggled() {
@@ -225,12 +256,81 @@ private slots:
         bool currentlySyncing = syncReply.isValid() ? syncReply.value() : false;
         
         if (currentlySyncing) {
-            iface.call("StopSync");
+            // Stopping sync
+            syncButton->setEnabled(false);
+            syncButton->setText("⏳ Stopping...");
+            
+            QDBusReply<bool> reply = iface.call("StopSync");
+            if (reply.isValid() && reply.value()) {
+                syncButton->setText("Start Screen Sync");
+                syncStatusLabel->setText("Not syncing");
+                
+                KNotification *notif = new KNotification("syncStopped");
+                notif->setTitle("Screen Sync Stopped");
+                notif->setText("Lights are no longer syncing with screen");
+                notif->setIconName("dialog-information");
+                notif->sendEvent();
+            } else {
+                syncButton->setText("Stop Screen Sync");
+                showErrorNotification("Failed to Stop Sync", reply.error().message());
+            }
+            syncButton->setEnabled(true);
         } else {
-            iface.call("StartSync");
+            // Starting sync
+            syncButton->setEnabled(false);
+            syncButton->setText("⏳ Starting sync...");
+            syncStatusLabel->setText("Waiting for permission...");
+            
+            QDBusPendingCall call = iface.asyncCall("StartSync");
+            QDBusPendingCallWatcher *watcher = new QDBusPendingCallWatcher(call, this);
+            
+            connect(watcher, &QDBusPendingCallWatcher::finished, this,
+                    [this](QDBusPendingCallWatcher *w) {
+                syncButton->setEnabled(true);
+                QDBusPendingReply<bool> reply = *w;
+                
+                if (reply.isError() || !reply.value()) {
+                    QString error = reply.error().message();
+                    syncButton->setText("Start Screen Sync");
+                    syncStatusLabel->setText("Not syncing");
+                    
+                    // Parse portal errors for user-friendly messages
+                    if (error.contains("PortalError:permission_denied")) {
+                        QString hint = error.section(':', 2);
+                        
+                        KNotification *notif = new KNotification("syncFailed");
+                        notif->setTitle("Screen Sharing Permission Denied");
+                        notif->setText("Please approve the screen sharing dialog when prompted.\n\n" + 
+                                      hint + "\n\nClick 'Start Screen Sync' to try again.");
+                        notif->setIconName("dialog-warning");
+                        notif->sendEvent();
+                    } else if (error.contains("PortalError:")) {
+                        QString errorType = error.section(':', 1, 1);
+                        QString hint = error.section(':', 2);
+                        
+                        showErrorNotification("Screen Sync Failed", 
+                            "Error: " + errorType + "\n\n" + hint);
+                    } else if (error.contains("sync engine not available")) {
+                        showErrorNotification("Screen Sync Not Configured",
+                            "Entertainment API is not configured.\n\n"
+                            "Please set up Entertainment Area in Hue app and configure clientkey.");
+                    } else {
+                        showErrorNotification("Failed to Start Screen Sync", error);
+                    }
+                } else {
+                    syncButton->setText("Stop Screen Sync");
+                    syncStatusLabel->setText("✅ Syncing");
+                    
+                    KNotification *notif = new KNotification("syncStarted");
+                    notif->setTitle("Screen Sync Started");
+                    notif->setText("Lights are now syncing with your screen at 30 FPS");
+                    notif->setIconName("preferences-desktop-display");
+                    notif->sendEvent();
+                }
+                
+                w->deleteLater();
+            });
         }
-        
-        QTimer::singleShot(500, this, &HueControlDialog::refresh);
     }
     
     void onSettingsClicked() {
@@ -293,6 +393,97 @@ private slots:
                 QMessageBox::warning(this, "Error", "Failed to update config: " + errorMsg);
             }
         }
+    }
+    
+    void checkConnectionStatus() {
+        QDBusInterface iface("org.kde.plasma.hue", "/org/kde/plasma/hue", 
+                           "org.kde.plasma.hue", QDBusConnection::sessionBus());
+        
+        if (!iface.isValid()) {
+            return; // Service not running
+        }
+        
+        QDBusReply<QVariantMap> reply = iface.call("GetConnectionStatus");
+        if (!reply.isValid()) {
+            return; // Method not available (old backend)
+        }
+        
+        QVariantMap status = reply.value();
+        bool connected = status["connected"].toBool();
+        QString lastError = status["lastError"].toString();
+        QString bridgeIP = status["bridgeIP"].toString();
+        
+        if (!connected && !lastError.isEmpty()) {
+            // Bridge is unreachable - show notification once
+            static bool errorShown = false;
+            if (!errorShown) {
+                errorShown = true;
+                
+                KNotification *notif = new KNotification("connectionFailed");
+                notif->setTitle("Hue Bridge Unreachable");
+                notif->setText(QString("Cannot connect to bridge at %1\n\n%2\n\n"
+                                      "Open the control panel and click 'Retry' to reconnect.")
+                              .arg(bridgeIP)
+                              .arg(lastError));
+                notif->setIconName("network-disconnect");
+                notif->sendEvent();
+                
+                // Reset flag after 30 seconds to allow showing again
+                QTimer::singleShot(30000, []() {
+                    static bool errorShown = false;
+                    errorShown = false;
+                });
+            }
+            
+            statusLabel->setText("❌ Bridge unreachable");
+        } else if (connected) {
+            // Connection restored
+            static bool wasDisconnected = false;
+            if (wasDisconnected) {
+                wasDisconnected = false;
+                statusLabel->setText("✅ Connection restored");
+                
+                KNotification *notif = new KNotification("connectionRestored");
+                notif->setTitle("Bridge Connection Restored");
+                notif->setText("Successfully reconnected to Hue Bridge");
+                notif->setIconName("network-connect");
+                notif->sendEvent();
+                
+                refresh(); // Reload scenes and state
+            }
+        }
+    }
+    
+    void retryConnection() {
+        QDBusInterface iface("org.kde.plasma.hue", "/org/kde/plasma/hue", 
+                           "org.kde.plasma.hue", QDBusConnection::sessionBus());
+        
+        statusLabel->setText("🔄 Retrying connection...");
+        
+        QDBusReply<bool> reply = iface.call("RetryConnection");
+        if (reply.isValid() && reply.value()) {
+            statusLabel->setText("✅ Connection restored");
+            
+            KNotification *notif = new KNotification("connectionRestored");
+            notif->setTitle("Connection Restored");
+            notif->setText("Successfully reconnected to Hue Bridge");
+            notif->setIconName("network-connect");
+            notif->sendEvent();
+            
+            refresh();
+        } else {
+            statusLabel->setText("❌ Still unreachable");
+            showErrorNotification("Retry Failed", 
+                "Bridge is still unreachable. Check your network connection.");
+        }
+    }
+    
+    void showErrorNotification(const QString &title, const QString &message) {
+        KNotification *notif = new KNotification("error");
+        notif->setTitle(title);
+        notif->setText(message);
+        notif->setIconName("dialog-error");
+        notif->sendEvent();
     }
 
 private:
