@@ -196,6 +196,159 @@ lefthook install
 # This sets up automatic code formatting, testing, and validation
 ```
 
+## Troubleshooting
+
+### Backend Service Issues
+
+**Problem: Tray app says "DBus service not available"**
+```bash
+# Check if backend is running
+systemctl --user status hue-backend
+
+# View backend logs
+journalctl --user -u hue-backend -f
+
+# Restart backend
+systemctl --user restart hue-backend
+```
+
+**Problem: Backend won't start**
+```bash
+# Check for errors in logs
+journalctl --user -u hue-backend --no-pager -n 50
+
+# Common issues:
+# - Config file missing: Check ~/.openhue/config.yaml exists
+# - Bridge address wrong: Update 'Bridge:' in config.yaml
+# - API key invalid: Run 'openhue setup' to generate new key
+```
+
+### Bridge Connection Issues
+
+**Problem: "Cannot connect to Hue Bridge" notification**
+
+1. **Check network connectivity**
+   ```bash
+   ping YOUR_BRIDGE_IP
+   ```
+
+2. **Verify bridge IP in config**
+   ```bash
+   grep Bridge ~/.openhue/config.yaml
+   ```
+
+3. **Test bridge manually**
+   ```bash
+   curl -k https://YOUR_BRIDGE_IP/clip/v2/resource
+   ```
+
+4. **Use retry button**
+   - Click notification's "Retry" button
+   - Or open control panel and click "Refresh"
+
+**Problem: Bridge IP changed (DHCP)**
+
+Set a static IP for your bridge in your router settings, or update the config:
+```bash
+# Edit config file
+nano ~/.openhue/config.yaml
+
+# Update Bridge IP
+Bridge: "192.168.1.X"  # Your new IP
+
+# Restart backend
+systemctl --user restart hue-backend
+```
+
+### Screen Sync Issues
+
+**Problem: "Screen sharing permission denied"**
+
+This is **normal** the first time! You must:
+1. Click "Start Screen Sync"
+2. **Approve the GUI permission dialog** that appears
+3. Select which monitor to share
+4. Click "Share"
+
+The dialog is shown by your desktop environment (XDG Desktop Portal) and is required for security.
+
+**Problem: Screen Sync button does nothing**
+
+```bash
+# Check if Entertainment API is configured
+grep entertainmentConfigurationId ~/.openhue/config.yaml
+
+# If not configured, set it up:
+cd backend
+go run ./cmd/register-entertainment
+# Follow prompts to create Entertainment Area
+
+# Update config with the ID and clientkey shown
+```
+
+**Problem: "Sync engine not available"**
+
+You need to configure Entertainment API:
+1. Open Hue app on phone
+2. Create an Entertainment Area (Settings → Entertainment Areas)
+3. Add your lights to the area
+4. Run: `cd backend && go run ./cmd/register-entertainment`
+5. Update `~/.openhue/config.yaml` with `entertainmentConfigurationId` and `clientkey`
+
+### Scene Activation Issues
+
+**Problem: Scenes don't appear in list**
+
+```bash
+# Check if scenes exist in Hue app
+# Then verify backend can fetch them:
+dbus-send --session --print-reply --dest=org.kde.plasma.hue \
+  /org/kde/plasma/hue org.kde.plasma.hue.GetScenes
+```
+
+**Problem: Scene activation fails**
+
+- Ensure lights are powered on (not physically off)
+- Check bridge connection (see above)
+- Verify scene still exists in Hue app
+
+### Configuration Errors
+
+**Problem: "uvA.x must be 0.0-1.0" or similar validation error**
+
+Your config file has invalid UV coordinates. UV coordinates represent screen zones:
+- `0.0` = left/top edge
+- `1.0` = right/bottom edge
+- `uvA` = top-left corner, `uvB` = bottom-right corner
+
+Example fix:
+```yaml
+channels:
+  - id: 0
+    uvA:
+      x: 0.0   # Left edge
+      y: 0.0   # Top edge
+    uvB:
+      x: 0.5   # Middle (left half of screen)
+      y: 1.0   # Bottom edge
+```
+
+**Problem: "sync.fps must be between 1 and 60"**
+
+Update your config:
+```yaml
+sync:
+  fps: 30  # Recommended: 20-30
+  subsampleWidth: 64  # Recommended: 64
+```
+
+### Getting Help
+
+Still stuck? Check:
+1. **Logs**: `journalctl --user -u hue-backend -f`
+2. **DBus introspection**: `dbus-send --session --dest=org.kde.plasma.hue --print-reply /org/kde/plasma/hue org.freedesktop.DBus.Introspectable.Introspect`
+3. **GitHub Issues**: Report bugs or ask questions
+
 ## Development Status
 
 **Progress: 10/15 components complete (67%)**
