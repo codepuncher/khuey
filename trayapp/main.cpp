@@ -541,12 +541,12 @@ class HueTrayApp : public QApplication {
         // Create menu
         auto menu = new QMenu();
 
-        auto showAction = menu->addAction("Show Control Panel");
+        auto showAction = menu->addAction(QIcon::fromTheme("view-form"), "Show Control Panel");
         connect(showAction, &QAction::triggered, this, &HueTrayApp::showControlDialog);
 
         menu->addSeparator();
 
-        auto settingsAction = menu->addAction("⚙️ Settings...");
+        auto settingsAction = menu->addAction(QIcon::fromTheme("configure"), "Settings...");
         connect(settingsAction, &QAction::triggered, this, &HueTrayApp::showSettingsDialog);
 
         sni->setContextMenu(menu);
