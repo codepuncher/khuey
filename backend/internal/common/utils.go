@@ -8,6 +8,12 @@ import (
 	"unicode/utf8"
 )
 
+// Constants for HTTP communication
+const (
+	// DefaultHTTPTimeout is the default timeout for HTTP requests to Hue bridge
+	DefaultHTTPTimeout = 10 * time.Second
+)
+
 // SanitizeForLog sanitizes sensitive strings for logging by masking the middle
 func SanitizeForLog(s string) string {
 	if s == "" {
@@ -46,7 +52,7 @@ func ValidateDBusString(name, value string, maxLen int) error {
 // certificate fingerprint during initial setup and verifying it on subsequent connections.
 func NewHueHTTPClient() *http.Client {
 	return &http.Client{
-		Timeout: 10 * time.Second,
+		Timeout: DefaultHTTPTimeout,
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{
 				InsecureSkipVerify: true, // Required for Hue bridge self-signed certs

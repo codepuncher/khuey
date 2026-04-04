@@ -32,7 +32,7 @@ func main() {
 
 	// Connect
 	fmt.Println("🔌 Connecting to Entertainment API...")
-	fmt.Println("   Bridge: " + cfg.BridgeIP + ":2100")
+	fmt.Printf("   Bridge: %s:%d\n", cfg.BridgeIP, entertainment.EntertainmentAPIPort)
 	fmt.Println("   Entertainment ID: " + cfg.EntertainmentID[:8] + "...")
 
 	if err := client.Connect(); err != nil {

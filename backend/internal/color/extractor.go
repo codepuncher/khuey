@@ -8,6 +8,12 @@ import (
 	"github.com/disintegration/imaging"
 )
 
+// Constants for color extraction
+const (
+	MinSubsampleWidth = 16  // Minimum subsample width for color extraction
+	MaxSubsampleWidth = 256 // Maximum subsample width for color extraction
+)
+
 // Zone represents a rectangular region on screen with UV coordinates
 type Zone struct {
 	ID   int     // Zone identifier
@@ -34,8 +40,8 @@ type Extractor struct {
 
 // NewExtractor creates a new color extractor
 func NewExtractor(subsampleWidth int, gamma float64) (*Extractor, error) {
-	if subsampleWidth < 16 || subsampleWidth > 256 {
-		return nil, fmt.Errorf("subsample width must be between 16 and 256, got %d", subsampleWidth)
+	if subsampleWidth < MinSubsampleWidth || subsampleWidth > MaxSubsampleWidth {
+		return nil, fmt.Errorf("subsample width must be between %d and %d, got %d", MinSubsampleWidth, MaxSubsampleWidth, subsampleWidth)
 	}
 
 	if gamma <= 0 {
@@ -58,6 +64,7 @@ func (e *Extractor) ExtractColors(img image.Image, zones []Zone) ([]ZoneColor, e
 	subsampled := e.subsampleImage(img)
 
 	// Step 2: Extract colors from each zone
+	// PERF-007: Pre-allocate with exact capacity since size is known
 	colors := make([]ZoneColor, 0, len(zones))
 
 	for _, zone := range zones {

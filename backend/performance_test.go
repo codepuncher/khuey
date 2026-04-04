@@ -1,12 +1,13 @@
 package main
 
 import (
-"fmt"
-"log"
-"time"
+	"context"
+	"fmt"
+	"log"
+	"time"
 
-"github.com/codepuncher/khuey/internal/config"
-"github.com/codepuncher/khuey/internal/sync"
+	"github.com/codepuncher/khuey/internal/config"
+	"github.com/codepuncher/khuey/internal/sync"
 )
 
 func main() {
@@ -35,8 +36,8 @@ log.Fatalf("Failed to create engine: %v", err)
 
 // Start sync
 fmt.Println("Starting sync engine...")
-if err := engine.Start(); err != nil {
-log.Fatalf("Failed to start: %v", err)
+if err := engine.Start(context.Background()); err != nil {
+	log.Fatalf("Failed to start: %v", err)
 }
 defer engine.Stop()
 

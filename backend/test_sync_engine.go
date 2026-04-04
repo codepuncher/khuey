@@ -1,12 +1,13 @@
 package main
 
 import (
-"fmt"
-"log"
-"time"
+	"context"
+	"fmt"
+	"log"
+	"time"
 
-"github.com/codepuncher/khuey/internal/config"
-"github.com/codepuncher/khuey/internal/sync"
+	"github.com/codepuncher/khuey/internal/config"
+	"github.com/codepuncher/khuey/internal/sync"
 )
 
 func main() {
@@ -22,22 +23,25 @@ log.Fatalf("Failed to load config: %v", err)
 }
 fmt.Printf("✅ Config loaded - Bridge: %s\n", cfg.Bridge)
 fmt.Printf("   Entertainment ID: %s\n", cfg.EntertainmentConfigurationID)
-fmt.Printf("   Channels: %d\n", len(cfg.Channels))
-fmt.Println()
+	fmt.Printf("   Channels: %d\n", len(cfg.Channels))
+	fmt.Println()
 
-// Create sync engine
-fmt.Println("🎮 Creating sync engine...")
-engine := sync.NewEngine(cfg)
-fmt.Println("✅ Engine created")
-fmt.Println()
+	// Create sync engine
+	fmt.Println("🎮 Creating sync engine...")
+	engine, err := sync.NewEngine(cfg)
+	if err != nil {
+		log.Fatalf("Failed to create engine: %v", err)
+	}
+	fmt.Println("✅ Engine created")
+	fmt.Println()
 
-// Start sync
-fmt.Println("🚀 Starting screen sync...")
-if err := engine.Start(); err != nil {
-log.Fatalf("Failed to start sync: %v", err)
-}
-fmt.Println("✅ Sync started!")
-fmt.Println()
+	// Start sync
+	fmt.Println("🚀 Starting screen sync...")
+	if err := engine.Start(context.Background()); err != nil {
+		log.Fatalf("Failed to start sync: %v", err)
+	}
+	fmt.Println("✅ Sync started!")
+	fmt.Println()
 
 // Check status
 if engine.IsRunning() {

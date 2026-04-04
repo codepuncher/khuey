@@ -1,3 +1,5 @@
+// Package sync provides screen synchronization with Hue Entertainment API.
+// It captures screen content, extracts colors from zones, and streams them to Hue lights in real-time.
 package sync
 
 import (
@@ -77,6 +79,7 @@ func NewEngine(cfg *config.Config) (*Engine, error) {
 // createZonesFromConfig creates zones based on channel UV coordinates
 // Falls back to auto-split if UV coordinates are not configured
 func createZonesFromConfig(cfg *config.Config) []color.Zone {
+	// PERF-007: Pre-allocate with maximum possible capacity (all channels)
 	zones := make([]color.Zone, 0, len(cfg.Channels))
 	activeChannels := 0
 
@@ -116,13 +119,13 @@ func createZonesFromConfig(cfg *config.Config) []color.Zone {
 					V2:   float64(ch.UVB.Y),
 					Name: ch.DeviceName,
 				}
-				log.Printf("📍 Zone %d (%s): UV [%.2f,%.2f] to [%.2f,%.2f]",
+				log.Printf("Zone %d (%s): UV [%.2f,%.2f] to [%.2f,%.2f]",
 					ch.ID, ch.DeviceName, ch.UVA.X, ch.UVA.Y, ch.UVB.X, ch.UVB.Y)
 			}
 		} else {
 			// No UV config - use auto-split
 			zone = createDefaultZone(autoSplitIndex, activeChannels)
-			log.Printf("📍 Zone %d (%s): Auto-split [%.2f,%.2f] to [%.2f,%.2f]",
+			log.Printf("Zone %d (%s): Auto-split [%.2f,%.2f] to [%.2f,%.2f]",
 				ch.ID, ch.DeviceName, zone.U1, zone.V1, zone.U2, zone.V2)
 		}
 
@@ -190,13 +193,18 @@ func createDefaultZone(index, total int) color.Zone {
 	return zone
 }
 
-// Start begins screen synchronization
-func (e *Engine) Start() error {
+// Start begins screen synchronization with the provided context
+func (e *Engine) Start(ctx context.Context) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
 	if e.running {
 		return fmt.Errorf("sync already running")
+	}
+
+	// Use provided context or default to Background
+	if ctx == nil {
+		ctx = context.Background()
 	}
 
 	// Activate Entertainment Area first
@@ -220,15 +228,15 @@ func (e *Engine) Start() error {
 		return fmt.Errorf("failed to connect to Entertainment API: %w", err)
 	}
 
-	// STD-001: Accept parent context for proper context propagation
-	ctx, cancel := context.WithCancel(context.Background())
+	// Create child context for cancellation (proper context propagation)
+	syncCtx, cancel := context.WithCancel(ctx)
 	e.cancel = cancel
 	e.running = true
 
 	// Start sync loop in goroutine
-	go e.syncLoop(ctx)
+	go e.syncLoop(syncCtx)
 
-	log.Printf("✅ Screen sync started at %d FPS", e.fps)
+	log.Printf("Screen sync started at %d FPS", e.fps)
 	return nil
 }
 
@@ -255,7 +263,7 @@ func (e *Engine) Stop() error {
 	}
 
 	e.running = false
-	log.Println("✅ Screen sync stopped")
+	log.Println("Screen sync stopped")
 	return nil
 }
 
@@ -295,12 +303,30 @@ func (e *Engine) syncLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			// Non-blocking ticker drain to handle frame drops gracefully
+			// If processing takes longer than frame interval, skip accumulated ticks
+			drained := 0
+		drainLoop:
+			for {
+				select {
+				case <-ticker.C:
+					drained++
+				default:
+					break drainLoop
+				}
+			}
+			if drained > 0 {
+				log.Printf("⚠️  Frame skip: dropped %d frames (processing too slow for %d FPS)", drained, e.fps)
+			}
+
 			// Capture frame (currently mock gradient)
 			frame, err := e.capturer.CaptureFrame()
 			if err != nil {
 				log.Printf("⚠️  Capture error: %v", err)
 				continue
 			}
+			// RES-007: Return frame buffer to pool after processing
+			defer capture.PutImageBuffer(frame)
 
 			// Extract colors from zones
 			zoneColors, err := extractor.ExtractColors(frame, e.zones)
@@ -310,6 +336,7 @@ func (e *Engine) syncLoop(ctx context.Context) {
 			}
 
 			// Convert to ChannelColor format with proper channel IDs
+			// PERF-007: Pre-allocate with exact capacity (hot path optimization)
 			channelColors := make([]entertainment.ChannelColor, len(zoneColors))
 			for i, zc := range zoneColors {
 				// Get channel ID from config
@@ -321,9 +348,9 @@ func (e *Engine) syncLoop(ctx context.Context) {
 				// Convert 8-bit RGB to 16-bit (0-255 → 0-65535)
 				channelColors[i] = entertainment.ChannelColor{
 					ChannelID: channelID,
-					R:         uint16(zc.R) * 257, // 257 = 65535 / 255
-					G:         uint16(zc.G) * 257,
-					B:         uint16(zc.B) * 257,
+					R:         uint16(zc.R) * entertainment.Color8To16Multiplier,
+					G:         uint16(zc.G) * entertainment.Color8To16Multiplier,
+					B:         uint16(zc.B) * entertainment.Color8To16Multiplier,
 				}
 			}
 
@@ -386,6 +413,6 @@ func (e *Engine) activateEntertainmentArea() error {
 		return fmt.Errorf("bridge returned errors: %v", errors)
 	}
 
-	log.Println("✅ Entertainment Area activated")
+	log.Printf("Entertainment Area activated")
 	return nil
 }

@@ -17,6 +17,46 @@ import (
 	"github.com/godbus/dbus/v5"
 )
 
+// Constants for screen capture
+const (
+	MinFPS = 10 // Minimum frames per second
+	MaxFPS = 60 // Maximum frames per second
+)
+
+// RES-007: sync.Pool for image buffers to reduce GC pressure
+// Pool for RGBA image buffers used in frame copying
+var imageBufferPool = sync.Pool{
+	New: func() interface{} {
+		// Create a buffer for standard 1080p frames (most common)
+		// Actual allocation will be replaced if size differs
+		return image.NewRGBA(image.Rect(0, 0, 1920, 1080))
+	},
+}
+
+// GetImageBuffer gets an image buffer from the pool or creates a new one if size doesn't match
+func GetImageBuffer(bounds image.Rectangle) *image.RGBA {
+	img := imageBufferPool.Get().(*image.RGBA)
+
+	// Check if pooled buffer matches required size
+	if img.Bounds() != bounds {
+		// Size mismatch - create new buffer with correct size
+		img = image.NewRGBA(bounds)
+	}
+
+	return img
+}
+
+// PutImageBuffer returns an image buffer to the pool
+func PutImageBuffer(img *image.RGBA) {
+	if img != nil {
+		// Reset alpha channel to prevent color bleeding between frames
+		for i := 3; i < len(img.Pix); i += 4 {
+			img.Pix[i] = 255
+		}
+		imageBufferPool.Put(img)
+	}
+}
+
 // ScreenCapture handles screen capture via Wayland/Pipewire
 type ScreenCapture struct {
 	conn          *dbus.Conn
@@ -43,21 +83,22 @@ type ScreenCapture struct {
 
 // Config holds screen capture configuration
 type Config struct {
-	FPS              int    // Target frames per second (10-60)
-	Monitor          int    // Monitor index (-1 for all monitors)
-	UseMockFrames    bool   // Use mock gradient instead of real capture (for testing)
-	UseNativeCapture bool   // Use native CGo PipeWire capture (default: true)
-	UseScreenshot    bool   // Use screenshot method for real capture (simple, higher CPU)
-	ScreenshotTool   string // Screenshot tool to use: "spectacle", "import", etc (auto-detect if empty)
-	CaptureWidth     int    // Downsample width (0 = full resolution, e.g. 640 for faster)
-	CaptureHeight    int    // Downsample height (0 = full resolution, e.g. 360 for faster)
+	FPS              int             // Target frames per second (10-60)
+	Monitor          int             // Monitor index (-1 for all monitors)
+	UseMockFrames    bool            // Use mock gradient instead of real capture (for testing)
+	UseNativeCapture bool            // Use native CGo PipeWire capture (default: true)
+	UseScreenshot    bool            // Use screenshot method for real capture (simple, higher CPU)
+	ScreenshotTool   string          // Screenshot tool to use: "spectacle", "import", etc (auto-detect if empty)
+	CaptureWidth     int             // Downsample width (0 = full resolution, e.g. 640 for faster)
+	CaptureHeight    int             // Downsample height (0 = full resolution, e.g. 360 for faster)
+	Context          context.Context // Parent context for cancellation (optional, defaults to Background)
 }
 
 // NewScreenCapture creates a new screen capture instance
 func NewScreenCapture(cfg Config) (*ScreenCapture, error) {
 	// Validate FPS
-	if cfg.FPS < 10 || cfg.FPS > 60 {
-		return nil, fmt.Errorf("FPS must be between 10 and 60, got %d", cfg.FPS)
+	if cfg.FPS < MinFPS || cfg.FPS > MaxFPS {
+		return nil, fmt.Errorf("FPS must be between %d and %d, got %d", MinFPS, MaxFPS, cfg.FPS)
 	}
 
 	// Connect to session bus for XDG Desktop Portal
@@ -66,7 +107,12 @@ func NewScreenCapture(cfg Config) (*ScreenCapture, error) {
 		return nil, fmt.Errorf("failed to connect to session bus: %w", err)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	// Use provided context or default to Background
+	parentCtx := cfg.Context
+	if parentCtx == nil {
+		parentCtx = context.Background()
+	}
+	ctx, cancel := context.WithCancel(parentCtx)
 
 	// Auto-detect screenshot tool if UseScreenshot is enabled
 	screenshotTool := cfg.ScreenshotTool
@@ -191,9 +237,9 @@ func (sc *ScreenCapture) CaptureFrame() (*image.RGBA, error) {
 		return nil, fmt.Errorf("no frame available yet")
 	}
 
-	// Return a copy to avoid race conditions
+	// RES-007: Use pooled buffer for frame copy to reduce GC pressure
 	bounds := sc.frameBuffer.Bounds()
-	frame := image.NewRGBA(bounds)
+	frame := GetImageBuffer(bounds)
 	copy(frame.Pix, sc.frameBuffer.Pix)
 
 	return frame, nil
@@ -240,6 +286,8 @@ func (sc *ScreenCapture) captureScreenshot() (*image.RGBA, error) {
 	case "spectacle":
 		// Spectacle doesn't support stdout, use temp file
 		tmpfile := "/tmp/hue-screenshot.png"
+		defer os.Remove(tmpfile) // Ensure cleanup in all paths
+
 		cmd = exec.CommandContext(sc.ctx, "spectacle", "-b", "-n", "-o", tmpfile)
 		if err = cmd.Run(); err != nil {
 			return nil, fmt.Errorf("spectacle failed: %w", err)
@@ -252,7 +300,6 @@ func (sc *ScreenCapture) captureScreenshot() (*image.RGBA, error) {
 				"-resize", fmt.Sprintf("%dx%d!", sc.captureWidth, sc.captureHeight),
 				tmpfile)
 			if err = resizeCmd.Run(); err != nil {
-				os.Remove(tmpfile)
 				return nil, fmt.Errorf("resize failed: %w", err)
 			}
 		}
@@ -261,7 +308,6 @@ func (sc *ScreenCapture) captureScreenshot() (*image.RGBA, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to read screenshot: %w", err)
 		}
-		os.Remove(tmpfile) // Clean up
 
 	case "grim":
 		// Grim (Wayland): capture to stdout with optional scale
@@ -322,6 +368,8 @@ func (sc *ScreenCapture) Stop() {
 	// Stop gstreamer pipeline
 	if sc.gstCmd != nil && sc.gstCmd.Process != nil {
 		sc.gstCmd.Process.Kill()
+		// Wait for process to exit to prevent zombie process
+		sc.gstCmd.Wait()
 	}
 
 	if sc.cancel != nil {
@@ -367,7 +415,7 @@ func (sc *ScreenCapture) startNativePipewireCapture() error {
 	// Start frame polling goroutine
 	go sc.nativeFrameReaderLoop()
 
-	fmt.Printf("✅ Native PipeWire capture started (CGo + libpipewire)\n")
+	fmt.Printf("Native PipeWire capture started (CGo + libpipewire)\n")
 	return nil
 }
 
@@ -422,7 +470,7 @@ func (sc *ScreenCapture) startGStreamerCapture() error {
 	// Start goroutine to read frames
 	go sc.frameReaderLoop()
 
-	fmt.Printf("✅ GStreamer Pipewire capture started (fallback)\n")
+	fmt.Printf("GStreamer Pipewire capture started (fallback)\n")
 	return nil
 }
 

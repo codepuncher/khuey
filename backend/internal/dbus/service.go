@@ -1,6 +1,7 @@
 package dbus
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -309,7 +310,7 @@ func (s *Service) SetPower(on bool, sender dbus.Sender) (bool, *dbus.Error) {
 		return false, dbus.MakeFailedError(err)
 	}
 
-	log.Printf("✅ Power set to %v", on)
+	log.Printf("Power set to %v", on)
 	return true, nil
 }
 
@@ -343,7 +344,7 @@ func (s *Service) SetBrightness(brightness int32, sender dbus.Sender) (bool, *db
 		return false, dbus.MakeFailedError(err)
 	}
 
-	log.Printf("✅ Brightness set to %d%%", brightness)
+	log.Printf("Brightness set to %d%%", brightness)
 	return true, nil
 }
 
@@ -458,7 +459,8 @@ func (s *Service) StartSync(sender dbus.Sender) (bool, *dbus.Error) {
 		return false, dbus.MakeFailedError(fmt.Errorf("sync engine not available - check Entertainment API configuration"))
 	}
 
-	if err := s.syncEngine.Start(); err != nil {
+	// Pass context.Background() since DBus service runs for application lifetime
+	if err := s.syncEngine.Start(context.Background()); err != nil {
 		log.Printf("❌ Failed to start sync: %v", err)
 
 		// Check if it's a portal error and provide better error message
@@ -558,7 +560,7 @@ func (s *Service) SetGroupedLight(groupedLightID string, sender dbus.Sender) (bo
 		return false, dbus.MakeFailedError(err)
 	}
 
-	log.Printf("✅ Grouped light ID set to: %s", groupedLightID)
+	log.Printf("Grouped light ID set to: %s", groupedLightID)
 	return true, nil
 }
 
