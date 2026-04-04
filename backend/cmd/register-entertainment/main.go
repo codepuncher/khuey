@@ -2,12 +2,11 @@ package main
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"log"
-	"net/http"
 	"time"
 
+	"github.com/codepuncher/khuey/internal/common"
 	"github.com/openhue/openhue-go"
 )
 
@@ -30,16 +29,8 @@ func main() {
 	}
 	fmt.Println("\r                                ")
 
-	// Create HTTP client with insecure TLS (Hue bridge uses self-signed cert)
-	// SECURITY NOTE: See detailed security analysis in internal/hue/client.go
-	// This is an accepted risk for local IoT devices on trusted networks
-	httpClient := &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: true, // Required for Hue bridge self-signed certs
-			},
-		},
-	}
+	// QUAL-004: Use common HTTP client instead of creating new one
+	httpClient := common.NewHueHTTPClient()
 
 	// Use the lower-level API to get full response including clientkey
 	client, err := openhue.NewClientWithResponses("https://"+bridgeIP, openhue.WithHTTPClient(httpClient))

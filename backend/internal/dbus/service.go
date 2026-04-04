@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/codepuncher/khuey/internal/capture"
+	"github.com/codepuncher/khuey/internal/common"
 	"github.com/codepuncher/khuey/internal/config"
 	"github.com/codepuncher/khuey/internal/hue"
 	syncengine "github.com/codepuncher/khuey/internal/sync"
@@ -348,6 +349,12 @@ func (s *Service) SetBrightness(brightness int32, sender dbus.Sender) (bool, *db
 
 // ActivateScene activates a scene by name (with optional room prefix)
 func (s *Service) ActivateScene(displayName string, sender dbus.Sender) (string, *dbus.Error) {
+	// SEC-007: Validate DBus string input
+	if err := common.ValidateDBusString("displayName", displayName, 255); err != nil {
+		log.Printf("🚫 ActivateScene invalid input: %v", err)
+		return "", dbus.MakeFailedError(err)
+	}
+
 	// Access control: only service owner can control lights
 	if err := s.checkAccess(sender); err != nil {
 		log.Printf("🚫 ActivateScene access denied")
@@ -457,8 +464,8 @@ func (s *Service) StartSync(sender dbus.Sender) (bool, *dbus.Error) {
 		// Check if it's a portal error and provide better error message
 		if portalErr, ok := err.(*capture.PortalError); ok {
 			// Format: "PortalError:TYPE:HINT" for easy parsing in tray app
-			errMsg := fmt.Sprintf("PortalError:%s:%s", portalErr.Type, portalErr.Hint)
-			return false, dbus.MakeFailedError(fmt.Errorf(errMsg))
+			errMsg := "PortalError:" + portalErr.Type + ":" + portalErr.Hint
+			return false, dbus.MakeFailedError(fmt.Errorf("%s", errMsg))
 		}
 
 		return false, dbus.MakeFailedError(err)
@@ -525,6 +532,12 @@ func (s *Service) GetState() (bool, int32, bool, *dbus.Error) {
 
 // SetGroupedLight sets the grouped light ID in the config
 func (s *Service) SetGroupedLight(groupedLightID string, sender dbus.Sender) (bool, *dbus.Error) {
+	// SEC-007: Validate DBus string input
+	if err := common.ValidateDBusString("groupedLightID", groupedLightID, 255); err != nil {
+		log.Printf("🚫 SetGroupedLight invalid input: %v", err)
+		return false, dbus.MakeFailedError(err)
+	}
+
 	// Access control: only service owner can modify settings
 	if err := s.checkAccess(sender); err != nil {
 		log.Printf("🚫 SetGroupedLight access denied")
@@ -613,6 +626,12 @@ func (s *Service) GetSyncSettings() (map[string]interface{}, *dbus.Error) {
 // SetSyncSettings updates Screen Sync configuration
 // Note: Changes require restarting sync for them to take effect
 func (s *Service) SetSyncSettings(fps int32, subsampleWidth int32, monitor string, sender dbus.Sender) (bool, *dbus.Error) {
+	// SEC-007: Validate DBus string input
+	if err := common.ValidateDBusString("monitor", monitor, 255); err != nil {
+		log.Printf("🚫 SetSyncSettings invalid input: %v", err)
+		return false, dbus.MakeFailedError(err)
+	}
+
 	// Access control: only service owner can modify settings
 	if err := s.checkAccess(sender); err != nil {
 		log.Printf("🚫 SetSyncSettings access denied")
