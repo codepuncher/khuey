@@ -178,6 +178,7 @@ func (c *Client) buildPacket(colors []ChannelColor) []byte {
 	//   - G (2 bytes, big-endian)
 	//   - B (2 bytes, big-endian)
 
+	// PERF-007: Pre-allocate packet with exact size (known capacity optimization)
 	headerSize := 52 // Fixed: was 16, should be 52!
 	bodySize := 7 * len(colors)
 	packet := make([]byte, headerSize+bodySize)

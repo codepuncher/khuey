@@ -1,24 +1,24 @@
 #ifndef SETTINGSDIALOG_H
 #define SETTINGSDIALOG_H
 
+#include <QComboBox>
+#include <QDBusInterface>
 #include <QDialog>
-#include <QTabWidget>
+#include <QLabel>
+#include <QLineEdit>
+#include <QPushButton>
 #include <QSlider>
 #include <QSpinBox>
-#include <QComboBox>
-#include <QLabel>
-#include <QPushButton>
-#include <QLineEdit>
-#include <QDBusInterface>
+#include <QTabWidget>
 
 class SettingsDialog : public QDialog {
     Q_OBJECT
 
-public:
-    explicit SettingsDialog(QWidget *parent = nullptr);
+  public:
+    explicit SettingsDialog(QWidget* parent = nullptr);
     ~SettingsDialog();
 
-private slots:
+  private slots:
     void onApplyClicked();
     void onOkClicked();
     void onCancelClicked();
@@ -27,43 +27,43 @@ private slots:
     void onFpsChanged(int value);
     void onSubsampleChanged(int value);
 
-private:
+  private:
     void setupUI();
     void loadSettings();
     void saveSettings();
     bool validateSettings();
-    
+
     // UI Components
-    QTabWidget *tabWidget;
-    
+    QTabWidget* tabWidget;
+
     // Screen Sync tab
-    QSlider *fpsSlider;
-    QSpinBox *fpsSpinBox;
-    QSlider *subsampleSlider;
-    QSpinBox *subsampleSpinBox;
-    QComboBox *monitorCombo;
-    QLabel *syncStatusLabel;
-    
+    QSlider* fpsSlider;
+    QSpinBox* fpsSpinBox;
+    QSlider* subsampleSlider;
+    QSpinBox* subsampleSpinBox;
+    QComboBox* monitorCombo;
+    QLabel* syncStatusLabel;
+
     // Light Control tab
-    QComboBox *roomCombo;
-    QLabel *roomPreviewLabel;
-    QPushButton *refreshRoomsButton;
-    
+    QComboBox* roomCombo;
+    QLabel* roomPreviewLabel;
+    QPushButton* refreshRoomsButton;
+
     // Connection tab
-    QLineEdit *bridgeIPEdit;
-    QLabel *connectionStatusLabel;
-    QPushButton *testConnectionButton;
-    QPushButton *reconnectButton;
-    QLabel *lastErrorLabel;
-    
+    QLineEdit* bridgeIPEdit;
+    QLabel* connectionStatusLabel;
+    QPushButton* testConnectionButton;
+    QPushButton* reconnectButton;
+    QLabel* lastErrorLabel;
+
     // Dialog buttons
-    QPushButton *okButton;
-    QPushButton *applyButton;
-    QPushButton *cancelButton;
-    
+    QPushButton* okButton;
+    QPushButton* applyButton;
+    QPushButton* cancelButton;
+
     // DBus interface
-    QDBusInterface *dbusInterface;
-    
+    QDBusInterface* dbusInterface;
+
     // Current values
     int currentFPS;
     int currentSubsample;

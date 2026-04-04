@@ -310,7 +310,7 @@ func (s *Service) SetPower(on bool, sender dbus.Sender) (bool, *dbus.Error) {
 		return false, dbus.MakeFailedError(err)
 	}
 
-	log.Printf("✅ Power set to %v", on)
+	log.Printf("Power set to %v", on)
 	return true, nil
 }
 
@@ -344,7 +344,7 @@ func (s *Service) SetBrightness(brightness int32, sender dbus.Sender) (bool, *db
 		return false, dbus.MakeFailedError(err)
 	}
 
-	log.Printf("✅ Brightness set to %d%%", brightness)
+	log.Printf("Brightness set to %d%%", brightness)
 	return true, nil
 }
 
@@ -560,7 +560,7 @@ func (s *Service) SetGroupedLight(groupedLightID string, sender dbus.Sender) (bo
 		return false, dbus.MakeFailedError(err)
 	}
 
-	log.Printf("✅ Grouped light ID set to: %s", groupedLightID)
+	log.Printf("Grouped light ID set to: %s", groupedLightID)
 	return true, nil
 }
 

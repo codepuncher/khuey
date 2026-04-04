@@ -64,6 +64,7 @@ func (e *Extractor) ExtractColors(img image.Image, zones []Zone) ([]ZoneColor, e
 	subsampled := e.subsampleImage(img)
 
 	// Step 2: Extract colors from each zone
+	// PERF-007: Pre-allocate with exact capacity since size is known
 	colors := make([]ZoneColor, 0, len(zones))
 
 	for _, zone := range zones {
