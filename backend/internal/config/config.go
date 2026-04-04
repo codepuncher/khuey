@@ -10,8 +10,27 @@ import (
 	"github.com/spf13/viper"
 )
 
+// Configuration constants
+const (
+	// ConfigVersion is incremented when breaking changes are made to config format
+	ConfigVersion = 1
+
+	// FPS limits for screen sync
+	DefaultFPS = 30
+	MinFPS     = 1
+	MaxFPS     = 60
+
+	// Subsample width limits for screen capture
+	DefaultSubsampleWidth = 64
+	MinSubsampleWidth     = 16
+	MaxSubsampleWidth     = 256
+)
+
 // Config represents the application configuration
 type Config struct {
+	// Config version for migration tracking
+	Version int `mapstructure:"version"`
+
 	// Bridge configuration (compatible with openhue-cli)
 	Bridge string `mapstructure:"Bridge"`
 	Key    string `mapstructure:"Key"`
@@ -61,10 +80,11 @@ type SyncConfig struct {
 // DefaultConfig returns a configuration with sensible defaults
 func DefaultConfig() *Config {
 	return &Config{
+		Version: ConfigVersion,
 		Sync: SyncConfig{
 			Enabled:        false,
-			FPS:            30,
-			SubsampleWidth: 64,
+			FPS:            DefaultFPS,
+			SubsampleWidth: DefaultSubsampleWidth,
 			Monitor:        "",
 		},
 		LogLevel: "info",
@@ -139,6 +159,11 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 
+	// Validate the loaded configuration
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("configuration validation failed: %w", err)
+	}
+
 	return cfg, nil
 }
 
@@ -148,6 +173,7 @@ func (c *Config) Save() error {
 	defer c.mu.Unlock()
 
 	// Set all values in viper
+	viper.Set("version", c.Version)
 	viper.Set("Bridge", c.Bridge)
 	viper.Set("Key", c.Key)
 	viper.Set("grouped_light_id", c.GroupedLightID)
@@ -209,16 +235,16 @@ func (c *Config) Validate() error {
 	}
 
 	// Validate sync settings
-	if c.Sync.FPS < 1 || c.Sync.FPS > 60 {
-		return fmt.Errorf("sync.fps must be between 1 and 60 (got %d)\n"+
+	if c.Sync.FPS < MinFPS || c.Sync.FPS > MaxFPS {
+		return fmt.Errorf("sync.fps must be between %d and %d (got %d)\n"+
 			"  → Update 'sync.fps' in config.yaml\n"+
-			"  → Recommended: 20-30 for balanced performance", c.Sync.FPS)
+			"  → Recommended: 20-30 for balanced performance", MinFPS, MaxFPS, c.Sync.FPS)
 	}
 
-	if c.Sync.SubsampleWidth < 16 || c.Sync.SubsampleWidth > 1920 {
-		return fmt.Errorf("sync.subsampleWidth must be between 16 and 1920 (got %d)\n"+
+	if c.Sync.SubsampleWidth < MinSubsampleWidth || c.Sync.SubsampleWidth > MaxSubsampleWidth {
+		return fmt.Errorf("sync.subsampleWidth must be between %d and %d (got %d)\n"+
 			"  → Update 'sync.subsampleWidth' in config.yaml\n"+
-			"  → Recommended: 64 for good balance", c.Sync.SubsampleWidth)
+			"  → Recommended: %d for good balance", MinSubsampleWidth, MaxSubsampleWidth, c.Sync.SubsampleWidth, DefaultSubsampleWidth)
 	}
 
 	// Validate channels if configured

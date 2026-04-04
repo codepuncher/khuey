@@ -244,6 +244,8 @@ private slots:
                 notif->setText(sceneName);
                 notif->setIconName("preferences-desktop-display-color");
                 notif->sendEvent();
+                // Auto-delete notification after sending to prevent memory leak
+                notif->deleteLater();
             }
             
             w->deleteLater();
@@ -272,6 +274,8 @@ private slots:
                 notif->setText("Lights are no longer syncing with screen");
                 notif->setIconName("dialog-information");
                 notif->sendEvent();
+                // Auto-delete notification after sending to prevent memory leak
+                notif->deleteLater();
             } else {
                 syncButton->setText("Stop Screen Sync");
                 showErrorNotification("Failed to Stop Sync", reply.error().message());
@@ -306,6 +310,8 @@ private slots:
                                       hint + "\n\nClick 'Start Screen Sync' to try again.");
                         notif->setIconName("dialog-warning");
                         notif->sendEvent();
+                        // Auto-delete notification after sending to prevent memory leak
+                        notif->deleteLater();
                     } else if (error.contains("PortalError:")) {
                         QString errorType = error.section(':', 1, 1);
                         QString hint = error.section(':', 2);

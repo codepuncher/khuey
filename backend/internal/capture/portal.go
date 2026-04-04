@@ -12,6 +12,9 @@ const (
 	portalDest      = "org.freedesktop.portal.Desktop"
 	portalPath      = "/org/freedesktop/portal/desktop"
 	screenCastIface = "org.freedesktop.portal.ScreenCast"
+
+	// MaxPortalHandleID is the maximum value for portal session/handle IDs
+	MaxPortalHandleID = 999999
 )
 
 // PortalError represents an error from the XDG Desktop Portal
@@ -33,7 +36,7 @@ func (sc *ScreenCapture) createSession() (string, error) {
 	obj := sc.conn.Object(portalDest, portalPath)
 
 	// Generate unique session token using crypto/rand
-	sessionNum, err := rand.Int(rand.Reader, big.NewInt(999999))
+	sessionNum, err := rand.Int(rand.Reader, big.NewInt(MaxPortalHandleID))
 	if err != nil {
 		return "", &PortalError{
 			Type: "session_failed",
@@ -43,7 +46,7 @@ func (sc *ScreenCapture) createSession() (string, error) {
 	}
 	sessionToken := fmt.Sprintf("khuey_session_%d", sessionNum.Int64())
 
-	handleNum, err := rand.Int(rand.Reader, big.NewInt(999999))
+	handleNum, err := rand.Int(rand.Reader, big.NewInt(MaxPortalHandleID))
 	if err != nil {
 		return "", &PortalError{
 			Type: "session_failed",
@@ -100,7 +103,7 @@ func (sc *ScreenCapture) createSession() (string, error) {
 func (sc *ScreenCapture) selectSources(sessionHandle string) error {
 	obj := sc.conn.Object(portalDest, portalPath)
 
-	handleNum, err := rand.Int(rand.Reader, big.NewInt(999999))
+	handleNum, err := rand.Int(rand.Reader, big.NewInt(MaxPortalHandleID))
 	if err != nil {
 		return &PortalError{
 			Type: "select_sources_failed",
@@ -138,7 +141,7 @@ func (sc *ScreenCapture) selectSources(sessionHandle string) error {
 func (sc *ScreenCapture) startStream(sessionHandle string) (uint32, error) {
 	obj := sc.conn.Object(portalDest, portalPath)
 
-	handleNum, err := rand.Int(rand.Reader, big.NewInt(999999))
+	handleNum, err := rand.Int(rand.Reader, big.NewInt(MaxPortalHandleID))
 	if err != nil {
 		return 0, fmt.Errorf("failed to generate handle token: %w", err)
 	}

@@ -11,6 +11,12 @@ import (
 	"github.com/pion/dtls/v2"
 )
 
+// Constants for Entertainment API
+const (
+	EntertainmentAPIPort = 2100 // UDP port for Entertainment API
+	Color8To16Multiplier = 257  // Multiplier to convert 8-bit to 16-bit color (65535 / 255)
+)
+
 // Client handles streaming to Hue Entertainment API
 type Client struct {
 	bridgeIP        string
@@ -30,11 +36,12 @@ type Client struct {
 
 // Config holds Entertainment API configuration
 type Config struct {
-	BridgeIP        string // Bridge IP address
-	Username        string // Hue username
-	ClientKey       string // Client key for DTLS PSK
-	EntertainmentID string // Entertainment Configuration ID
-	ChannelCount    int    // Number of channels (lights)
+	BridgeIP        string          // Bridge IP address
+	Username        string          // Hue username
+	ClientKey       string          // Client key for DTLS PSK
+	EntertainmentID string          // Entertainment Configuration ID
+	ChannelCount    int             // Number of channels (lights)
+	Context         context.Context // Parent context for cancellation (optional, defaults to Background)
 }
 
 // ChannelColor represents RGB color for a channel
@@ -63,7 +70,12 @@ func NewClient(cfg Config) (*Client, error) {
 		return nil, fmt.Errorf("channel count must be positive")
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	// Use provided context or default to Background
+	parentCtx := cfg.Context
+	if parentCtx == nil {
+		parentCtx = context.Background()
+	}
+	ctx, cancel := context.WithCancel(parentCtx)
 
 	return &Client{
 		bridgeIP:        cfg.BridgeIP,
@@ -87,7 +99,7 @@ func (c *Client) Connect() error {
 	}
 
 	// Entertainment API uses UDP port 2100
-	addr := fmt.Sprintf("%s:2100", c.bridgeIP)
+	addr := fmt.Sprintf("%s:%d", c.bridgeIP, EntertainmentAPIPort)
 
 	// Configure DTLS with PSK (Pre-Shared Key)
 	// Important: clientKey must be hex-decoded before use!
@@ -226,5 +238,5 @@ func (c *Client) IsConnected() bool {
 // Convert8BitTo16Bit converts 8-bit RGB (0-255) to 16-bit (0-65535)
 func Convert8BitTo16Bit(value uint8) uint16 {
 	// Scale from 0-255 to 0-65535
-	return uint16(value) * 257
+	return uint16(value) * Color8To16Multiplier
 }

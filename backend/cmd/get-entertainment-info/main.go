@@ -34,7 +34,13 @@ func main() {
 	fmt.Println("Client Key (for Entertainment API):")
 	fmt.Printf("  %s\n\n", clientKey)
 
-	// TODO: Add method to fetch Entertainment Areas
-	fmt.Println("Note: You'll need to create an Entertainment Area in the Hue app first.")
-	fmt.Println("Then we can query it via the API.")
+	// Note: Entertainment Areas must be created in the Hue app
+	// The Entertainment Configuration API endpoint is: /clip/v2/resource/entertainment_configuration
+	// However, creating/modifying Entertainment Areas via API is complex and best done through the Hue app
+	fmt.Println("Note: Entertainment Areas must be created in the Hue app first.")
+	fmt.Println("To query Entertainment Areas, use the openhue-cli tool:")
+	fmt.Println("  openhue-cli entertainment list")
+	fmt.Println()
+	fmt.Println("After creating an Entertainment Area, add its ID to ~/.openhue/config.yaml:")
+	fmt.Println("  entertainmentConfigurationId: YOUR_ENTERTAINMENT_ID")
 }

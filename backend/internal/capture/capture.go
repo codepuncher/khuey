@@ -17,6 +17,12 @@ import (
 	"github.com/godbus/dbus/v5"
 )
 
+// Constants for screen capture
+const (
+	MinFPS = 10 // Minimum frames per second
+	MaxFPS = 60 // Maximum frames per second
+)
+
 // ScreenCapture handles screen capture via Wayland/Pipewire
 type ScreenCapture struct {
 	conn          *dbus.Conn
@@ -43,21 +49,22 @@ type ScreenCapture struct {
 
 // Config holds screen capture configuration
 type Config struct {
-	FPS              int    // Target frames per second (10-60)
-	Monitor          int    // Monitor index (-1 for all monitors)
-	UseMockFrames    bool   // Use mock gradient instead of real capture (for testing)
-	UseNativeCapture bool   // Use native CGo PipeWire capture (default: true)
-	UseScreenshot    bool   // Use screenshot method for real capture (simple, higher CPU)
-	ScreenshotTool   string // Screenshot tool to use: "spectacle", "import", etc (auto-detect if empty)
-	CaptureWidth     int    // Downsample width (0 = full resolution, e.g. 640 for faster)
-	CaptureHeight    int    // Downsample height (0 = full resolution, e.g. 360 for faster)
+	FPS              int             // Target frames per second (10-60)
+	Monitor          int             // Monitor index (-1 for all monitors)
+	UseMockFrames    bool            // Use mock gradient instead of real capture (for testing)
+	UseNativeCapture bool            // Use native CGo PipeWire capture (default: true)
+	UseScreenshot    bool            // Use screenshot method for real capture (simple, higher CPU)
+	ScreenshotTool   string          // Screenshot tool to use: "spectacle", "import", etc (auto-detect if empty)
+	CaptureWidth     int             // Downsample width (0 = full resolution, e.g. 640 for faster)
+	CaptureHeight    int             // Downsample height (0 = full resolution, e.g. 360 for faster)
+	Context          context.Context // Parent context for cancellation (optional, defaults to Background)
 }
 
 // NewScreenCapture creates a new screen capture instance
 func NewScreenCapture(cfg Config) (*ScreenCapture, error) {
 	// Validate FPS
-	if cfg.FPS < 10 || cfg.FPS > 60 {
-		return nil, fmt.Errorf("FPS must be between 10 and 60, got %d", cfg.FPS)
+	if cfg.FPS < MinFPS || cfg.FPS > MaxFPS {
+		return nil, fmt.Errorf("FPS must be between %d and %d, got %d", MinFPS, MaxFPS, cfg.FPS)
 	}
 
 	// Connect to session bus for XDG Desktop Portal
@@ -66,7 +73,12 @@ func NewScreenCapture(cfg Config) (*ScreenCapture, error) {
 		return nil, fmt.Errorf("failed to connect to session bus: %w", err)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	// Use provided context or default to Background
+	parentCtx := cfg.Context
+	if parentCtx == nil {
+		parentCtx = context.Background()
+	}
+	ctx, cancel := context.WithCancel(parentCtx)
 
 	// Auto-detect screenshot tool if UseScreenshot is enabled
 	screenshotTool := cfg.ScreenshotTool
@@ -240,6 +252,8 @@ func (sc *ScreenCapture) captureScreenshot() (*image.RGBA, error) {
 	case "spectacle":
 		// Spectacle doesn't support stdout, use temp file
 		tmpfile := "/tmp/hue-screenshot.png"
+		defer os.Remove(tmpfile) // Ensure cleanup in all paths
+
 		cmd = exec.CommandContext(sc.ctx, "spectacle", "-b", "-n", "-o", tmpfile)
 		if err = cmd.Run(); err != nil {
 			return nil, fmt.Errorf("spectacle failed: %w", err)
@@ -252,7 +266,6 @@ func (sc *ScreenCapture) captureScreenshot() (*image.RGBA, error) {
 				"-resize", fmt.Sprintf("%dx%d!", sc.captureWidth, sc.captureHeight),
 				tmpfile)
 			if err = resizeCmd.Run(); err != nil {
-				os.Remove(tmpfile)
 				return nil, fmt.Errorf("resize failed: %w", err)
 			}
 		}
@@ -261,7 +274,6 @@ func (sc *ScreenCapture) captureScreenshot() (*image.RGBA, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to read screenshot: %w", err)
 		}
-		os.Remove(tmpfile) // Clean up
 
 	case "grim":
 		// Grim (Wayland): capture to stdout with optional scale
@@ -322,6 +334,8 @@ func (sc *ScreenCapture) Stop() {
 	// Stop gstreamer pipeline
 	if sc.gstCmd != nil && sc.gstCmd.Process != nil {
 		sc.gstCmd.Process.Kill()
+		// Wait for process to exit to prevent zombie process
+		sc.gstCmd.Wait()
 	}
 
 	if sc.cancel != nil {
