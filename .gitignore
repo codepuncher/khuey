@@ -1,6 +1,12 @@
 # Go
 backend/hue-sync
 backend/cmd/hue-sync/hue-sync
+backend/hue-backend
+backend/register-entertainment
+backend/test-capture
+backend/test-color
+backend/test-entertainment
+backend/test-zones-visual
 *.exe
 *.exe~
 *.dll
@@ -36,6 +42,7 @@ Makefile
 !CMakeLists.txt
 *_autogen/
 .qt/
+test_dialog_build/
 
 # Compiled binaries
 trayapp/hue-tray
