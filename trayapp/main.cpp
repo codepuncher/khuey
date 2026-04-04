@@ -557,8 +557,6 @@ class HueTrayApp : public QApplication {
 
         // Create control dialog
         controlDialog = new HueControlDialog();
-
-        qDebug() << "KStatusNotifierItem created and activated";
     }
 
   private slots:
@@ -572,15 +570,11 @@ class HueTrayApp : public QApplication {
     }
 
     void showSettingsDialog() {
-        qDebug() << "Opening settings dialog...";
         try {
             SettingsDialog* dialog = new SettingsDialog();
-            qDebug() << "Dialog created, showing...";
             dialog->exec();
-            qDebug() << "Dialog closed";
             delete dialog;
         } catch (...) {
-            qDebug() << "Exception creating dialog!";
             QMessageBox::critical(nullptr, "Error", "Failed to create settings dialog");
         }
     }

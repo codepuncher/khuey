@@ -153,11 +153,7 @@ func detectScreenshotTool() string {
 func (sc *ScreenCapture) Start() error {
 	// If using mock frames or screenshots, skip portal setup
 	if sc.useMockFrames || sc.useScreenshot {
-		if sc.useMockFrames {
-			fmt.Println("Using mock frames - skipping XDG Portal setup")
-		} else {
-			fmt.Printf("Using screenshot capture (%s) - skipping XDG Portal setup\n", sc.screenshotTool)
-		}
+		// Mock/screenshot modes don't need portal setup
 		return nil
 	}
 

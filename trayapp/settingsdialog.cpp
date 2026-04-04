@@ -206,8 +206,6 @@ void SettingsDialog::setupUI() {
 }
 
 void SettingsDialog::loadSettings() {
-    qDebug() << "Loading settings from DBus...";
-
     // Load Screen Sync settings
     QDBusMessage syncReply = dbusInterface->call("GetSyncSettings");
     if (syncReply.type() != QDBusMessage::ErrorMessage && !syncReply.arguments().isEmpty()) {
@@ -229,8 +227,6 @@ void SettingsDialog::loadSettings() {
             }
             arg.endMap();
 
-            qDebug() << "Sync settings loaded:" << settings;
-
             currentFPS = settings["fps"].toInt();
             currentSubsample = settings["subsampleWidth"].toInt();
             currentMonitor = settings["monitor"].toString();
@@ -246,17 +242,12 @@ void SettingsDialog::loadSettings() {
                 }
             }
         }
-    } else if (syncReply.type() == QDBusMessage::ErrorMessage) {
-        qDebug() << "Error loading sync settings:" << syncReply.errorMessage();
     }
 
     // Load room selection
     QDBusReply<QString> roomReply = dbusInterface->call("GetSelectedRoom");
     if (roomReply.isValid()) {
         currentRoomID = roomReply.value();
-        qDebug() << "Selected room loaded:" << currentRoomID;
-    } else {
-        qDebug() << "Error loading selected room:" << roomReply.error().message();
     }
 
     // Auto-load rooms list on dialog open (fixed QDBusArgument extraction)
@@ -283,8 +274,6 @@ void SettingsDialog::loadSettings() {
             }
             arg.endMap();
 
-            qDebug() << "Bridge settings loaded:" << settings;
-
             bridgeIPEdit->setText(settings["bridgeIP"].toString());
 
             bool connected = settings["connected"].toBool();
@@ -298,11 +287,7 @@ void SettingsDialog::loadSettings() {
                 lastErrorLabel->setText("Last error: " + lastError);
             }
         }
-    } else if (bridgeReply.type() == QDBusMessage::ErrorMessage) {
-        qDebug() << "Error loading bridge settings:" << bridgeReply.errorMessage();
     }
-
-    qDebug() << "Settings loading complete";
 }
 
 void SettingsDialog::saveSettings() {
@@ -400,7 +385,6 @@ void SettingsDialog::onTestConnectionClicked() {
 }
 
 void SettingsDialog::onRefreshRoomsClicked() {
-    qDebug() << "onRefreshRoomsClicked called";
     roomCombo->clear();
     refreshRoomsButton->setEnabled(false);
     refreshRoomsButton->setText("Loading...");
@@ -412,7 +396,6 @@ void SettingsDialog::onRefreshRoomsClicked() {
     refreshRoomsButton->setText("Refresh");
 
     if (reply.type() == QDBusMessage::ErrorMessage) {
-        qDebug() << "GetGroupedLights failed:" << reply.errorMessage();
         QMessageBox::warning(this, "Error", "Failed to load rooms: " + reply.errorMessage());
         roomCombo->addItem("Error loading rooms", "");
         roomPreviewLabel->setText("❌ Failed to load rooms from bridge");
@@ -420,18 +403,14 @@ void SettingsDialog::onRefreshRoomsClicked() {
     }
 
     if (reply.arguments().isEmpty()) {
-        qDebug() << "GetGroupedLights returned no arguments";
         roomCombo->addItem("No data received", "");
         roomPreviewLabel->setText("⚠️  No data from bridge");
         return;
     }
 
-    qDebug() << "GetGroupedLights replied successfully";
-
     // Extract the QDBusArgument from the message - MUST be const!
     QVariant var = reply.arguments().at(0);
     if (!var.canConvert<QDBusArgument>()) {
-        qDebug() << "Cannot convert reply to QDBusArgument";
         roomCombo->addItem("Invalid data format", "");
         roomPreviewLabel->setText("❌ Invalid response from bridge");
         return;
@@ -447,7 +426,6 @@ void SettingsDialog::onRefreshRoomsClicked() {
         arg >> id >> name >> type;
         arg.endStructure();
 
-        qDebug() << "  Room/Zone:" << name << "(" << type << ") ID:" << id;
         roomCombo->addItem(QString("%1 (%2)").arg(name, type), id);
 
         // Select current room
@@ -458,8 +436,6 @@ void SettingsDialog::onRefreshRoomsClicked() {
         count++;
     }
     arg.endArray();
-
-    qDebug() << "Loaded" << count << "room(s)/zone(s)";
 
     if (roomCombo->count() == 0) {
         roomCombo->addItem("No rooms found", "");
