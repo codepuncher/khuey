@@ -228,7 +228,7 @@ func (e *Engine) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to connect to Entertainment API: %w", err)
 	}
 
-	// Create child context for cancellation
+	// Create child context for cancellation (proper context propagation)
 	syncCtx, cancel := context.WithCancel(ctx)
 	e.cancel = cancel
 	e.running = true
