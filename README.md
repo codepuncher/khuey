@@ -45,28 +45,25 @@ cp ../systemd/hue-tray.desktop ~/.config/autostart/
 
 ## Features
 
-### ✅ Currently Working
 - **Scene Control**: Activate any of your Hue scenes with room names
-- **Alphabetical Sorting**: Scenes organized by room and name
+- **Screen Sync**: Real-time screen color synchronization with Hue lights (Entertainment API)
+- **Settings Dialog**: GUI for bridge setup, room selection, and screen sync configuration
+- **Power/Brightness Controls**: Toggle and dim lights with room/zone support
+- **Multi-zone Mapping**: Different screen areas control different lights
 - **Desktop Notifications**: Success/error feedback for all operations
 - **Auto-start**: Backend and tray app start automatically on login
 - **System Tray Integration**: Native KDE StatusNotifierItem integration
-
-### 🚧 In Development
-- **Screen Sync**: Synchronized lighting with screen colors (Entertainment API)
-- **Power/Brightness Controls**: Toggle and dim lights (needs grouped light config)
-- **Multi-zone Mapping**: Different screen areas control different lights
-- **Settings Dialog**: GUI for configuration
 
 ## Usage
 
 ### Basic Controls
 1. Click the Hue icon in your system tray
 2. Select and activate scenes from the list
-3. Scenes are shown as "Room Name - Scene Name" in alphabetical order
+3. Adjust power and brightness for configured rooms
+4. Access Settings for advanced configuration
 
-### Screen Sync (Coming Soon)
-Screen-to-lights synchronization using Entertainment API for gaming/movies.
+### Screen Sync
+Screen-to-lights synchronization using Entertainment API for gaming/movies. Enable via Settings Dialog or config file.
 
 ## Configuration
 
