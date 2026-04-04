@@ -23,6 +23,40 @@ const (
 	MaxFPS = 60 // Maximum frames per second
 )
 
+// RES-007: sync.Pool for image buffers to reduce GC pressure
+// Pool for RGBA image buffers used in frame copying
+var imageBufferPool = sync.Pool{
+	New: func() interface{} {
+		// Create a buffer for standard 1080p frames (most common)
+		// Actual allocation will be replaced if size differs
+		return image.NewRGBA(image.Rect(0, 0, 1920, 1080))
+	},
+}
+
+// GetImageBuffer gets an image buffer from the pool or creates a new one if size doesn't match
+func GetImageBuffer(bounds image.Rectangle) *image.RGBA {
+	img := imageBufferPool.Get().(*image.RGBA)
+
+	// Check if pooled buffer matches required size
+	if img.Bounds() != bounds {
+		// Size mismatch - create new buffer with correct size
+		img = image.NewRGBA(bounds)
+	}
+
+	return img
+}
+
+// PutImageBuffer returns an image buffer to the pool
+func PutImageBuffer(img *image.RGBA) {
+	if img != nil {
+		// Reset alpha channel to prevent color bleeding between frames
+		for i := 3; i < len(img.Pix); i += 4 {
+			img.Pix[i] = 255
+		}
+		imageBufferPool.Put(img)
+	}
+}
+
 // ScreenCapture handles screen capture via Wayland/Pipewire
 type ScreenCapture struct {
 	conn          *dbus.Conn
@@ -203,9 +237,9 @@ func (sc *ScreenCapture) CaptureFrame() (*image.RGBA, error) {
 		return nil, fmt.Errorf("no frame available yet")
 	}
 
-	// Return a copy to avoid race conditions
+	// RES-007: Use pooled buffer for frame copy to reduce GC pressure
 	bounds := sc.frameBuffer.Bounds()
-	frame := image.NewRGBA(bounds)
+	frame := GetImageBuffer(bounds)
 	copy(frame.Pix, sc.frameBuffer.Pix)
 
 	return frame, nil
@@ -381,7 +415,7 @@ func (sc *ScreenCapture) startNativePipewireCapture() error {
 	// Start frame polling goroutine
 	go sc.nativeFrameReaderLoop()
 
-	fmt.Printf("✅ Native PipeWire capture started (CGo + libpipewire)\n")
+	fmt.Printf("Native PipeWire capture started (CGo + libpipewire)\n")
 	return nil
 }
 
@@ -436,7 +470,7 @@ func (sc *ScreenCapture) startGStreamerCapture() error {
 	// Start goroutine to read frames
 	go sc.frameReaderLoop()
 
-	fmt.Printf("✅ GStreamer Pipewire capture started (fallback)\n")
+	fmt.Printf("GStreamer Pipewire capture started (fallback)\n")
 	return nil
 }
 

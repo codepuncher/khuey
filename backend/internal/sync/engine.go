@@ -79,6 +79,7 @@ func NewEngine(cfg *config.Config) (*Engine, error) {
 // createZonesFromConfig creates zones based on channel UV coordinates
 // Falls back to auto-split if UV coordinates are not configured
 func createZonesFromConfig(cfg *config.Config) []color.Zone {
+	// PERF-007: Pre-allocate with maximum possible capacity (all channels)
 	zones := make([]color.Zone, 0, len(cfg.Channels))
 	activeChannels := 0
 
@@ -118,13 +119,13 @@ func createZonesFromConfig(cfg *config.Config) []color.Zone {
 					V2:   float64(ch.UVB.Y),
 					Name: ch.DeviceName,
 				}
-				log.Printf("📍 Zone %d (%s): UV [%.2f,%.2f] to [%.2f,%.2f]",
+				log.Printf("Zone %d (%s): UV [%.2f,%.2f] to [%.2f,%.2f]",
 					ch.ID, ch.DeviceName, ch.UVA.X, ch.UVA.Y, ch.UVB.X, ch.UVB.Y)
 			}
 		} else {
 			// No UV config - use auto-split
 			zone = createDefaultZone(autoSplitIndex, activeChannels)
-			log.Printf("📍 Zone %d (%s): Auto-split [%.2f,%.2f] to [%.2f,%.2f]",
+			log.Printf("Zone %d (%s): Auto-split [%.2f,%.2f] to [%.2f,%.2f]",
 				ch.ID, ch.DeviceName, zone.U1, zone.V1, zone.U2, zone.V2)
 		}
 
@@ -235,7 +236,7 @@ func (e *Engine) Start(ctx context.Context) error {
 	// Start sync loop in goroutine
 	go e.syncLoop(syncCtx)
 
-	log.Printf("✅ Screen sync started at %d FPS", e.fps)
+	log.Printf("Screen sync started at %d FPS", e.fps)
 	return nil
 }
 
@@ -262,7 +263,7 @@ func (e *Engine) Stop() error {
 	}
 
 	e.running = false
-	log.Println("✅ Screen sync stopped")
+	log.Println("Screen sync stopped")
 	return nil
 }
 
@@ -324,6 +325,8 @@ func (e *Engine) syncLoop(ctx context.Context) {
 				log.Printf("⚠️  Capture error: %v", err)
 				continue
 			}
+			// RES-007: Return frame buffer to pool after processing
+			defer capture.PutImageBuffer(frame)
 
 			// Extract colors from zones
 			zoneColors, err := extractor.ExtractColors(frame, e.zones)
@@ -333,6 +336,7 @@ func (e *Engine) syncLoop(ctx context.Context) {
 			}
 
 			// Convert to ChannelColor format with proper channel IDs
+			// PERF-007: Pre-allocate with exact capacity (hot path optimization)
 			channelColors := make([]entertainment.ChannelColor, len(zoneColors))
 			for i, zc := range zoneColors {
 				// Get channel ID from config
@@ -409,6 +413,6 @@ func (e *Engine) activateEntertainmentArea() error {
 		return fmt.Errorf("bridge returned errors: %v", errors)
 	}
 
-	log.Println("✅ Entertainment Area activated")
+	log.Printf("Entertainment Area activated")
 	return nil
 }

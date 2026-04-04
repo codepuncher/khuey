@@ -41,6 +41,31 @@ pre-commit:
           gofmt -w $FILES
         fi
       stage_fixed: true  # Re-stage formatted files
+    
+    # QUAL-011: Check Go imports formatting
+    go-imports:
+      glob: "backend/**/*.go"
+      run: |
+        cd backend
+        # Check if goimports is installed
+        if ! command -v goimports > /dev/null 2>&1; then
+          echo "⚠️  goimports not installed (optional)"
+          echo "   Install with: go install golang.org/x/tools/cmd/goimports@latest"
+          exit 0  # Don't fail if not installed
+        fi
+        # Strip 'backend/' prefix from staged files
+        FILES=$(echo {staged_files} | sed 's|backend/||g')
+        if [ -n "$FILES" ]; then
+          # Check if any files need formatting
+          UNFORMATTED=$(goimports -l $FILES)
+          if [ -n "$UNFORMATTED" ]; then
+            echo "❌ Go imports need formatting:"
+            echo "$UNFORMATTED"
+            echo ""
+            echo "Run: goimports -w $UNFORMATTED"
+            exit 1
+          fi
+        fi
       
     # Run Go tests for modified packages
     go-test:
