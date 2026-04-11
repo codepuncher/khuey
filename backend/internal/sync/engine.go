@@ -325,11 +325,15 @@ func (e *Engine) syncLoop(ctx context.Context) {
 				log.Printf("⚠️  Capture error: %v", err)
 				continue
 			}
-			// RES-007: Return frame buffer to pool after processing
-			defer capture.PutImageBuffer(frame)
 
 			// Extract colors from zones
 			zoneColors, err := extractor.ExtractColors(frame, e.zones)
+
+			// Return frame buffer to pool immediately after extraction (not deferred)
+			// CRITICAL: Must be called directly, not deferred, to avoid accumulating
+			// defers in loop causing memory leak (240MB/sec @ 30 FPS)
+			capture.PutImageBuffer(frame)
+
 			if err != nil {
 				log.Printf("⚠️  Color extraction error: %v", err)
 				continue
