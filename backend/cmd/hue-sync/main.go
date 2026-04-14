@@ -55,7 +55,7 @@ func main() {
 			if err := hueClient.Ping(); err != nil {
 				log.Printf("WARNING: Bridge unreachable: %v", err)
 			} else {
-				log.Println("✓ Bridge connection verified")
+				log.Println("Bridge connection verified")
 			}
 		}
 	}
@@ -71,7 +71,7 @@ func main() {
 	}
 	defer dbusService.Stop()
 
-	log.Println("✓ Backend initialized successfully")
+	log.Println("Backend initialized successfully")
 	log.Println("DBus service running at: org.kde.plasma.hue")
 	log.Println()
 	log.Println("You can now:")
@@ -92,8 +92,7 @@ func main() {
 	// Cancel context to stop all ongoing operations
 	cancel()
 
-	// Stop DBus service
-	dbusService.Stop()
+	// dbusService.Stop() is called by defer above
 
 	fmt.Println("Goodbye!")
 }

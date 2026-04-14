@@ -19,6 +19,12 @@ import (
 	"github.com/codepuncher/khuey/internal/entertainment"
 )
 
+// Sentinel errors
+var (
+	ErrAlreadyRunning = fmt.Errorf("sync already running")
+	ErrNotRunning     = fmt.Errorf("sync not running")
+)
+
 // Engine manages screen synchronization
 type Engine struct {
 	config   *config.Config
@@ -31,7 +37,7 @@ type Engine struct {
 
 	fps        int
 	zones      []color.Zone
-	httpClient *http.Client // PERF-004: Reusable HTTP client
+	httpClient *http.Client
 }
 
 // NewEngine creates a new sync engine
@@ -72,14 +78,13 @@ func NewEngine(cfg *config.Config) (*Engine, error) {
 		running:    false,
 		fps:        30, // Default 30 FPS
 		zones:      zones,
-		httpClient: common.NewHueHTTPClient(), // PERF-004: Reuse HTTP client
+		httpClient: common.NewHueHTTPClient(),
 	}, nil
 }
 
 // createZonesFromConfig creates zones based on channel UV coordinates
 // Falls back to auto-split if UV coordinates are not configured
 func createZonesFromConfig(cfg *config.Config) []color.Zone {
-	// PERF-007: Pre-allocate with maximum possible capacity (all channels)
 	zones := make([]color.Zone, 0, len(cfg.Channels))
 	activeChannels := 0
 
@@ -106,7 +111,7 @@ func createZonesFromConfig(cfg *config.Config) []color.Zone {
 		if hasUVConfig {
 			// Validate UV coordinates
 			if err := validateUVCoordinates(&ch.UVA, &ch.UVB); err != nil {
-				log.Printf("⚠️  Warning: Invalid UV coordinates for channel %d (%s): %v. Using auto-split.",
+				log.Printf("[WARN] Invalid UV coordinates for channel %d (%s): %v. Using auto-split.",
 					ch.ID, ch.DeviceName, err)
 				zone = createDefaultZone(autoSplitIndex, activeChannels)
 			} else {
@@ -199,7 +204,7 @@ func (e *Engine) Start(ctx context.Context) error {
 	defer e.mu.Unlock()
 
 	if e.running {
-		return fmt.Errorf("sync already running")
+		return ErrAlreadyRunning
 	}
 
 	// Use provided context or default to Background
@@ -209,12 +214,11 @@ func (e *Engine) Start(ctx context.Context) error {
 
 	// Activate Entertainment Area first
 	if err := e.activateEntertainmentArea(); err != nil {
-		log.Printf("⚠️  Warning: Failed to activate Entertainment Area: %v", err)
+		log.Printf("[WARN] Failed to activate Entertainment Area: %v", err)
 		log.Println("   Attempting connection anyway...")
 	}
 
-	// PERF-002: Reduced sleep time from 500ms to 100ms
-	// Bridge activation is typically fast, shorter wait improves startup performance
+	// Brief wait for bridge activation to complete
 	time.Sleep(100 * time.Millisecond)
 
 	// Start screen capture
@@ -246,7 +250,7 @@ func (e *Engine) Stop() error {
 	defer e.mu.Unlock()
 
 	if !e.running {
-		return fmt.Errorf("sync not running")
+		return ErrNotRunning
 	}
 
 	// Cancel context to stop loop
@@ -259,7 +263,7 @@ func (e *Engine) Stop() error {
 
 	// Close Entertainment API connection
 	if err := e.client.Close(); err != nil {
-		log.Printf("⚠️  Error closing Entertainment API: %v", err)
+		log.Printf("[ERROR] closing Entertainment API: %v", err)
 	}
 
 	e.running = false
@@ -288,13 +292,16 @@ func (e *Engine) SetFPS(fps int) error {
 
 // syncLoop is the main synchronization loop
 func (e *Engine) syncLoop(ctx context.Context) {
-	ticker := time.NewTicker(time.Second / time.Duration(e.fps))
+	e.mu.RLock()
+	lastFPS := e.fps
+	e.mu.RUnlock()
+
+	ticker := time.NewTicker(time.Second / time.Duration(lastFPS))
 	defer ticker.Stop()
 
-	// Create extractor with configured subsample width and gamma 2.2
 	extractor, err := color.NewExtractor(e.config.Sync.SubsampleWidth, 2.2)
 	if err != nil {
-		log.Printf("❌ Failed to create extractor: %v", err)
+		log.Printf("[ERROR] Failed to create extractor: %v", err)
 		return
 	}
 
@@ -303,8 +310,7 @@ func (e *Engine) syncLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			// Non-blocking ticker drain to handle frame drops gracefully
-			// If processing takes longer than frame interval, skip accumulated ticks
+			// Drain accumulated ticks to handle frame drops gracefully
 			drained := 0
 		drainLoop:
 			for {
@@ -316,40 +322,33 @@ func (e *Engine) syncLoop(ctx context.Context) {
 				}
 			}
 			if drained > 0 {
-				log.Printf("⚠️  Frame skip: dropped %d frames (processing too slow for %d FPS)", drained, e.fps)
+				log.Printf("[WARN] Frame skip: dropped %d frames (processing too slow for %d FPS)", drained, lastFPS)
 			}
 
-			// Capture frame (currently mock gradient)
 			frame, err := e.capturer.CaptureFrame()
 			if err != nil {
-				log.Printf("⚠️  Capture error: %v", err)
+				log.Printf("[WARN] Capture error: %v", err)
 				continue
 			}
 
-			// Extract colors from zones
 			zoneColors, err := extractor.ExtractColors(frame, e.zones)
 
 			// Return frame buffer to pool immediately after extraction (not deferred)
-			// CRITICAL: Must be called directly, not deferred, to avoid accumulating
-			// defers in loop causing memory leak (240MB/sec @ 30 FPS)
+			// to avoid accumulating defers in loop causing memory leak
 			capture.PutImageBuffer(frame)
 
 			if err != nil {
-				log.Printf("⚠️  Color extraction error: %v", err)
+				log.Printf("[WARN] Color extraction error: %v", err)
 				continue
 			}
 
-			// Convert to ChannelColor format with proper channel IDs
-			// PERF-007: Pre-allocate with exact capacity (hot path optimization)
 			channelColors := make([]entertainment.ChannelColor, len(zoneColors))
 			for i, zc := range zoneColors {
-				// Get channel ID from config
 				channelID := 0
 				if i < len(e.config.Channels) {
 					channelID = int(e.config.Channels[i].ID)
 				}
 
-				// Convert 8-bit RGB to 16-bit (0-255 → 0-65535)
 				channelColors[i] = entertainment.ChannelColor{
 					ChannelID: channelID,
 					R:         uint16(zc.R) * entertainment.Color8To16Multiplier,
@@ -358,20 +357,18 @@ func (e *Engine) syncLoop(ctx context.Context) {
 				}
 			}
 
-			// Stream to Entertainment API
 			if err := e.client.StreamColors(channelColors); err != nil {
-				log.Printf("⚠️  Streaming error: %v", err)
-				// Don't stop on errors, just log and continue
+				log.Printf("[WARN] Streaming error: %v", err)
 			}
 
-			// Update ticker if FPS changed
+			// Only reset ticker when FPS actually changes
 			e.mu.RLock()
 			currentFPS := e.fps
 			e.mu.RUnlock()
 
-			newInterval := time.Second / time.Duration(currentFPS)
-			if ticker.C != nil {
-				ticker.Reset(newInterval)
+			if currentFPS != lastFPS {
+				ticker.Reset(time.Second / time.Duration(currentFPS))
+				lastFPS = currentFPS
 			}
 		}
 	}
@@ -385,8 +382,6 @@ func (e *Engine) activateEntertainmentArea() error {
 	// Create request body
 	body := []byte(`{"action":"start"}`)
 
-	// PERF-004: Use reusable HTTP client instead of creating new one
-	// Create PUT request with body
 	req, err := http.NewRequest("PUT", url, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
@@ -400,21 +395,21 @@ func (e *Engine) activateEntertainmentArea() error {
 		return fmt.Errorf("failed to activate: %w", err)
 	}
 	defer func() {
-		// QUAL-003: Check error on defer Close()
 		if err := resp.Body.Close(); err != nil {
-			log.Printf("⚠️  Failed to close response body: %v", err)
+			log.Printf("[WARN] Failed to close response body: %v", err)
 		}
 	}()
 
 	// Check response
-	var result map[string]interface{}
+	var result struct {
+		Errors []json.RawMessage `json:"errors"`
+	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return fmt.Errorf("failed to decode response: %w", err)
 	}
 
-	// Check for errors
-	if errors, ok := result["errors"].([]interface{}); ok && len(errors) > 0 {
-		return fmt.Errorf("bridge returned errors: %v", errors)
+	if len(result.Errors) > 0 {
+		return fmt.Errorf("bridge returned errors: %s", result.Errors)
 	}
 
 	log.Printf("Entertainment Area activated")
