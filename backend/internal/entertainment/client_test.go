@@ -3,6 +3,7 @@ package entertainment
 import (
 	"bytes"
 	"encoding/binary"
+	"strings"
 	"testing"
 )
 
@@ -113,7 +114,7 @@ func TestNewClient(t *testing.T) {
 			if tt.expectError {
 				if err == nil {
 					t.Errorf("Expected error but got none")
-				} else if tt.errorContains != "" && !contains(err.Error(), tt.errorContains) {
+				} else if tt.errorContains != "" && !strings.Contains(err.Error(), tt.errorContains) {
 					t.Errorf("Expected error containing %q, got %q", tt.errorContains, err.Error())
 				}
 			} else {
@@ -398,7 +399,7 @@ func TestStreamColors_NotConnected(t *testing.T) {
 	if err == nil {
 		t.Error("Expected error when streaming without connection")
 	}
-	if !contains(err.Error(), "not connected") {
+	if !strings.Contains(err.Error(), "not connected") {
 		t.Errorf("Expected 'not connected' error, got: %v", err)
 	}
 }
@@ -423,16 +424,3 @@ func TestClose_NotConnected(t *testing.T) {
 	}
 }
 
-// Helper function
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && findSubstring(s, substr))
-}
-
-func findSubstring(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
-}

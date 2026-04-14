@@ -277,6 +277,7 @@ import (
 	"fmt"
 	"image"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unsafe"
 )
@@ -285,7 +286,7 @@ import (
 type NativePipeWireCapture struct {
 	userData    *C.struct_user_data
 	stopChan    chan struct{}
-	running     bool
+	running     atomic.Bool
 	latestFrame *image.RGBA
 	frameMutex  sync.RWMutex
 }
@@ -308,7 +309,7 @@ func NewNativePipeWireCapture(nodeID uint32) (*NativePipeWireCapture, error) {
 
 // Start begins the capture loop in a separate goroutine
 func (npc *NativePipeWireCapture) Start() error {
-	if npc.running {
+	if npc.running.Load() {
 		return fmt.Errorf("capture already running")
 	}
 
@@ -318,13 +319,13 @@ func (npc *NativePipeWireCapture) Start() error {
 		return fmt.Errorf("failed to start PipeWire thread loop")
 	}
 
-	npc.running = true
+	npc.running.Store(true)
 	return nil
 }
 
 // GetFrame retrieves the latest captured frame
 func (npc *NativePipeWireCapture) GetFrame() (*image.RGBA, error) {
-	if npc.userData == nil || !npc.running {
+	if npc.userData == nil || !npc.running.Load() {
 		return nil, fmt.Errorf("capture not initialized or stopped")
 	}
 
@@ -478,11 +479,9 @@ func (npc *NativePipeWireCapture) convertToRGBA(data *C.uint8_t, width, height, 
 
 // Stop stops the capture
 func (npc *NativePipeWireCapture) Stop() {
-	if !npc.running {
+	if !npc.running.CompareAndSwap(true, false) {
 		return
 	}
-
-	npc.running = false
 
 	// Give the frame reader loop time to exit
 	time.Sleep(100 * time.Millisecond)
@@ -497,5 +496,5 @@ func (npc *NativePipeWireCapture) Stop() {
 
 // IsRunning returns whether capture is running
 func (npc *NativePipeWireCapture) IsRunning() bool {
-	return npc.running
+	return npc.running.Load()
 }

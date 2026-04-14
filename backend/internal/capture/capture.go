@@ -9,6 +9,7 @@ import (
 	"image/draw"
 	"image/jpeg"
 	_ "image/png" // Register PNG decoder
+	"log"
 	"os"
 	"os/exec"
 	"sync"
@@ -19,16 +20,13 @@ import (
 
 // Constants for screen capture
 const (
-	MinFPS = 10 // Minimum frames per second
+	MinFPS = 10 // Minimum frames per second for capture (stricter than config.MinFPS)
 	MaxFPS = 60 // Maximum frames per second
 )
 
-// RES-007: sync.Pool for image buffers to reduce GC pressure
-// Pool for RGBA image buffers used in frame copying
+// Pool for RGBA image buffers used in frame copying to reduce GC pressure
 var imageBufferPool = sync.Pool{
-	New: func() interface{} {
-		// Create a buffer for standard 1080p frames (most common)
-		// Actual allocation will be replaced if size differs
+	New: func() any {
 		return image.NewRGBA(image.Rect(0, 0, 1920, 1080))
 	},
 }
@@ -49,10 +47,6 @@ func GetImageBuffer(bounds image.Rectangle) *image.RGBA {
 // PutImageBuffer returns an image buffer to the pool
 func PutImageBuffer(img *image.RGBA) {
 	if img != nil {
-		// Reset alpha channel to prevent color bleeding between frames
-		for i := 3; i < len(img.Pix); i += 4 {
-			img.Pix[i] = 255
-		}
 		imageBufferPool.Put(img)
 	}
 }
@@ -210,7 +204,7 @@ func (sc *ScreenCapture) Start() error {
 	}
 	sc.streamNode = streamNode
 
-	fmt.Printf("Screen capture started: session=%s, node=%d\n", sessionHandle, streamNode)
+	log.Printf("Screen capture started: session=%s, node=%d", sessionHandle, streamNode)
 
 	// Save new restore token for next session (if callback provided)
 	if newToken != "" && newToken != sc.restoreToken {
@@ -251,7 +245,6 @@ func (sc *ScreenCapture) CaptureFrame() (*image.RGBA, error) {
 		return nil, fmt.Errorf("no frame available yet")
 	}
 
-	// RES-007: Use pooled buffer for frame copy to reduce GC pressure
 	bounds := sc.frameBuffer.Bounds()
 	frame := GetImageBuffer(bounds)
 	copy(frame.Pix, sc.frameBuffer.Pix)
@@ -397,7 +390,10 @@ func (sc *ScreenCapture) Stop() {
 	sc.sessionHandle = ""
 	sc.streamNode = 0
 	sc.conn = nil
+
+	sc.frameMutex.Lock()
 	sc.frameBuffer = nil
+	sc.frameMutex.Unlock()
 }
 
 // startPipewireCapture starts capturing frames from Pipewire
@@ -429,7 +425,7 @@ func (sc *ScreenCapture) startNativePipewireCapture() error {
 	// Start frame polling goroutine
 	go sc.nativeFrameReaderLoop()
 
-	fmt.Printf("Native PipeWire capture started (CGo + libpipewire)\n")
+	log.Printf("Native PipeWire capture started (CGo + libpipewire)")
 	return nil
 }
 
@@ -484,7 +480,7 @@ func (sc *ScreenCapture) startGStreamerCapture() error {
 	// Start goroutine to read frames
 	go sc.frameReaderLoop()
 
-	fmt.Printf("GStreamer Pipewire capture started (fallback)\n")
+	log.Printf("GStreamer Pipewire capture started (fallback)")
 	return nil
 }
 

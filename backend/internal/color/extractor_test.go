@@ -3,6 +3,7 @@ package color
 import (
 	"image"
 	"image/color"
+	"strings"
 	"testing"
 )
 
@@ -82,7 +83,7 @@ func TestNewExtractor(t *testing.T) {
 			if tt.expectError {
 				if err == nil {
 					t.Errorf("Expected error but got none")
-				} else if tt.errorContains != "" && !contains(err.Error(), tt.errorContains) {
+				} else if tt.errorContains != "" && !strings.Contains(err.Error(), tt.errorContains) {
 					t.Errorf("Expected error containing %q, got %q", tt.errorContains, err.Error())
 				}
 			} else {
@@ -116,7 +117,7 @@ func TestExtractColors_NilImage(t *testing.T) {
 	if err == nil {
 		t.Error("Expected error for nil image")
 	}
-	if !contains(err.Error(), "image is nil") {
+	if !strings.Contains(err.Error(), "image is nil") {
 		t.Errorf("Expected 'image is nil' error, got: %v", err)
 	}
 }
@@ -439,28 +440,6 @@ func TestApplyGamma(t *testing.T) {
 	}
 }
 
-// TestMinMax tests the min/max utility functions
-func TestMinMax(t *testing.T) {
-	if min(5, 10) != 5 {
-		t.Error("min(5, 10) should be 5")
-	}
-	if min(10, 5) != 5 {
-		t.Error("min(10, 5) should be 5")
-	}
-	if min(7, 7) != 7 {
-		t.Error("min(7, 7) should be 7")
-	}
-
-	if max(5, 10) != 10 {
-		t.Error("max(5, 10) should be 10")
-	}
-	if max(10, 5) != 10 {
-		t.Error("max(10, 5) should be 10")
-	}
-	if max(7, 7) != 7 {
-		t.Error("max(7, 7) should be 7")
-	}
-}
 
 // Helper functions
 
@@ -528,15 +507,3 @@ func abs(a int) int {
 	return a
 }
 
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && findSubstring(s, substr))
-}
-
-func findSubstring(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
-}

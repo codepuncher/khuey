@@ -63,7 +63,6 @@ func NewClient(ctx context.Context, bridgeAddr, apiKey string) (*Client, error) 
 		return nil, fmt.Errorf("API key is required")
 	}
 
-	// Create HTTP client using common utility (QUAL-004 fix)
 	httpClient := common.NewHueHTTPClient()
 
 	// Create API key auth function
@@ -91,7 +90,6 @@ func NewClient(ctx context.Context, bridgeAddr, apiKey string) (*Client, error) 
 			Connected:  false,
 			BridgeAddr: bridgeAddr,
 		},
-		// SEC-006: Rate limiter - 10 requests/sec, burst up to 20
 		limiter: rate.NewLimiter(rate.Limit(10), 20),
 	}
 
