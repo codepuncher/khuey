@@ -648,8 +648,10 @@ class HueTrayApp : public QApplication {
         // Update icon based on gaming + sync state
         if (syncing && gamingActive) {
             sni->setIconByName("applications-games"); // Gaming icon when gaming + syncing
+        } else if (syncing) {
+            sni->setIconByName("view-refresh"); // Sync active icon (non-gaming)
         } else {
-            sni->setIconByName("preferences-desktop-display-color"); // Default icon otherwise
+            sni->setIconByName("preferences-desktop-display-color"); // Default icon (idle)
         }
 
         // Build tooltip text
