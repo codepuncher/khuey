@@ -85,8 +85,15 @@ type GamingModeConfig struct {
 	Enabled       bool `mapstructure:"enabled"`       // Feature toggle (disabled by default)
 	PollInterval  int  `mapstructure:"pollInterval"`  // How often to check in seconds (default: 2)
 	DebounceDelay int  `mapstructure:"debounceDelay"` // Wait before triggering in seconds (default: 5)
-	UseGameMode   bool `mapstructure:"useGameMode"`   // Check GameMode DBus (default: true)
-	UseFullscreen bool `mapstructure:"useFullscreen"` // Check KWin fullscreen (default: true)
+
+	// CachyOS-optimized detection (recommended)
+	UseSystemdInhibit bool `mapstructure:"useSystemdInhibit"` // systemd-inhibit check (PRIMARY)
+	UsePowerProfile   bool `mapstructure:"usePowerProfile"`   // Power profile validation
+	UseSteamAppId     bool `mapstructure:"useSteamAppId"`     // Steam AppId detection
+
+	// Legacy detection (fallback)
+	UseGameMode   bool `mapstructure:"useGameMode"`   // Feral GameMode (if installed)
+	UseFullscreen bool `mapstructure:"useFullscreen"` // KWin fullscreen (unreliable)
 }
 
 // DefaultConfig returns a configuration with sensible defaults
@@ -100,11 +107,14 @@ func DefaultConfig() *Config {
 			Monitor:        "",
 		},
 		GamingMode: GamingModeConfig{
-			Enabled:       false, // Disabled by default (opt-in)
-			PollInterval:  2,     // Check every 2 seconds
-			DebounceDelay: 5,     // Wait 5 seconds before triggering
-			UseGameMode:   true,  // Enable GameMode detection
-			UseFullscreen: true,  // Enable fullscreen detection
+			Enabled:           false, // Disabled by default (opt-in)
+			PollInterval:      2,     // Check every 2 seconds
+			DebounceDelay:     5,     // Wait 5 seconds before triggering
+			UseSystemdInhibit: true,  // CachyOS primary detection
+			UsePowerProfile:   true,  // CachyOS secondary validation
+			UseSteamAppId:     true,  // Steam-specific detection
+			UseGameMode:       false, // Feral GameMode (not installed by default)
+			UseFullscreen:     false, // KWin fullscreen (unreliable on Wayland)
 		},
 		LogLevel: "info",
 		Channels: []ChannelConfig{},

@@ -246,6 +246,178 @@ make
 cp hue-tray ~/.local/bin/
 ```
 
+## Gaming Mode (Automatic Screen Sync)
+
+Gaming Mode automatically detects when you're playing a game and enables screen sync for immersive lighting effects.
+
+### How It Works
+
+The app uses multiple detection methods to identify gaming activity:
+
+**1. CachyOS Game-Performance** (Primary - Best on CachyOS)
+- Detects when CachyOS applies gaming optimizations
+- Works with ALL games (Steam, native, Wine/Proton, Lutris)
+- Zero false positives - only active when game is actually running
+- Uses systemd-inhibit to detect game-related locks
+
+**2. Power Profile + Steam AppId** (Secondary)
+- Validates "performance" power profile is active
+- Confirms Steam game is running via reaper process
+- Excellent for Steam games on any distro
+- Combined check prevents false positives
+
+**3. Feral GameMode** (Fallback)
+- Works if GameMode is installed (`sudo pacman -S gamemode`)
+- Many games use GameMode for optimization
+- Lower priority than CachyOS detection
+
+**4. KWin Fullscreen** (Legacy Fallback)
+- Detects fullscreen windows
+- Unreliable on Wayland (many false positives)
+- Lowest priority - only used if other methods unavailable
+
+### Setup
+
+**Option 1: Via Settings Dialog (Recommended)**
+
+1. Right-click tray icon → **Settings**
+2. Go to **Screen Sync** tab
+3. Enable: ☑ **"Automatically enable screen sync when gaming"**
+4. Click **Save**
+
+**Option 2: Via Config File**
+
+Edit `~/.openhue/config.yaml`:
+
+```yaml
+gamingMode:
+  enabled: true                  # Enable gaming mode
+  pollInterval: 2                # Check every 2 seconds
+  debounceDelay: 5               # 5 second debounce
+  useSystemdInhibit: true        # CachyOS detection (primary)
+  usePowerProfile: true          # Power profile validation
+  useSteamAppId: true            # Steam-specific detection
+  useGameMode: false             # Feral GameMode (if installed)
+  useFullscreen: false           # KWin fullscreen (unreliable)
+```
+
+**Option 3: Via DBus Command**
+
+```bash
+dbus-send --session --print-reply --dest=org.kde.plasma.hue \
+  /org/kde/plasma/hue org.kde.plasma.hue.SetGamingMode boolean:true
+```
+
+### Testing
+
+Launch a game and verify detection:
+
+```bash
+cd backend
+./test-gaming-detection
+```
+
+Expected output when Skyrim SE is running:
+```
+[17:52:00]
+  systemd-inhibit: true ✅
+  Power profile:   true ✅
+  Steam AppId:     true (AppId: 489830) ✅
+  🎮 Gaming Active: true ✅
+```
+
+When no game is running:
+```
+[17:52:02]
+  systemd-inhibit: false
+  Power profile:   false
+  Steam AppId:     false
+  🎮 Gaming Active: false
+```
+
+### How It Behaves
+
+**When you launch a game:**
+1. Gaming mode detects gaming activity
+2. After 5 seconds (debounce delay), screen sync auto-starts
+3. Your lights sync to screen colors for immersive experience
+4. Notification: "🎮 Gaming detected - starting screen sync"
+
+**When you exit the game:**
+1. Gaming mode detects game stopped
+2. After 5 seconds (debounce delay), screen sync auto-stops
+3. Your lights return to previous state
+4. Notification: "🎮 Gaming stopped - stopping screen sync"
+
+**Debouncing prevents false triggers:**
+- Quick alt-tabs don't trigger sync
+- Minimizing to desktop briefly won't stop sync
+- Only sustained gaming activity triggers auto-sync
+
+### Troubleshooting
+
+**Games not detected?**
+
+**On CachyOS:**
+- Should work automatically for all Steam games
+- Check if power profile switches to "performance" during gaming: `powerprofilesctl get`
+- Verify systemd inhibitor is created: `systemd-inhibit --list | grep -i game`
+
+**On other distros:**
+- Install GameMode for better detection: `sudo pacman -S gamemode`
+- Or use fullscreen detection (enable `useFullscreen: true` in config)
+
+**Check detection status:**
+```bash
+# Test detection while game is running
+cd backend
+./test-gaming-detection
+
+# Check backend logs
+journalctl --user -u hue-backend -f
+```
+
+**False activations?**
+- Debouncing prevents quick alt-tabs from triggering
+- Power profile check reduces false positives from non-gaming "performance" usage
+- If still happening, increase `debounceDelay` to 10 seconds
+
+**Gaming mode not starting/stopping?**
+```bash
+# Enable gaming mode
+dbus-send --session --dest=org.kde.plasma.hue \
+  /org/kde/plasma/hue org.kde.plasma.hue.SetGamingMode boolean:true
+
+# Check if detector is running
+journalctl --user -u hue-backend -n 20 | grep -i "gaming mode"
+
+# Should see: "✅ Gaming mode detector started"
+```
+
+**Manual override:**
+You can always manually start/stop screen sync from the tray app regardless of gaming mode status.
+
+### Supported Games
+
+**CachyOS (Best Support):**
+- All Steam games (including Proton/Wine)
+- Native Linux games
+- GOG games via Heroic Launcher
+- Lutris games
+- Any game that triggers CachyOS game-performance
+
+**Other Distros:**
+- Steam games (via AppId detection)
+- Games that use GameMode (if installed)
+- Fullscreen games (unreliable on Wayland)
+
+### Performance Impact
+
+- Poll interval: Checks gaming status every 2 seconds
+- Minimal CPU usage when idle
+- No impact when gaming mode is disabled
+- Screen sync itself uses moderate CPU (adjustable via FPS setting)
+
 ## Auto-Start
 
 The backend auto-starts via systemd. To make the tray app auto-start:

@@ -14,11 +14,24 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.DebounceDelay != 5*time.Second {
 		t.Errorf("Expected debounce delay 5s, got %v", cfg.DebounceDelay)
 	}
-	if !cfg.UseGameMode {
-		t.Error("Expected GameMode detection enabled by default")
+
+	// CachyOS-optimized detection should be enabled by default
+	if !cfg.UseSystemdInhibit {
+		t.Error("Expected systemd-inhibit detection enabled by default")
 	}
-	if !cfg.UseFullscreen {
-		t.Error("Expected fullscreen detection enabled by default")
+	if !cfg.UsePowerProfile {
+		t.Error("Expected power profile detection enabled by default")
+	}
+	if !cfg.UseSteamAppId {
+		t.Error("Expected Steam AppId detection enabled by default")
+	}
+
+	// Legacy detection should be disabled by default
+	if cfg.UseGameMode {
+		t.Error("Expected GameMode detection disabled by default")
+	}
+	if cfg.UseFullscreen {
+		t.Error("Expected fullscreen detection disabled by default")
 	}
 }
 
@@ -115,12 +128,15 @@ func TestDetectorCallback(t *testing.T) {
 }
 
 func TestDetectorWithDisabledMethods(t *testing.T) {
-	// Test with both methods disabled
+	// Test with all methods disabled
 	cfg := Config{
-		PollInterval:  100 * time.Millisecond,
-		DebounceDelay: 500 * time.Millisecond,
-		UseGameMode:   false,
-		UseFullscreen: false,
+		PollInterval:      100 * time.Millisecond,
+		DebounceDelay:     500 * time.Millisecond,
+		UseSystemdInhibit: false,
+		UsePowerProfile:   false,
+		UseSteamAppId:     false,
+		UseGameMode:       false,
+		UseFullscreen:     false,
 	}
 
 	detector, err := NewDetector(cfg, nil)

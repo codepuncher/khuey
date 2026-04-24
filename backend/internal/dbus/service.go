@@ -781,18 +781,33 @@ func (s *Service) SetGamingMode(sender dbus.Sender, enabled bool) (bool, *dbus.E
 	}
 
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	// Update config
 	s.config.GamingMode.Enabled = enabled
 
 	// Save config
 	if err := s.config.Save(); err != nil {
+		s.mu.Unlock()
 		log.Printf("❌ Failed to save gaming mode config: %v", err)
 		return false, dbus.MakeFailedError(err)
 	}
 
-	log.Printf("🎮 Gaming mode %s", map[bool]string{true: "enabled", false: "disabled"}[enabled])
+	s.mu.Unlock()
+
+	// IMPORTANT: Actually start/stop the detector!
+	if enabled {
+		// Stop existing detector if running
+		s.StopGamingMode()
+
+		// Start new detector
+		s.InitGamingMode()
+		log.Println("🎮 Gaming mode enabled - detector started")
+	} else {
+		// Stop detector
+		s.StopGamingMode()
+		log.Println("🎮 Gaming mode disabled - detector stopped")
+	}
+
 	return true, nil
 }
 
@@ -834,10 +849,13 @@ func (s *Service) InitGamingMode() {
 
 	// Create gaming detector config
 	gamingCfg := gaming.Config{
-		PollInterval:  time.Duration(s.config.GamingMode.PollInterval) * time.Second,
-		DebounceDelay: time.Duration(s.config.GamingMode.DebounceDelay) * time.Second,
-		UseGameMode:   s.config.GamingMode.UseGameMode,
-		UseFullscreen: s.config.GamingMode.UseFullscreen,
+		PollInterval:      time.Duration(s.config.GamingMode.PollInterval) * time.Second,
+		DebounceDelay:     time.Duration(s.config.GamingMode.DebounceDelay) * time.Second,
+		UseSystemdInhibit: s.config.GamingMode.UseSystemdInhibit,
+		UsePowerProfile:   s.config.GamingMode.UsePowerProfile,
+		UseSteamAppId:     s.config.GamingMode.UseSteamAppId,
+		UseGameMode:       s.config.GamingMode.UseGameMode,
+		UseFullscreen:     s.config.GamingMode.UseFullscreen,
 	}
 
 	// Create detector with callback

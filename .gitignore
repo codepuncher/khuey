@@ -66,3 +66,4 @@ coverage.out
 *.prof
 compile_commands.json
 .cache/
+backend/test-gaming-detection
