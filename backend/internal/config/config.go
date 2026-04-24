@@ -46,6 +46,9 @@ type Config struct {
 	// Screen sync settings
 	Sync SyncConfig `mapstructure:"sync"`
 
+	// Gaming mode settings
+	GamingMode GamingModeConfig `mapstructure:"gamingMode"`
+
 	// Logging
 	LogLevel string `mapstructure:"log_level"`
 
@@ -77,6 +80,15 @@ type SyncConfig struct {
 	Monitor        string `mapstructure:"monitor"` // Monitor to capture (empty = default)
 }
 
+// GamingModeConfig represents gaming mode auto-sync settings
+type GamingModeConfig struct {
+	Enabled       bool `mapstructure:"enabled"`       // Feature toggle (disabled by default)
+	PollInterval  int  `mapstructure:"pollInterval"`  // How often to check in seconds (default: 2)
+	DebounceDelay int  `mapstructure:"debounceDelay"` // Wait before triggering in seconds (default: 5)
+	UseGameMode   bool `mapstructure:"useGameMode"`   // Check GameMode DBus (default: true)
+	UseFullscreen bool `mapstructure:"useFullscreen"` // Check KWin fullscreen (default: true)
+}
+
 // DefaultConfig returns a configuration with sensible defaults
 func DefaultConfig() *Config {
 	return &Config{
@@ -86,6 +98,13 @@ func DefaultConfig() *Config {
 			FPS:            DefaultFPS,
 			SubsampleWidth: DefaultSubsampleWidth,
 			Monitor:        "",
+		},
+		GamingMode: GamingModeConfig{
+			Enabled:       false, // Disabled by default (opt-in)
+			PollInterval:  2,     // Check every 2 seconds
+			DebounceDelay: 5,     // Wait 5 seconds before triggering
+			UseGameMode:   true,  // Enable GameMode detection
+			UseFullscreen: true,  // Enable fullscreen detection
 		},
 		LogLevel: "info",
 		Channels: []ChannelConfig{},
@@ -181,6 +200,7 @@ func (c *Config) Save() error {
 	viper.Set("entertainmentConfigurationId", c.EntertainmentConfigurationID)
 	viper.Set("channels", c.Channels)
 	viper.Set("sync", c.Sync)
+	viper.Set("gamingMode", c.GamingMode)
 	viper.Set("log_level", c.LogLevel)
 
 	// Validate required fields
@@ -245,6 +265,19 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("sync.subsampleWidth must be between %d and %d (got %d)\n"+
 			"  → Update 'sync.subsampleWidth' in config.yaml\n"+
 			"  → Recommended: %d for good balance", MinSubsampleWidth, MaxSubsampleWidth, c.Sync.SubsampleWidth, DefaultSubsampleWidth)
+	}
+
+	// Validate gaming mode settings
+	if c.GamingMode.PollInterval < 1 || c.GamingMode.PollInterval > 60 {
+		return fmt.Errorf("gamingMode.pollInterval must be between 1 and 60 seconds (got %d)\n"+
+			"  → Update 'gamingMode.pollInterval' in config.yaml\n"+
+			"  → Recommended: 2 for responsive detection", c.GamingMode.PollInterval)
+	}
+
+	if c.GamingMode.DebounceDelay < 0 || c.GamingMode.DebounceDelay > 60 {
+		return fmt.Errorf("gamingMode.debounceDelay must be between 0 and 60 seconds (got %d)\n"+
+			"  → Update 'gamingMode.debounceDelay' in config.yaml\n"+
+			"  → Recommended: 5 to prevent flicker on alt-tab", c.GamingMode.DebounceDelay)
 	}
 
 	// Validate channels if configured

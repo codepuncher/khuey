@@ -93,6 +93,24 @@ void SettingsDialog::setupUI() {
     monitorLayout->addWidget(monitorCombo, 1);
     syncLayout->addWidget(monitorGroup);
 
+    // Gaming Mode checkbox
+    QGroupBox* gamingGroup = new QGroupBox("Gaming Mode", syncTab);
+    QVBoxLayout* gamingLayout = new QVBoxLayout(gamingGroup);
+    
+    gamingModeCheckbox = new QCheckBox("Automatically enable screen sync when gaming", gamingGroup);
+    gamingModeCheckbox->setChecked(false);
+    connect(gamingModeCheckbox, &QCheckBox::toggled, this, &SettingsDialog::onGamingModeToggled);
+    gamingLayout->addWidget(gamingModeCheckbox);
+    
+    QLabel* gamingHint = new QLabel(
+        "When enabled, screen sync will automatically start when you play games.\n"
+        "Uses GameMode and fullscreen window detection.", gamingGroup);
+    gamingHint->setWordWrap(true);
+    gamingHint->setStyleSheet("QLabel { color: gray; font-size: 10pt; }");
+    gamingLayout->addWidget(gamingHint);
+    
+    syncLayout->addWidget(gamingGroup);
+
     // Info label
     QLabel* infoLabel =
         new QLabel("ℹ️  Note: Screen Sync must be restarted for changes to take effect.", syncTab);
@@ -250,6 +268,13 @@ void SettingsDialog::loadSettings() {
         currentRoomID = roomReply.value();
     }
 
+    // Load gaming mode setting
+    QDBusReply<bool> gamingReply = dbusInterface->call("IsGamingModeEnabled");
+    if (gamingReply.isValid()) {
+        currentGamingMode = gamingReply.value();
+        gamingModeCheckbox->setChecked(currentGamingMode);
+    }
+
     // Auto-load rooms list on dialog open (fixed QDBusArgument extraction)
     onRefreshRoomsClicked();
 
@@ -302,6 +327,17 @@ void SettingsDialog::saveSettings() {
             syncReply.isValid() ? "Failed to save settings" : syncReply.error().message();
         QMessageBox::warning(this, "Settings Error",
                              "Failed to save Screen Sync settings: " + errorMsg);
+        return;
+    }
+
+    // Save gaming mode setting
+    bool gamingMode = gamingModeCheckbox->isChecked();
+    QDBusReply<bool> gamingReply = dbusInterface->call("SetGamingMode", gamingMode);
+    if (!gamingReply.isValid() || !gamingReply.value()) {
+        QString errorMsg =
+            gamingReply.isValid() ? "Failed to save gaming mode" : gamingReply.error().message();
+        QMessageBox::warning(this, "Settings Error",
+                             "Failed to save gaming mode setting: " + errorMsg);
         return;
     }
 
@@ -461,4 +497,10 @@ void SettingsDialog::onSubsampleChanged(int value) {
     } else {
         subsampleSpinBox->setStyleSheet("");
     }
+}
+
+void SettingsDialog::onGamingModeToggled(bool checked) {
+    // No immediate action needed - will be saved when Apply/OK is clicked
+    // Just log for debugging
+    qDebug() << "Gaming mode toggled:" << (checked ? "enabled" : "disabled");
 }

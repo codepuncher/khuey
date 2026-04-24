@@ -166,7 +166,16 @@ class HueControlDialog : public QDialog {
         if (syncReply.isValid()) {
             bool syncing = syncReply.value();
             syncButton->setText(syncing ? "Stop Screen Sync" : "Start Screen Sync");
-            syncStatusLabel->setText(syncing ? "✅ Syncing" : "Not syncing");
+            
+            // Check if gaming mode is active
+            QDBusReply<bool> gamingReply = iface.call("IsGamingModeActive");
+            bool gamingActive = gamingReply.isValid() && gamingReply.value();
+            
+            if (syncing && gamingActive) {
+                syncStatusLabel->setText("✅ Syncing (Gaming Mode 🎮)");
+            } else {
+                syncStatusLabel->setText(syncing ? "✅ Syncing" : "Not syncing");
+            }
         }
     }
 

@@ -6,10 +6,12 @@ import (
 	"log"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/codepuncher/khuey/internal/capture"
 	"github.com/codepuncher/khuey/internal/common"
 	"github.com/codepuncher/khuey/internal/config"
+	"github.com/codepuncher/khuey/internal/gaming"
 	"github.com/codepuncher/khuey/internal/hue"
 	syncengine "github.com/codepuncher/khuey/internal/sync"
 	"github.com/godbus/dbus/v5"
@@ -24,12 +26,14 @@ const (
 
 // Service provides DBus interface for the plasmoid
 type Service struct {
-	conn       *dbus.Conn
-	config     *config.Config
-	hueClient  *hue.Client
-	syncEngine *syncengine.Engine
-	mu         sync.RWMutex // Protects config access from concurrent DBus calls
-	ownerUID   uint32       // UID of the service owner for access control
+	conn             *dbus.Conn
+	config           *config.Config
+	hueClient        *hue.Client
+	syncEngine       *syncengine.Engine
+	gamingDetector   *gaming.Detector
+	gamingModeActive bool         // Track if gaming mode triggered sync
+	mu               sync.RWMutex // Protects config access from concurrent DBus calls
+	ownerUID         uint32       // UID of the service owner for access control
 }
 
 // NewService creates a new DBus service
@@ -109,6 +113,9 @@ func (s *Service) Start() error {
 
 // Stop stops the DBus service
 func (s *Service) Stop() {
+	// Stop gaming mode detector if running
+	s.StopGamingMode()
+
 	if s.conn != nil {
 		// Release the DBus name before closing connection to prevent resource leak
 		s.conn.ReleaseName(dbusName)
@@ -244,6 +251,25 @@ func (s *Service) introspectionMethods() []introspect.Method {
 				{Name: "subsampleWidth", Type: "i", Direction: "in"},
 				{Name: "monitor", Type: "s", Direction: "in"},
 				{Name: "success", Type: "b", Direction: "out"},
+			},
+		},
+		{
+			Name: "SetGamingMode",
+			Args: []introspect.Arg{
+				{Name: "enabled", Type: "b", Direction: "in"},
+				{Name: "success", Type: "b", Direction: "out"},
+			},
+		},
+		{
+			Name: "IsGamingModeEnabled",
+			Args: []introspect.Arg{
+				{Name: "enabled", Type: "b", Direction: "out"},
+			},
+		},
+		{
+			Name: "IsGamingModeActive",
+			Args: []introspect.Arg{
+				{Name: "active", Type: "b", Direction: "out"},
 			},
 		},
 		{
@@ -745,4 +771,133 @@ func (s *Service) SetSelectedRoom(roomID string, sender dbus.Sender) (bool, *dbu
 
 	log.Printf("✅ Selected room set to: %s", roomID)
 	return true, nil
+}
+
+// SetGamingMode enables or disables gaming mode auto-sync
+func (s *Service) SetGamingMode(sender dbus.Sender, enabled bool) (bool, *dbus.Error) {
+	// Check access control
+	if err := s.checkAccess(sender); err != nil {
+		return false, dbus.MakeFailedError(err)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Update config
+	s.config.GamingMode.Enabled = enabled
+
+	// Save config
+	if err := s.config.Save(); err != nil {
+		log.Printf("❌ Failed to save gaming mode config: %v", err)
+		return false, dbus.MakeFailedError(err)
+	}
+
+	log.Printf("🎮 Gaming mode %s", map[bool]string{true: "enabled", false: "disabled"}[enabled])
+	return true, nil
+}
+
+// IsGamingModeEnabled returns whether gaming mode is enabled in config
+func (s *Service) IsGamingModeEnabled() (bool, *dbus.Error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.config.GamingMode.Enabled, nil
+}
+
+// IsGamingModeActive returns whether gaming mode is currently detecting gaming activity
+func (s *Service) IsGamingModeActive() (bool, *dbus.Error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.gamingDetector == nil {
+		return false, nil
+	}
+
+	return s.gamingDetector.IsGaming(), nil
+}
+
+// InitGamingMode initializes the gaming detector if enabled in config
+// Should be called from main() after service is created
+func (s *Service) InitGamingMode() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if !s.config.GamingMode.Enabled {
+		log.Println("ℹ️  Gaming mode disabled in config")
+		return
+	}
+
+	if s.syncEngine == nil {
+		log.Println("⚠️  Gaming mode requires Entertainment API configuration")
+		return
+	}
+
+	// Create gaming detector config
+	gamingCfg := gaming.Config{
+		PollInterval:  time.Duration(s.config.GamingMode.PollInterval) * time.Second,
+		DebounceDelay: time.Duration(s.config.GamingMode.DebounceDelay) * time.Second,
+		UseGameMode:   s.config.GamingMode.UseGameMode,
+		UseFullscreen: s.config.GamingMode.UseFullscreen,
+	}
+
+	// Create detector with callback
+	detector, err := gaming.NewDetector(gamingCfg, func(isGaming bool) {
+		s.onGamingStateChanged(isGaming)
+	})
+
+	if err != nil {
+		log.Printf("❌ Failed to create gaming detector: %v", err)
+		return
+	}
+
+	if detector == nil {
+		log.Println("⚠️  No gaming detection methods available")
+		return
+	}
+
+	s.gamingDetector = detector
+	s.gamingDetector.Start()
+	log.Println("✅ Gaming mode detector started")
+}
+
+// StopGamingMode stops the gaming detector
+func (s *Service) StopGamingMode() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.gamingDetector != nil {
+		s.gamingDetector.Close()
+		s.gamingDetector = nil
+		log.Println("🎮 Gaming mode detector stopped")
+	}
+}
+
+// onGamingStateChanged is called when gaming state changes
+func (s *Service) onGamingStateChanged(isGaming bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if isGaming {
+		// Gaming started - auto-start sync
+		log.Println("🎮 Gaming detected - starting screen sync")
+		s.gamingModeActive = true
+
+		if s.syncEngine != nil && !s.syncEngine.IsRunning() {
+			if err := s.syncEngine.Start(context.Background()); err != nil {
+				log.Printf("❌ Failed to start sync for gaming mode: %v", err)
+			} else {
+				log.Println("✅ Screen sync enabled for immersive gaming")
+			}
+		}
+	} else {
+		// Gaming stopped - auto-stop sync (only if we started it)
+		log.Println("🎮 Gaming stopped - stopping screen sync")
+
+		if s.gamingModeActive && s.syncEngine != nil && s.syncEngine.IsRunning() {
+			s.syncEngine.Stop()
+			log.Println("✅ Screen sync disabled")
+		}
+
+		s.gamingModeActive = false
+	}
 }

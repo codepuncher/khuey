@@ -48,6 +48,17 @@ The Settings Dialog provides a GUI to configure:
 - **FPS**: Frame rate for screen sync (10-60 FPS, default: 30)
   - Higher = smoother, but more CPU usage
   - Recommended: 20-30 for balanced performance
+- **Subsample Width**: Processing quality (16-256px, default: 64)
+  - Lower = better performance, less color precision
+  - Higher = better color accuracy, more CPU usage
+- **Monitor**: Select which monitor to capture (default: primary monitor)
+- **Gaming Mode**: Automatically enable screen sync when gaming (disabled by default)
+  - Detects games using GameMode and fullscreen window detection
+  - Auto-starts sync when you launch a game
+  - Auto-stops sync when you exit the game
+  - Great for immersive gaming without manual toggling
+
+Changes require restarting Screen Sync to take effect.
 - **Subsample Width**: Processing quality (16-256 pixels, default: 64)
   - Lower = better performance, less color precision
   - Higher = more accurate colors, more CPU usage
@@ -95,6 +106,77 @@ The screen sync currently uses a **mock gradient** for testing:
 - **Right zone** → RED
 
 This perfectly demonstrates the Entertainment API pipeline. Real desktop screen capture is documented in `backend/SCREEN_CAPTURE.md`.
+
+### Performance
+
+- FPS: 30 FPS (configurable 10-60)
+- Resolution: Configurable subsample width (16-256px)
+- Default CPU usage: ~5% on typical systems
+
+## Gaming Mode (NEW!)
+
+### Overview
+
+Gaming Mode automatically detects when you're playing games and enables screen sync for an immersive lighting experience. No more manual toggling!
+
+### How to Enable
+
+1. Right-click the tray icon → **Settings**
+2. Go to the **Screen Sync** tab
+3. Check ☑ **"Automatically enable screen sync when gaming"**
+4. Click **OK** or **Apply**
+
+### How It Works
+
+Gaming Mode uses two detection methods:
+
+1. **GameMode Detection** (Primary)
+   - Detects games launched with GameMode (Steam, Lutris, etc.)
+   - Most modern games automatically use GameMode on Linux
+   - Very reliable and game-specific
+
+2. **Fullscreen Detection** (Secondary)
+   - Detects any fullscreen window via KWin
+   - Catches games that don't use GameMode
+   - Provides fallback coverage
+
+**Debouncing**: Waits 5 seconds after detection before triggering to avoid false positives from alt-tabbing.
+
+### Status Indicator
+
+When gaming mode is active and syncing, you'll see:
+- **Control Panel**: "✅ Syncing (Gaming Mode 🎮)"
+- **Backend Logs**: "🎮 Gaming detected - starting screen sync"
+
+### Configuration Options
+
+Advanced users can customize gaming mode in `~/.openhue/config.yaml`:
+
+```yaml
+gamingMode:
+  enabled: false          # Feature toggle
+  pollInterval: 2         # How often to check (seconds)
+  debounceDelay: 5        # Wait before triggering (seconds)
+  useGameMode: true       # Check GameMode DBus
+  useFullscreen: true     # Check KWin fullscreen
+```
+
+### Troubleshooting
+
+**Gaming mode not detecting my game:**
+- Check if the game uses GameMode: `gamemoded -s`
+- Verify the game runs in fullscreen (not windowed/borderless)
+- Check backend logs: `journalctl --user -u hue-backend -f`
+- Try launching game with GameMode: `gamemoderun ./game`
+
+**False positives (video players, etc.):**
+- Debouncing helps reduce flicker
+- Future: Window class filtering will be added
+
+**Gaming mode not working at all:**
+- Ensure Entertainment API is configured (required for screen sync)
+- Check if GameMode is installed: `which gamemoded`
+- Verify KWin is running: `qdbus org.kde.KWin`
 
 ### Performance
 

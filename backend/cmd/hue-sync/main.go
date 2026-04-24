@@ -71,6 +71,9 @@ func main() {
 	}
 	defer dbusService.Stop()
 
+	// Initialize gaming mode if enabled in config
+	dbusService.InitGamingMode()
+
 	log.Println("✓ Backend initialized successfully")
 	log.Println("DBus service running at: org.kde.plasma.hue")
 	log.Println()
