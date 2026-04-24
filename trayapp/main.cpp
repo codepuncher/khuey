@@ -101,6 +101,11 @@ class HueControlDialog : public QDialog {
         QTimer* connectionTimer = new QTimer(this);
         connect(connectionTimer, &QTimer::timeout, this, &HueControlDialog::checkConnectionStatus);
         connectionTimer->start(10000); // Check every 10 seconds
+
+        // Check gaming mode status periodically
+        QTimer* gamingTimer = new QTimer(this);
+        connect(gamingTimer, &QTimer::timeout, this, &HueControlDialog::updateGamingStatus);
+        gamingTimer->start(2000); // Check every 2 seconds
     }
 
   public slots:
@@ -166,16 +171,7 @@ class HueControlDialog : public QDialog {
         if (syncReply.isValid()) {
             bool syncing = syncReply.value();
             syncButton->setText(syncing ? "Stop Screen Sync" : "Start Screen Sync");
-            
-            // Check if gaming mode is active
-            QDBusReply<bool> gamingReply = iface.call("IsGamingModeActive");
-            bool gamingActive = gamingReply.isValid() && gamingReply.value();
-            
-            if (syncing && gamingActive) {
-                syncStatusLabel->setText("✅ Syncing (Gaming Mode 🎮)");
-            } else {
-                syncStatusLabel->setText(syncing ? "✅ Syncing" : "Not syncing");
-            }
+            updateGamingStatus();
         }
     }
 
@@ -511,6 +507,40 @@ class HueControlDialog : public QDialog {
         }
     }
 
+    void updateGamingStatus() {
+        QDBusInterface iface("org.kde.plasma.hue", "/org/kde/plasma/hue", "org.kde.plasma.hue",
+                             QDBusConnection::sessionBus());
+
+        if (!iface.isValid()) {
+            return;
+        }
+
+        // Check if gaming mode is enabled in config
+        QDBusReply<bool> enabledReply = iface.call("IsGamingModeEnabled");
+        bool gamingEnabled = enabledReply.isValid() && enabledReply.value();
+
+        // Check if gaming is currently active (game detected)
+        QDBusReply<bool> activeReply = iface.call("IsGamingModeActive");
+        bool gamingActive = activeReply.isValid() && activeReply.value();
+
+        // Check if syncing
+        QDBusReply<bool> syncReply = iface.call("IsSyncing");
+        bool syncing = syncReply.isValid() && syncReply.value();
+
+        // Update sync status label with gaming mode info
+        if (syncing && gamingActive) {
+            syncStatusLabel->setText("✅ Syncing (🎮 Gaming Mode)");
+        } else if (syncing) {
+            syncStatusLabel->setText("✅ Syncing");
+        } else if (gamingEnabled && gamingActive) {
+            syncStatusLabel->setText("🎮 Gaming detected - waiting to sync...");
+        } else if (gamingEnabled) {
+            syncStatusLabel->setText("Not syncing (Gaming Mode: armed)");
+        } else {
+            syncStatusLabel->setText("Not syncing");
+        }
+    }
+
     void showErrorNotification(const QString& title, const QString& message) {
         KNotification* notif = new KNotification("error");
         notif->setTitle(title);
@@ -566,6 +596,12 @@ class HueTrayApp : public QApplication {
 
         // Create control dialog
         controlDialog = new HueControlDialog();
+
+        // Update tooltip periodically with gaming mode status
+        QTimer* tooltipTimer = new QTimer(this);
+        connect(tooltipTimer, &QTimer::timeout, this, &HueTrayApp::updateTooltip);
+        tooltipTimer->start(3000); // Update every 3 seconds
+        updateTooltip(); // Initial update
     }
 
   private slots:
@@ -586,6 +622,42 @@ class HueTrayApp : public QApplication {
         } catch (...) {
             QMessageBox::critical(nullptr, "Error", "Failed to create settings dialog");
         }
+    }
+
+    void updateTooltip() {
+        QDBusInterface iface("org.kde.plasma.hue", "/org/kde/plasma/hue", "org.kde.plasma.hue",
+                             QDBusConnection::sessionBus());
+
+        if (!iface.isValid()) {
+            sni->setToolTip("preferences-desktop-display-color", "Hue Control",
+                            "Backend not running");
+            return;
+        }
+
+        // Get gaming mode status
+        QDBusReply<bool> enabledReply = iface.call("IsGamingModeEnabled");
+        bool gamingEnabled = enabledReply.isValid() && enabledReply.value();
+
+        QDBusReply<bool> activeReply = iface.call("IsGamingModeActive");
+        bool gamingActive = activeReply.isValid() && activeReply.value();
+
+        QDBusReply<bool> syncReply = iface.call("IsSyncing");
+        bool syncing = syncReply.isValid() && syncReply.value();
+
+        // Build tooltip text
+        QString tooltipText = "Control Philips Hue lights";
+        
+        if (syncing && gamingActive) {
+            tooltipText = "🎮 Gaming Mode Active - Syncing to screen";
+        } else if (syncing) {
+            tooltipText = "Syncing lights to screen";
+        } else if (gamingEnabled && gamingActive) {
+            tooltipText = "🎮 Game detected - preparing to sync...";
+        } else if (gamingEnabled) {
+            tooltipText = "Gaming Mode enabled (armed)";
+        }
+
+        sni->setToolTip("preferences-desktop-display-color", "Hue Control", tooltipText);
     }
 
   private:
