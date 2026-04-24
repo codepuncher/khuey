@@ -631,6 +631,7 @@ class HueTrayApp : public QApplication {
         if (!iface.isValid()) {
             sni->setToolTip("preferences-desktop-display-color", "Hue Control",
                             "Backend not running");
+            sni->setIconByName("preferences-desktop-display-color"); // Reset to default icon
             return;
         }
 
@@ -643,6 +644,13 @@ class HueTrayApp : public QApplication {
 
         QDBusReply<bool> syncReply = iface.call("IsSyncing");
         bool syncing = syncReply.isValid() && syncReply.value();
+
+        // Update icon based on gaming + sync state
+        if (syncing && gamingActive) {
+            sni->setIconByName("applications-games"); // Gaming icon when gaming + syncing
+        } else {
+            sni->setIconByName("preferences-desktop-display-color"); // Default icon otherwise
+        }
 
         // Build tooltip text
         QString tooltipText = "Control Philips Hue lights";
