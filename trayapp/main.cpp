@@ -649,7 +649,7 @@ class HueTrayApp : public QApplication {
         if (syncing && gamingActive) {
             sni->setIconByName("applications-games"); // Gaming icon when gaming + syncing
         } else if (syncing) {
-            sni->setIconByName("view-refresh"); // Sync active icon (non-gaming)
+            sni->setIconByName("media-record"); // Sync active icon (non-gaming)
         } else {
             sni->setIconByName("preferences-desktop-display-color"); // Default icon (idle)
         }
