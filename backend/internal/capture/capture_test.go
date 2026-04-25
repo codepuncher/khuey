@@ -110,3 +110,167 @@ func TestMockFrame(t *testing.T) {
 		t.Errorf("Right zone expected blue, got RGB(%d,%d,%d)", r>>8, g>>8, b>>8)
 	}
 }
+
+// TestNewScreenCapture tests ScreenCapture creation and validation
+func TestNewScreenCapture(t *testing.T) {
+	tests := []struct {
+		name        string
+		cfg         Config
+		expectError bool
+		errorMsg    string
+	}{
+		{
+			name: "Valid config with mock frames",
+			cfg: Config{
+				FPS:           30,
+				UseMockFrames: true,
+			},
+			expectError: false,
+		},
+		{
+			name: "Valid config at min FPS",
+			cfg: Config{
+				FPS:           MinFPS,
+				UseMockFrames: true,
+			},
+			expectError: false,
+		},
+		{
+			name: "Valid config at max FPS",
+			cfg: Config{
+				FPS:           MaxFPS,
+				UseMockFrames: true,
+			},
+			expectError: false,
+		},
+		{
+			name: "FPS too low",
+			cfg: Config{
+				FPS:           MinFPS - 1,
+				UseMockFrames: true,
+			},
+			expectError: true,
+			errorMsg:    "FPS must be between",
+		},
+		{
+			name: "FPS too high",
+			cfg: Config{
+				FPS:           MaxFPS + 1,
+				UseMockFrames: true,
+			},
+			expectError: true,
+			errorMsg:    "FPS must be between",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sc, err := NewScreenCapture(tt.cfg)
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("Expected error containing %q, got nil", tt.errorMsg)
+				} else if tt.errorMsg != "" && !contains(err.Error(), tt.errorMsg) {
+					t.Errorf("Expected error containing %q, got %q", tt.errorMsg, err.Error())
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Expected no error, got: %v", err)
+				}
+				if sc == nil {
+					t.Error("Expected non-nil ScreenCapture")
+				} else {
+					// Clean up
+					sc.Stop()
+				}
+			}
+		})
+	}
+}
+
+// TestCaptureFrame_MockMode tests capturing frames in mock mode
+func TestCaptureFrame_MockMode(t *testing.T) {
+	cfg := Config{
+		FPS:           30,
+		UseMockFrames: true,
+	}
+
+	sc, err := NewScreenCapture(cfg)
+	if err != nil {
+		t.Fatalf("Failed to create ScreenCapture: %v", err)
+	}
+	defer sc.Stop()
+
+	// Start capture (mock mode doesn't need portal)
+	if err := sc.Start(); err != nil {
+		t.Fatalf("Failed to start capture: %v", err)
+	}
+
+	// Capture frame
+	frame, err := sc.CaptureFrame()
+	if err != nil {
+		t.Errorf("CaptureFrame() failed: %v", err)
+	}
+	if frame == nil {
+		t.Error("CaptureFrame() returned nil frame")
+	}
+
+	// Verify frame dimensions
+	if frame.Bounds().Dx() != 1920 || frame.Bounds().Dy() != 1080 {
+		t.Errorf("Expected 1920x1080, got %dx%d", frame.Bounds().Dx(), frame.Bounds().Dy())
+	}
+
+	// Return buffer to pool
+	PutImageBuffer(frame)
+}
+
+// TestStop tests that Stop cleans up resources
+func TestStop(t *testing.T) {
+	cfg := Config{
+		FPS:           30,
+		UseMockFrames: true,
+	}
+
+	sc, err := NewScreenCapture(cfg)
+	if err != nil {
+		t.Fatalf("Failed to create ScreenCapture: %v", err)
+	}
+
+	// Start and stop
+	if err := sc.Start(); err != nil {
+		t.Fatalf("Failed to start capture: %v", err)
+	}
+
+	sc.Stop()
+
+	// Verify cleanup
+	if sc.sessionHandle != "" {
+		t.Error("Expected sessionHandle to be cleared")
+	}
+	if sc.streamNode != 0 {
+		t.Error("Expected streamNode to be cleared")
+	}
+	if sc.conn != nil {
+		t.Error("Expected conn to be closed")
+	}
+}
+
+// TestPutImageBuffer_Nil tests that nil buffers don't crash
+func TestPutImageBuffer_Nil(t *testing.T) {
+	// Should not panic
+	PutImageBuffer(nil)
+}
+
+// contains checks if a string contains a substring
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
+		(len(s) > 0 && len(substr) > 0 && containsHelper(s, substr)))
+}
+
+func containsHelper(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
