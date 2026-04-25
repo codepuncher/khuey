@@ -7,6 +7,311 @@ import (
 	"github.com/codepuncher/khuey/internal/hue"
 )
 
+// TestGetStatus tests the GetStatus method logic
+func TestGetStatus(t *testing.T) {
+	tests := []struct {
+		name     string
+		cfg      *config.Config
+		expected string
+	}{
+		{
+			name:     "Not configured",
+			cfg:      config.DefaultConfig(),
+			expected: "Not configured",
+		},
+		{
+			name: "Configured",
+			cfg: &config.Config{
+				Bridge: "192.168.1.100",
+				Key:    "test-key",
+			},
+			expected: "Ready",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &Service{config: tt.cfg}
+			status, err := s.GetStatus()
+			if err != nil {
+				t.Errorf("GetStatus() returned unexpected error: %v", err)
+			}
+			if status != tt.expected {
+				t.Errorf("GetStatus() = %q, want %q", status, tt.expected)
+			}
+		})
+	}
+}
+
+// TestIsSyncing tests the IsSyncing method
+func TestIsSyncing(t *testing.T) {
+	tests := []struct {
+		name       string
+		hasEngine  bool
+		wantResult bool
+	}{
+		{
+			name:       "No sync engine",
+			hasEngine:  false,
+			wantResult: false,
+		},
+		// Note: Testing with actual running engine would require complex setup
+		// The method simply returns syncEngine != nil && syncEngine.IsRunning()
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &Service{
+				config:     config.DefaultConfig(),
+				syncEngine: nil,
+			}
+			result, err := s.IsSyncing()
+			if err != nil {
+				t.Errorf("IsSyncing() returned error: %v", err)
+			}
+			if result != tt.wantResult {
+				t.Errorf("IsSyncing() = %v, want %v", result, tt.wantResult)
+			}
+		})
+	}
+}
+
+// TestIsGamingModeEnabled tests gaming mode enabled check
+func TestIsGamingModeEnabled(t *testing.T) {
+	tests := []struct {
+		name     string
+		cfg      *config.Config
+		expected bool
+	}{
+		{
+			name:     "Default config (disabled)",
+			cfg:      config.DefaultConfig(),
+			expected: false,
+		},
+		{
+			name: "Gaming mode enabled",
+			cfg: &config.Config{
+				GamingMode: config.GamingModeConfig{
+					Enabled: true,
+				},
+			},
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &Service{config: tt.cfg}
+			result, err := s.IsGamingModeEnabled()
+			if err != nil {
+				t.Errorf("IsGamingModeEnabled() returned error: %v", err)
+			}
+			if result != tt.expected {
+				t.Errorf("IsGamingModeEnabled() = %v, want %v", result, tt.expected)
+			}
+		})
+	}
+}
+
+// TestIsGamingModeActive tests gaming mode active state
+func TestIsGamingModeActive(t *testing.T) {
+	tests := []struct {
+		name        string
+		hasDetector bool
+		wantResult  bool
+	}{
+		{
+			name:        "No detector",
+			hasDetector: false,
+			wantResult:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &Service{
+				config:         config.DefaultConfig(),
+				gamingDetector: nil,
+			}
+			result, err := s.IsGamingModeActive()
+			if err != nil {
+				t.Errorf("IsGamingModeActive() returned error: %v", err)
+			}
+			if result != tt.wantResult {
+				t.Errorf("IsGamingModeActive() = %v, want %v", result, tt.wantResult)
+			}
+		})
+	}
+}
+
+// TestGetTrayIcons tests tray icon retrieval
+func TestGetTrayIcons(t *testing.T) {
+	tests := []struct {
+		name        string
+		cfg         *config.Config
+		wantGaming  string
+		wantSyncing string
+		wantIdle    string
+	}{
+		{
+			name:        "Default icons",
+			cfg:         config.DefaultConfig(),
+			wantGaming:  "applications-games",
+			wantSyncing: "media-record",
+			wantIdle:    "preferences-desktop-display-color",
+		},
+		{
+			name: "Custom icons",
+			cfg: &config.Config{
+				UI: config.UIConfig{
+					Icons: config.IconConfig{
+						Gaming:  "custom-gaming",
+						Syncing: "custom-syncing",
+						Idle:    "custom-idle",
+					},
+				},
+			},
+			wantGaming:  "custom-gaming",
+			wantSyncing: "custom-syncing",
+			wantIdle:    "custom-idle",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &Service{config: tt.cfg}
+			gaming, syncing, idle, err := s.GetTrayIcons()
+			if err != nil {
+				t.Errorf("GetTrayIcons() returned error: %v", err)
+			}
+			if gaming != tt.wantGaming {
+				t.Errorf("GetTrayIcons() gaming = %q, want %q", gaming, tt.wantGaming)
+			}
+			if syncing != tt.wantSyncing {
+				t.Errorf("GetTrayIcons() syncing = %q, want %q", syncing, tt.wantSyncing)
+			}
+			if idle != tt.wantIdle {
+				t.Errorf("GetTrayIcons() idle = %q, want %q", idle, tt.wantIdle)
+			}
+		})
+	}
+}
+
+// TestGetSyncSettings tests sync settings retrieval
+func TestGetSyncSettings(t *testing.T) {
+	tests := []struct {
+		name    string
+		cfg     *config.Config
+		wantFPS int
+		wantSW  int
+	}{
+		{
+			name:    "Default settings",
+			cfg:     config.DefaultConfig(),
+			wantFPS: 30,
+			wantSW:  64,
+		},
+		{
+			name: "Custom settings",
+			cfg: &config.Config{
+				Sync: config.SyncConfig{
+					FPS:            25,
+					SubsampleWidth: 128,
+				},
+			},
+			wantFPS: 25,
+			wantSW:  128,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &Service{config: tt.cfg}
+			settings, err := s.GetSyncSettings()
+			if err != nil {
+				t.Errorf("GetSyncSettings() returned error: %v", err)
+			}
+			if fps, ok := settings["fps"].(int); ok && fps != tt.wantFPS {
+				t.Errorf("GetSyncSettings() fps = %d, want %d", fps, tt.wantFPS)
+			}
+			if sw, ok := settings["subsampleWidth"].(int); ok && sw != tt.wantSW {
+				t.Errorf("GetSyncSettings() subsampleWidth = %d, want %d", sw, tt.wantSW)
+			}
+		})
+	}
+}
+
+// TestGetBridgeSettings tests bridge settings retrieval
+func TestGetBridgeSettings(t *testing.T) {
+	tests := []struct {
+		name       string
+		cfg        *config.Config
+		wantBridge string
+	}{
+		{
+			name:       "Empty settings",
+			cfg:        config.DefaultConfig(),
+			wantBridge: "",
+		},
+		{
+			name: "Configured settings",
+			cfg: &config.Config{
+				Bridge: "192.168.1.100",
+			},
+			wantBridge: "192.168.1.100",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &Service{config: tt.cfg}
+			settings, err := s.GetBridgeSettings()
+			if err != nil {
+				t.Errorf("GetBridgeSettings() returned error: %v", err)
+			}
+			if bridge, ok := settings["bridgeIP"].(string); ok && bridge != tt.wantBridge {
+				t.Errorf("GetBridgeSettings() bridge = %q, want %q", bridge, tt.wantBridge)
+			}
+			// connected and lastError depend on hueClient which we don't have in unit tests
+		})
+	}
+}
+
+// TestGetSelectedRoom tests selected room retrieval
+func TestGetSelectedRoom(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  *config.Config
+		want string
+	}{
+		{
+			name: "Empty grouped light ID",
+			cfg:  config.DefaultConfig(),
+			want: "",
+		},
+		{
+			name: "Set grouped light ID",
+			cfg: &config.Config{
+				GroupedLightID: "test-room-id",
+			},
+			want: "test-room-id",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &Service{config: tt.cfg}
+			result, err := s.GetSelectedRoom()
+			if err != nil {
+				t.Errorf("GetSelectedRoom() returned error: %v", err)
+			}
+			if result != tt.want {
+				t.Errorf("GetSelectedRoom() = %q, want %q", result, tt.want)
+			}
+		})
+	}
+}
+
 // TestSceneNameMatching tests the scene name matching logic used in ActivateScene
 func TestSceneNameMatching(t *testing.T) {
 	scenes := []hue.Scene{
