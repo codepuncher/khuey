@@ -568,11 +568,19 @@ class HueTrayApp : public QApplication {
     HueTrayApp(int& argc, char** argv) : QApplication(argc, argv) {
         setQuitOnLastWindowClosed(false);
 
+        // Initialize default icon names
+        gamingIconName = "applications-games";
+        syncingIconName = "media-record";
+        idleIconName = "preferences-desktop-display-color";
+
+        // Load icon names from backend config
+        loadIconNames();
+
         // Create KDE StatusNotifierItem (native Plasma system tray)
         sni = new KStatusNotifierItem(this);
-        sni->setIconByName("preferences-desktop-display-color");
+        sni->setIconByName(idleIconName);
         sni->setTitle("Hue Control");
-        sni->setToolTip("preferences-desktop-display-color", "Hue Control",
+        sni->setToolTip(idleIconName, "Hue Control",
                         "Control Philips Hue lights");
         sni->setCategory(KStatusNotifierItem::Hardware);
         sni->setStatus(KStatusNotifierItem::Active);
@@ -619,9 +627,35 @@ class HueTrayApp : public QApplication {
             SettingsDialog* dialog = new SettingsDialog();
             dialog->exec();
             delete dialog;
+            // Reload icon names after settings dialog closes (user may have changed them)
+            loadIconNames();
+            updateTooltip(); // Update icon immediately
         } catch (...) {
             QMessageBox::critical(nullptr, "Error", "Failed to create settings dialog");
         }
+    }
+
+    void loadIconNames() {
+        QDBusInterface iface("org.kde.plasma.hue", "/org/kde/plasma/hue", "org.kde.plasma.hue",
+                             QDBusConnection::sessionBus());
+
+        if (!iface.isValid()) {
+            // Backend not running, keep defaults
+            return;
+        }
+
+        QDBusReply<QDBusVariant> reply = iface.call("GetTrayIcons");
+        if (!reply.isValid()) {
+            // Method failed, keep defaults
+            return;
+        }
+
+        // GetTrayIcons returns (string gaming, string syncing, string idle)
+        // DBus packs multiple return values into a struct
+        const QDBusArgument arg = reply.value().variant().value<QDBusArgument>();
+        arg.beginStructure();
+        arg >> gamingIconName >> syncingIconName >> idleIconName;
+        arg.endStructure();
     }
 
     void updateTooltip() {
@@ -629,9 +663,9 @@ class HueTrayApp : public QApplication {
                              QDBusConnection::sessionBus());
 
         if (!iface.isValid()) {
-            sni->setToolTip("preferences-desktop-display-color", "Hue Control",
+            sni->setToolTip(idleIconName, "Hue Control",
                             "Backend not running");
-            sni->setIconByName("preferences-desktop-display-color"); // Reset to default icon
+            sni->setIconByName(idleIconName);
             return;
         }
 
@@ -647,11 +681,11 @@ class HueTrayApp : public QApplication {
 
         // Update icon based on gaming + sync state
         if (syncing && gamingActive) {
-            sni->setIconByName("applications-games"); // Gaming icon when gaming + syncing
+            sni->setIconByName(gamingIconName); // Gaming icon when gaming + syncing
         } else if (syncing) {
-            sni->setIconByName("media-record"); // Sync active icon (non-gaming)
+            sni->setIconByName(syncingIconName); // Sync active icon (non-gaming)
         } else {
-            sni->setIconByName("preferences-desktop-display-color"); // Default icon (idle)
+            sni->setIconByName(idleIconName); // Default icon (idle)
         }
 
         // Build tooltip text
@@ -667,12 +701,17 @@ class HueTrayApp : public QApplication {
             tooltipText = "Gaming Mode enabled (armed)";
         }
 
-        sni->setToolTip("preferences-desktop-display-color", "Hue Control", tooltipText);
+        sni->setToolTip(idleIconName, "Hue Control", tooltipText);
     }
 
   private:
     KStatusNotifierItem* sni;
     HueControlDialog* controlDialog;
+    
+    // Cached icon names from backend config
+    QString gamingIconName;
+    QString syncingIconName;
+    QString idleIconName;
 };
 
 int main(int argc, char* argv[]) {
