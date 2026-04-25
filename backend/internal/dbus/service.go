@@ -24,7 +24,7 @@ const (
 	dbusInterface = "org.kde.plasma.hue"
 )
 
-// Service provides DBus interface for the plasmoid
+// Service provides DBus interface for the tray application
 type Service struct {
 	conn             *dbus.Conn
 	config           *config.Config

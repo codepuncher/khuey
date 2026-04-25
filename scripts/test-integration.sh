@@ -63,10 +63,15 @@ else
     echo "⚠ GetScenes failed (bridge may not be configured)"
 fi
 
-# Check plasmoid syntax
-echo "Testing plasmoid QML syntax..."
-qmlscene --quit plasmoid/contents/ui/main.qml 2>&1 | grep -q "error" && \
-    echo "❌ QML syntax errors" || echo "✓ QML syntax OK"
+# Test tray app build
+echo "Testing tray application build..."
+cd trayapp
+if [ -f "hue-tray" ]; then
+    echo "✓ Tray app binary exists"
+else
+    echo "⚠ Tray app not built. Run 'cmake . && make' in trayapp/"
+fi
+cd ..
 
 # Stop backend
 echo ""
