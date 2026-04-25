@@ -1,0 +1,162 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  backend-test:
+    name: Backend Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.23'
+        
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libpipewire-0.3-dev pkg-config
+        
+    - name: Cache Go modules
+      uses: actions/cache@v4
+      with:
+        path: ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+          
+    - name: Download Go modules
+      working-directory: backend
+      run: go mod download
+      
+    - name: Run go vet
+      working-directory: backend
+      run: go vet ./...
+      
+    - name: Run go fmt
+      working-directory: backend
+      run: |
+        if [ "$(gofmt -s -l . | wc -l)" -gt 0 ]; then
+          echo "The following files need formatting:"
+          gofmt -s -l .
+          exit 1
+        fi
+        
+    - name: Run tests
+      working-directory: backend
+      run: CGO_CFLAGS_ALLOW='-fno-strict-overflow' go test -v -race -coverprofile=coverage.out ./...
+      
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v4
+      with:
+        file: backend/coverage.out
+        flags: backend
+        fail_ci_if_error: false
+      env:
+        CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+        
+    - name: Check test coverage
+      working-directory: backend
+      run: |
+        COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
+        echo "Test coverage: ${COVERAGE}%"
+        # Fail if coverage drops below 10%
+        if (( $(echo "$COVERAGE < 10" | bc -l) )); then
+          echo "Coverage ${COVERAGE}% is below minimum 10%"
+          exit 1
+        fi
+
+  backend-build:
+    name: Backend Build
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.23'
+        
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libpipewire-0.3-dev pkg-config
+        
+    - name: Build backend
+      working-directory: backend
+      run: CGO_CFLAGS_ALLOW='-fno-strict-overflow' go build -v -o hue-sync ./cmd/hue-sync
+      
+    - name: Upload backend binary
+      uses: actions/upload-artifact@v4
+      with:
+        name: hue-sync-binary
+        path: backend/hue-sync
+        retention-days: 7
+
+  tray-build:
+    name: Tray App Build
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          cmake \
+          extra-cmake-modules \
+          qt6-base-dev \
+          qt6-base-private-dev \
+          libkf6statusnotifieritem-dev \
+          qt6-tools-dev \
+          qt6-tools-dev-tools
+          
+    - name: Build tray app
+      working-directory: trayapp
+      run: |
+        cmake .
+        make
+        
+    - name: Upload tray binary
+      uses: actions/upload-artifact@v4
+      with:
+        name: hue-tray-binary
+        path: trayapp/hue-tray
+        retention-days: 7
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.23'
+        
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libpipewire-0.3-dev pkg-config
+        
+    - name: Run golangci-lint
+      uses: golangci/golangci-lint-action@v4
+      with:
+        version: latest
+        working-directory: backend
+        args: --timeout=5m
