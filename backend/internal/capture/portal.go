@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"fmt"
 	"math/big"
+	"time"
 
 	"github.com/godbus/dbus/v5"
 )
@@ -279,6 +280,13 @@ func (sc *ScreenCapture) waitForResponse(requestPath dbus.ObjectPath) (map[strin
 			Type: "cancelled",
 			Msg:  "Portal request was cancelled",
 			Hint: "The operation was interrupted",
+		}
+
+	case <-time.After(2 * time.Minute):
+		return nil, &PortalError{
+			Type: "timeout",
+			Msg:  "User did not respond to permission dialog within 2 minutes",
+			Hint: "Please approve screen sharing when prompted",
 		}
 	}
 }
