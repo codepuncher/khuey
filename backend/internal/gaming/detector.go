@@ -80,7 +80,7 @@ func NewDetector(cfg Config, callback StateChangeCallback) (*Detector, error) {
 		useSteamAppId:     cfg.UseSteamAppId,
 		useGameMode:       cfg.UseGameMode,
 		useFullscreen:     cfg.UseFullscreen,
-		stopChan:          make(chan struct{}),
+		stopChan:          make(chan struct{}, 1), // Buffered to prevent blocking on close
 		currentState:      false,
 		pendingState:      false,
 		stateChangedAt:    time.Now(),
@@ -149,7 +149,7 @@ func (d *Detector) Start() {
 	}
 	// Recreate stop channel for restart capability
 	// (channel is closed by Stop(), must be recreated)
-	d.stopChan = make(chan struct{})
+	d.stopChan = make(chan struct{}, 1) // Buffered to prevent blocking
 	d.isRunning = true
 
 	log.Println("🎮 Gaming mode detector started")

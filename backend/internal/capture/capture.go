@@ -71,6 +71,7 @@ type ScreenCapture struct {
 	useMockFrames    bool
 	useNativeCapture bool
 	frameReaderWg    sync.WaitGroup // Tracks frame reader goroutine lifecycle
+	consecutiveErrs  int            // Track consecutive frame errors for circuit breaker
 
 	// Screenshot-based capture
 	useScreenshot  bool
@@ -447,6 +448,8 @@ func (sc *ScreenCapture) nativeFrameReaderLoop() {
 	ticker := time.NewTicker(sc.GetFrameInterval())
 	defer ticker.Stop()
 
+	const maxConsecutiveErrors = 30 // Circuit breaker: stop after 30 consecutive errors (~1 sec at 30 FPS)
+
 	for {
 		select {
 		case <-sc.ctx.Done():
@@ -455,9 +458,20 @@ func (sc *ScreenCapture) nativeFrameReaderLoop() {
 			// Get frame from native capture
 			frame, err := sc.nativeCapture.GetFrame()
 			if err != nil {
-				// No frame available yet, skip
+				sc.consecutiveErrs++
+				if sc.consecutiveErrs >= maxConsecutiveErrors {
+					log.Printf("[ERROR] Frame capture failed %d times consecutively, stopping capture (possible permission denial or PipeWire issue)", sc.consecutiveErrs)
+					if sc.cancel != nil {
+						sc.cancel() // Stop the capture to prevent wasting CPU
+					}
+					return
+				}
+				// No frame available yet, continue trying
 				continue
 			}
+
+			// Frame captured successfully - reset error counter
+			sc.consecutiveErrs = 0
 
 			// Update frame buffer
 			sc.frameMutex.Lock()

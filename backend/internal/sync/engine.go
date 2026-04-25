@@ -253,6 +253,8 @@ func (e *Engine) Start(ctx context.Context) error {
 	}
 
 	// Brief wait for bridge activation to complete
+	// Note: Entertainment client has built-in retry logic and will handle cases
+	// where activation takes longer. This sleep reduces unnecessary retries.
 	time.Sleep(100 * time.Millisecond)
 
 	// Start screen capture

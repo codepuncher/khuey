@@ -922,6 +922,7 @@ func (s *Service) onGamingStateChanged(isGaming bool) {
 	// Perform sync operations WITHOUT holding lock to avoid deadlock
 	if shouldStart {
 		log.Println("🎮 Gaming detected - starting screen sync")
+		// Use Background context - sync engine manages its own lifecycle via Stop()
 		if err := engine.Start(context.Background()); err != nil {
 			log.Printf("❌ Failed to start sync for gaming mode: %v", err)
 		} else {
