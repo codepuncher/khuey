@@ -440,7 +440,6 @@ func TestApplyGamma(t *testing.T) {
 	}
 }
 
-
 // Helper functions
 
 func createSolidColorImage(width, height int, c color.RGBA) image.Image {
@@ -506,4 +505,3 @@ func abs(a int) int {
 	}
 	return a
 }
-

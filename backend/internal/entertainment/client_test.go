@@ -423,4 +423,3 @@ func TestClose_NotConnected(t *testing.T) {
 		t.Errorf("Unexpected error when closing non-connected client: %v", err)
 	}
 }
-
