@@ -18,7 +18,7 @@ func main() {
 	// Create capture instance with 30 FPS
 	cfg := capture.Config{
 		FPS:              30,
-		Monitor:          -1, // All monitors
+		Monitor:          -1,   // All monitors
 		UseNativeCapture: true, // Use native CGo capture (default)
 	}
 
@@ -84,7 +84,7 @@ func main() {
 
 			if frameCount%30 == 0 {
 				fps := float64(frameCount) / elapsed.Seconds()
-				fmt.Printf("📸 Captured %d frames (%.1f FPS actual) - Size: %dx%d\n", 
+				fmt.Printf("📸 Captured %d frames (%.1f FPS actual) - Size: %dx%d\n",
 					frameCount, fps, frame.Bounds().Dx(), frame.Bounds().Dy())
 			}
 
