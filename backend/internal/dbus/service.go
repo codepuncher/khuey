@@ -906,31 +906,31 @@ func (s *Service) StopGamingMode() {
 
 // onGamingStateChanged is called when gaming state changes
 func (s *Service) onGamingStateChanged(isGaming bool) {
+	// Check state and determine action while holding lock
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	shouldStart := isGaming && s.syncEngine != nil && !s.gamingModeActive
+	shouldStop := !isGaming && s.gamingModeActive && s.syncEngine != nil
 
 	if isGaming {
-		// Gaming started - auto-start sync
-		log.Println("🎮 Gaming detected - starting screen sync")
 		s.gamingModeActive = true
-
-		if s.syncEngine != nil && !s.syncEngine.IsRunning() {
-			if err := s.syncEngine.Start(context.Background()); err != nil {
-				log.Printf("❌ Failed to start sync for gaming mode: %v", err)
-			} else {
-				log.Println("✅ Screen sync enabled for immersive gaming")
-			}
-		}
 	} else {
-		// Gaming stopped - auto-stop sync (only if we started it)
-		log.Println("🎮 Gaming stopped - stopping screen sync")
-
-		if s.gamingModeActive && s.syncEngine != nil && s.syncEngine.IsRunning() {
-			s.syncEngine.Stop()
-			log.Println("✅ Screen sync disabled")
-		}
-
 		s.gamingModeActive = false
+	}
+	engine := s.syncEngine
+	s.mu.Unlock()
+
+	// Perform sync operations WITHOUT holding lock to avoid deadlock
+	if shouldStart {
+		log.Println("🎮 Gaming detected - starting screen sync")
+		if err := engine.Start(context.Background()); err != nil {
+			log.Printf("❌ Failed to start sync for gaming mode: %v", err)
+		} else {
+			log.Println("✅ Screen sync enabled for immersive gaming")
+		}
+	} else if shouldStop {
+		log.Println("🎮 Gaming stopped - stopping screen sync")
+		engine.Stop()
+		log.Println("✅ Screen sync disabled")
 	}
 }
 
