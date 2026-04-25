@@ -1,0 +1,90 @@
+feat: implement restore token to eliminate screen share permission dialog
+
+Implements XDG Desktop Portal restore token mechanism to persist screen
+share permissions across sync sessions. This eliminates the repetitive
+permission dialog, especially important for Gaming Mode auto-sync.
+
+## Changes
+
+### Phase 1: Config Storage
+- Add `RestoreToken` field to `SyncConfig` struct
+- Update `DefaultConfig()` to initialize empty token
+- Update `Save()` to persist token to YAML
+
+### Phase 2: Portal SelectSources Enhancement
+- Modify `selectSources()` to accept `restoreToken` parameter
+- Add `persist_mode: 2` option (persist until revoked)
+- Conditionally include `restore_token` in options if available
+
+### Phase 3: Portal Start Enhancement
+- Modify `startStream()` to return `(nodeID, newToken, error)`
+- Extract `restore_token` from portal response
+- Return new token for saving (automatic token rotation)
+
+### Phase 4: Capture Flow Integration
+- Add `restoreToken` and `onTokenUpdate` fields to `ScreenCapture`
+- Add token fields to `Config` struct
+- Update `Start()` to pass/receive tokens and call callback
+
+### Phase 5: Config Save Callback
+- Modify `NewEngine()` to pass token and callback to capture
+- Implement `updateRestoreToken()` method
+- Automatic config save with helpful logging
+
+### Phase 6: Testing & Validation
+- All packages compile successfully
+- Config tests pass
+- Code formatting applied
+
+## User Impact
+
+**Before:**
+- Every sync start requires permission dialog
+- Gaming Mode triggers dialog, interrupting gameplay
+- Manual sync requires clicking dialog every time
+
+**After:**
+- First sync: Dialog appears (one-time setup)
+- All subsequent syncs: NO DIALOG! Instant activation ✨
+- Gaming Mode: Auto-starts sync without interruption
+- Manual sync: Instant activation
+
+## Technical Details
+
+- **Portal API**: XDG Desktop Portal v4+ (2021+)
+- **Persistence**: `persist_mode: 2` (until explicitly revoked)
+- **Security**: Single-use token rotation per session
+- **Storage**: `~/.openhue/config.yaml` (0600 permissions)
+- **Fallback**: Invalid token automatically shows dialog
+
+## Files Modified
+
+- `backend/internal/config/config.go` - Config storage
+- `backend/internal/capture/portal.go` - Portal API integration
+- `backend/internal/capture/capture.go` - Capture flow
+- `backend/internal/sync/engine.go` - Callback implementation
+
+## Testing
+
+Tested:
+- Config field access and persistence
+- Package compilation (go list)
+- Config tests (TestDefaultConfig)
+- Code formatting (gofmt)
+- Syntax validation (go vet)
+
+Manual testing required:
+- First sync with dialog approval
+- Second sync without dialog
+- Invalid token fallback
+- Gaming Mode integration
+
+## Documentation
+
+See `RESTORE_TOKEN_IMPLEMENTATION.md` for complete implementation
+details, testing instructions, and technical specifications.
+
+---
+
+Resolves the screen share permission dialog issue (#ISSUE_NUMBER)
+Implements feature request for Gaming Mode seamless activation
