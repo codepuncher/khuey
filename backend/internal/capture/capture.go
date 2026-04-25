@@ -79,6 +79,10 @@ type ScreenCapture struct {
 	screenshotTool string
 	captureWidth   int
 	captureHeight  int
+
+	// Restore token for permission persistence
+	restoreToken  string                // Current restore token from config
+	onTokenUpdate func(newToken string) // Callback to save new token
 }
 
 // Config holds screen capture configuration
@@ -92,6 +96,8 @@ type Config struct {
 	CaptureWidth     int             // Downsample width (0 = full resolution, e.g. 640 for faster)
 	CaptureHeight    int             // Downsample height (0 = full resolution, e.g. 360 for faster)
 	Context          context.Context // Parent context for cancellation (optional, defaults to Background)
+	RestoreToken     string          // Portal restore token from previous session (optional, empty = show dialog)
+	OnTokenUpdate    func(string)    // Callback when new restore token is available (optional)
 }
 
 // NewScreenCapture creates a new screen capture instance
@@ -135,6 +141,8 @@ func NewScreenCapture(cfg Config) (*ScreenCapture, error) {
 		screenshotTool:   screenshotTool,
 		captureWidth:     cfg.CaptureWidth,
 		captureHeight:    cfg.CaptureHeight,
+		restoreToken:     cfg.RestoreToken,
+		onTokenUpdate:    cfg.OnTokenUpdate,
 	}, nil
 }
 
@@ -190,19 +198,29 @@ func (sc *ScreenCapture) Start() error {
 	}
 	sc.sessionHandle = sessionHandle
 
-	// Step 2: Select sources (monitors)
-	if err := sc.selectSources(sessionHandle); err != nil {
+	// Step 2: Select sources (monitors) with restore token
+	if err := sc.selectSources(sessionHandle, sc.restoreToken); err != nil {
 		return fmt.Errorf("failed to select sources: %w", err)
 	}
 
-	// Step 3: Start Pipewire stream
-	streamNode, err := sc.startStream(sessionHandle)
+	// Step 3: Start Pipewire stream and get NEW restore token
+	streamNode, newToken, err := sc.startStream(sessionHandle)
 	if err != nil {
 		return fmt.Errorf("failed to start stream: %w", err)
 	}
 	sc.streamNode = streamNode
 
 	fmt.Printf("Screen capture started: session=%s, node=%d\n", sessionHandle, streamNode)
+
+	// Save new restore token for next session (if callback provided)
+	if newToken != "" && newToken != sc.restoreToken {
+		sc.restoreToken = newToken
+		if sc.onTokenUpdate != nil {
+			// Run callback in goroutine to avoid blocking capture startup
+			// (callback may need to acquire locks that caller already holds)
+			go sc.onTokenUpdate(newToken)
+		}
+	}
 
 	// Start real Pipewire capture if not using mock frames
 	if !sc.useMockFrames {

@@ -36,15 +36,27 @@ type Engine struct {
 
 // NewEngine creates a new sync engine
 func NewEngine(cfg *config.Config) (*Engine, error) {
+	// Create placeholder engine to use in token callback
+	engine := &Engine{
+		config:     cfg,
+		running:    false,
+		fps:        30,                        // Default 30 FPS
+		httpClient: common.NewHueHTTPClient(), // PERF-004: Reuse HTTP client
+	}
+
 	// Create screen capture - native PipeWire capture with CGo
 	capturer, err := capture.NewScreenCapture(capture.Config{
-		FPS:              30,    // Default 30 FPS
-		Monitor:          -1,    // All monitors
-		UseMockFrames:    false, // Disable mock frames
-		UseNativeCapture: true,  // Use native CGo PipeWire capture
-		UseScreenshot:    false, // Disable screenshot fallback
-		CaptureWidth:     0,     // Full resolution (native capture is fast)
-		CaptureHeight:    0,     // Full resolution (native capture is fast)
+		FPS:              30,                    // Default 30 FPS
+		Monitor:          -1,                    // All monitors
+		UseMockFrames:    false,                 // Disable mock frames
+		UseNativeCapture: true,                  // Use native CGo PipeWire capture
+		UseScreenshot:    false,                 // Disable screenshot fallback
+		CaptureWidth:     0,                     // Full resolution (native capture is fast)
+		CaptureHeight:    0,                     // Full resolution (native capture is fast)
+		RestoreToken:     cfg.Sync.RestoreToken, // Pass saved token
+		OnTokenUpdate: func(newToken string) {
+			engine.updateRestoreToken(newToken)
+		},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create screen capture: %w", err)
@@ -65,15 +77,12 @@ func NewEngine(cfg *config.Config) (*Engine, error) {
 	// Create zones from config channels
 	zones := createZonesFromConfig(cfg)
 
-	return &Engine{
-		config:     cfg,
-		capturer:   capturer,
-		client:     client,
-		running:    false,
-		fps:        30, // Default 30 FPS
-		zones:      zones,
-		httpClient: common.NewHueHTTPClient(), // PERF-004: Reuse HTTP client
-	}, nil
+	// Update engine with created components
+	engine.capturer = capturer
+	engine.client = client
+	engine.zones = zones
+
+	return engine, nil
 }
 
 // createZonesFromConfig creates zones based on channel UV coordinates
@@ -419,4 +428,18 @@ func (e *Engine) activateEntertainmentArea() error {
 
 	log.Printf("Entertainment Area activated")
 	return nil
+}
+
+// updateRestoreToken saves a new restore token to config
+// Called automatically when a new token is received from the portal
+func (e *Engine) updateRestoreToken(newToken string) {
+	e.mu.Lock()
+	e.config.Sync.RestoreToken = newToken
+	e.mu.Unlock()
+
+	if err := e.config.Save(); err != nil {
+		log.Printf("⚠️  Failed to save restore token: %v", err)
+	} else {
+		log.Printf("✅ Screen share permission saved (no dialog next time)")
+	}
 }

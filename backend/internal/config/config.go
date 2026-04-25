@@ -80,7 +80,8 @@ type SyncConfig struct {
 	Enabled        bool   `mapstructure:"enabled"`
 	FPS            int    `mapstructure:"fps"`
 	SubsampleWidth int    `mapstructure:"subsampleWidth"`
-	Monitor        string `mapstructure:"monitor"` // Monitor to capture (empty = default)
+	Monitor        string `mapstructure:"monitor"`      // Monitor to capture (empty = default)
+	RestoreToken   string `mapstructure:"restoreToken"` // Portal session restore token (eliminates permission dialog)
 }
 
 // GamingModeConfig represents gaming mode auto-sync settings
@@ -120,6 +121,7 @@ func DefaultConfig() *Config {
 			FPS:            DefaultFPS,
 			SubsampleWidth: DefaultSubsampleWidth,
 			Monitor:        "",
+			RestoreToken:   "", // Empty on first run
 		},
 		GamingMode: GamingModeConfig{
 			Enabled:           false, // Disabled by default (opt-in)
@@ -232,6 +234,7 @@ func (c *Config) Save() error {
 	viper.Set("entertainmentConfigurationId", c.EntertainmentConfigurationID)
 	viper.Set("channels", c.Channels)
 	viper.Set("sync", c.Sync)
+	viper.Set("sync.restoreToken", c.Sync.RestoreToken) // Explicitly set token
 	viper.Set("gamingMode", c.GamingMode)
 	viper.Set("ui", c.UI)
 	viper.Set("log_level", c.LogLevel)

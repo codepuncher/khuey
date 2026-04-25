@@ -100,7 +100,8 @@ func (sc *ScreenCapture) createSession() (string, error) {
 }
 
 // selectSources selects which monitors to capture
-func (sc *ScreenCapture) selectSources(sessionHandle string) error {
+// restoreToken: Optional token from previous session to skip permission dialog
+func (sc *ScreenCapture) selectSources(sessionHandle string, restoreToken string) error {
 	obj := sc.conn.Object(portalDest, portalPath)
 
 	handleNum, err := rand.Int(rand.Reader, big.NewInt(MaxPortalHandleID))
@@ -115,7 +116,13 @@ func (sc *ScreenCapture) selectSources(sessionHandle string) error {
 	options := map[string]dbus.Variant{
 		"types":        dbus.MakeVariant(uint32(1)), // 1 = monitor, 2 = window
 		"multiple":     dbus.MakeVariant(false),     // Single monitor for now
+		"persist_mode": dbus.MakeVariant(uint32(2)), // 2 = persist until explicitly revoked
 		"handle_token": dbus.MakeVariant(fmt.Sprintf("khuey_%d", handleNum.Int64())),
+	}
+
+	// Add restore token if available (skip permission dialog)
+	if restoreToken != "" {
+		options["restore_token"] = dbus.MakeVariant(restoreToken)
 	}
 
 	var requestPath dbus.ObjectPath
@@ -138,12 +145,14 @@ func (sc *ScreenCapture) selectSources(sessionHandle string) error {
 }
 
 // startStream starts the Pipewire stream
-func (sc *ScreenCapture) startStream(sessionHandle string) (uint32, error) {
+// Returns: (nodeID, newRestoreToken, error)
+// newRestoreToken should be saved for next session to skip permission dialog
+func (sc *ScreenCapture) startStream(sessionHandle string) (uint32, string, error) {
 	obj := sc.conn.Object(portalDest, portalPath)
 
 	handleNum, err := rand.Int(rand.Reader, big.NewInt(MaxPortalHandleID))
 	if err != nil {
-		return 0, fmt.Errorf("failed to generate handle token: %w", err)
+		return 0, "", fmt.Errorf("failed to generate handle token: %w", err)
 	}
 
 	options := map[string]dbus.Variant{
@@ -153,39 +162,47 @@ func (sc *ScreenCapture) startStream(sessionHandle string) (uint32, error) {
 	var requestPath dbus.ObjectPath
 	err = obj.Call(screenCastIface+".Start", 0, dbus.ObjectPath(sessionHandle), "", options).Store(&requestPath)
 	if err != nil {
-		return 0, fmt.Errorf("failed to start stream: %w", err)
+		return 0, "", fmt.Errorf("failed to start stream: %w", err)
 	}
 
 	// Wait for stream to start
 	result, err := sc.waitForResponse(requestPath)
 	if err != nil {
-		return 0, fmt.Errorf("failed to start stream: %w", err)
+		return 0, "", fmt.Errorf("failed to start stream: %w", err)
 	}
 
 	// Extract stream node from result
 	// Format is: streams: [[node_id, properties], ...]
 	streamsOuter, ok := result["streams"].([][]interface{})
 	if !ok {
-		return 0, fmt.Errorf("streams field not found or wrong type")
+		return 0, "", fmt.Errorf("streams field not found or wrong type")
 	}
 
 	if len(streamsOuter) == 0 {
-		return 0, fmt.Errorf("no streams in response")
+		return 0, "", fmt.Errorf("no streams in response")
 	}
 
 	// Get first stream [node_id, properties]
 	firstStream := streamsOuter[0]
 	if len(firstStream) < 1 {
-		return 0, fmt.Errorf("stream has no elements")
+		return 0, "", fmt.Errorf("stream has no elements")
 	}
 
 	// Node ID is the first element
 	nodeID, ok := firstStream[0].(uint32)
 	if !ok {
-		return 0, fmt.Errorf("node_id not found or wrong type")
+		return 0, "", fmt.Errorf("node_id not found or wrong type")
 	}
 
-	return nodeID, nil
+	// Extract restore token for next session (optional - may not be present)
+	var newRestoreToken string
+	if tokenVariant, ok := result["restore_token"]; ok {
+		if token, ok := tokenVariant.(string); ok {
+			newRestoreToken = token
+		}
+	}
+
+	return nodeID, newRestoreToken, nil
 }
 
 // waitForResponse waits for a portal Request response
