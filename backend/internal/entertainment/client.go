@@ -17,6 +17,12 @@ const (
 	Color8To16Multiplier = 257  // Multiplier to convert 8-bit to 16-bit color (65535 / 255)
 )
 
+// Sentinel errors
+var (
+	ErrAlreadyConnected = fmt.Errorf("already connected")
+	ErrNotConnected     = fmt.Errorf("not connected")
+)
+
 // Client handles streaming to Hue Entertainment API
 type Client struct {
 	bridgeIP        string
@@ -28,7 +34,7 @@ type Client struct {
 	sequenceID   uint8
 	channelCount int
 
-	mu        sync.Mutex
+	mu        sync.RWMutex
 	ctx       context.Context
 	cancel    context.CancelFunc
 	connected bool
@@ -95,7 +101,7 @@ func (c *Client) Connect() error {
 	defer c.mu.Unlock()
 
 	if c.connected {
-		return fmt.Errorf("already connected")
+		return ErrAlreadyConnected
 	}
 
 	// Entertainment API uses UDP port 2100
@@ -143,7 +149,7 @@ func (c *Client) StreamColors(colors []ChannelColor) error {
 	defer c.mu.Unlock()
 
 	if !c.connected {
-		return fmt.Errorf("not connected")
+		return ErrNotConnected
 	}
 
 	// Build HueStream v2 packet
@@ -178,8 +184,7 @@ func (c *Client) buildPacket(colors []ChannelColor) []byte {
 	//   - G (2 bytes, big-endian)
 	//   - B (2 bytes, big-endian)
 
-	// PERF-007: Pre-allocate packet with exact size (known capacity optimization)
-	headerSize := 52 // Fixed: was 16, should be 52!
+	headerSize := 52
 	bodySize := 7 * len(colors)
 	packet := make([]byte, headerSize+bodySize)
 
@@ -231,8 +236,8 @@ func (c *Client) Close() error {
 
 // IsConnected returns whether the client is connected
 func (c *Client) IsConnected() bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	return c.connected
 }
 

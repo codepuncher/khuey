@@ -10,6 +10,12 @@ import (
 	"github.com/spf13/viper"
 )
 
+// Sentinel errors for common error conditions
+var (
+	ErrBridgeRequired = fmt.Errorf("bridge address is required")
+	ErrKeyRequired    = fmt.Errorf("API key is required")
+)
+
 // Configuration constants
 const (
 	// ConfigVersion is incremented when breaking changes are made to config format
@@ -55,8 +61,11 @@ type Config struct {
 	// Logging
 	LogLevel string `mapstructure:"log_level"`
 
-	// Mutex to protect concurrent writes to config file
+	// Mutex to protect concurrent access to config
 	mu sync.Mutex
+
+	// Non-global viper instance for thread safety
+	v *viper.Viper
 }
 
 // ChannelConfig represents a single light channel in the Entertainment Area
@@ -157,7 +166,9 @@ func getConfigPath() string {
 	// Fall back to ~/.openhue
 	home, err := os.UserHomeDir()
 	if err != nil {
-		panic(fmt.Sprintf("Unable to determine home directory: %v", err))
+		// Home directory is required for config; log and use fallback
+		log.Printf("[ERROR] Unable to determine home directory: %v", err)
+		return filepath.Join("/tmp", ".openhue")
 	}
 	return filepath.Join(home, ".openhue")
 }
@@ -180,18 +191,21 @@ func Load() (*Config, error) {
 	// Initialize with defaults
 	cfg := DefaultConfig()
 
-	// Set up viper
-	viper.SetConfigFile(configFile)
-	viper.SetConfigType("yaml")
+	// Use a non-global viper instance for thread safety
+	v := viper.New()
+	v.SetConfigFile(configFile)
+	v.SetConfigType("yaml")
 
 	// Try to read existing config
-	if err := viper.ReadInConfig(); err != nil {
+	if err := v.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
 			// Config file doesn't exist - this is OK for first run
+			cfg.v = v
 			return cfg, nil
 		}
 		// Check if it's a simple "file not found" error as well
 		if os.IsNotExist(err) {
+			cfg.v = v
 			return cfg, nil
 		}
 		return nil, fmt.Errorf("failed to read config file: %w", err)
@@ -199,18 +213,19 @@ func Load() (*Config, error) {
 
 	// Check file permissions - warn if too permissive (contains sensitive API keys)
 	if info, err := os.Stat(configFile); err == nil {
-		// Check if file is world-readable (0044) or group-readable (0044)
 		if info.Mode().Perm()&0044 != 0 {
-			log.Printf("⚠️  WARNING: Config file has insecure permissions: %o (should be 0600)", info.Mode().Perm())
-			log.Printf("   File contains sensitive API keys and should only be readable by owner")
-			log.Printf("   Fix with: chmod 600 %s", configFile)
+			log.Printf("[WARN] Config file has insecure permissions: %o (should be 0600)", info.Mode().Perm())
+			log.Printf("  File contains sensitive API keys and should only be readable by owner")
+			log.Printf("  Fix with: chmod 600 %s", configFile)
 		}
 	}
 
 	// Unmarshal into our struct
-	if err := viper.Unmarshal(cfg); err != nil {
+	if err := v.Unmarshal(cfg); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
+
+	cfg.v = v
 
 	// Validate the loaded configuration
 	if err := cfg.Validate(); err != nil {
@@ -225,19 +240,27 @@ func (c *Config) Save() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	if c.v == nil {
+		c.v = viper.New()
+		c.v.SetConfigFile(getConfigFile())
+		c.v.SetConfigType("yaml")
+	}
+
 	// Set all values in viper
-	viper.Set("version", c.Version)
-	viper.Set("Bridge", c.Bridge)
-	viper.Set("Key", c.Key)
-	viper.Set("grouped_light_id", c.GroupedLightID)
-	viper.Set("clientkey", c.ClientKey)
-	viper.Set("entertainmentConfigurationId", c.EntertainmentConfigurationID)
-	viper.Set("channels", c.Channels)
-	viper.Set("sync", c.Sync)
-	viper.Set("sync.restoreToken", c.Sync.RestoreToken) // Explicitly set token
-	viper.Set("gamingMode", c.GamingMode)
-	viper.Set("ui", c.UI)
-	viper.Set("log_level", c.LogLevel)
+	c.v.Set("version", c.Version)
+	c.v.Set("Bridge", c.Bridge)
+	c.v.Set("Key", c.Key)
+	c.v.Set("grouped_light_id", c.GroupedLightID)
+	c.v.Set("clientkey", c.ClientKey)
+	c.v.Set("entertainmentConfigurationId", c.EntertainmentConfigurationID)
+	c.v.Set("channels", c.Channels)
+	c.v.Set("sync", c.Sync)
+	c.v.Set("gamingMode", c.GamingMode)
+	c.v.Set("ui", c.UI)
+	c.v.Set("log_level", c.LogLevel)
+
+	// Explicitly save restore token (it's inside Sync but set at top level for openhue-cli compat)
+	c.v.Set("sync.restoreToken", c.Sync.RestoreToken)
 
 	// Validate required fields
 	if c.Bridge == "" {
@@ -250,12 +273,11 @@ func (c *Config) Save() error {
 	configFile := getConfigFile()
 
 	// Write to file
-	if err := viper.WriteConfig(); err != nil {
+	if err := c.v.WriteConfig(); err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)
 	}
 
 	// Secure the config file - set permissions to 0600 (owner read/write only)
-	// This is critical as the file contains sensitive API keys
 	if err := os.Chmod(configFile, 0600); err != nil {
 		return fmt.Errorf("failed to secure config file permissions: %w", err)
 	}
@@ -301,36 +323,6 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("sync.subsampleWidth must be between %d and %d (got %d)\n"+
 			"  → Update 'sync.subsampleWidth' in config.yaml\n"+
 			"  → Recommended: %d for good balance", MinSubsampleWidth, MaxSubsampleWidth, c.Sync.SubsampleWidth, DefaultSubsampleWidth)
-	}
-
-	// Validate gaming mode settings
-	if c.GamingMode.PollInterval < 1 || c.GamingMode.PollInterval > 60 {
-		return fmt.Errorf("gamingMode.pollInterval must be between 1 and 60 seconds (got %d)\n"+
-			"  → Update 'gamingMode.pollInterval' in config.yaml\n"+
-			"  → Recommended: 2 for responsive detection", c.GamingMode.PollInterval)
-	}
-
-	if c.GamingMode.DebounceDelay < 0 || c.GamingMode.DebounceDelay > 60 {
-		return fmt.Errorf("gamingMode.debounceDelay must be between 0 and 60 seconds (got %d)\n"+
-			"  → Update 'gamingMode.debounceDelay' in config.yaml\n"+
-			"  → Recommended: 5 to prevent flicker on alt-tab", c.GamingMode.DebounceDelay)
-	}
-
-	// Validate UI icon configuration
-	if c.UI.Icons.Gaming == "" {
-		return fmt.Errorf("ui.icons.gaming is required\n" +
-			"  → Add 'ui.icons.gaming: applications-games' to config.yaml\n" +
-			"  → Use any valid KDE icon theme name")
-	}
-	if c.UI.Icons.Syncing == "" {
-		return fmt.Errorf("ui.icons.syncing is required\n" +
-			"  → Add 'ui.icons.syncing: media-record' to config.yaml\n" +
-			"  → Use any valid KDE icon theme name")
-	}
-	if c.UI.Icons.Idle == "" {
-		return fmt.Errorf("ui.icons.idle is required\n" +
-			"  → Add 'ui.icons.idle: preferences-desktop-display-color' to config.yaml\n" +
-			"  → Use any valid KDE icon theme name")
 	}
 
 	// Validate channels if configured
@@ -380,7 +372,7 @@ func validateChannel(index int, ch ChannelConfig) error {
 	// Warn if device name is empty (non-fatal)
 	if ch.DeviceName == "" && ch.Active {
 		// This is just a warning, not an error
-		fmt.Printf("⚠️  Warning: channel %d has no deviceName set\n", index)
+		log.Printf("[WARN] channel %d has no deviceName set", index)
 	}
 
 	return nil

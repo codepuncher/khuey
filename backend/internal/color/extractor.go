@@ -64,7 +64,6 @@ func (e *Extractor) ExtractColors(img image.Image, zones []Zone) ([]ZoneColor, e
 	subsampled := e.subsampleImage(img)
 
 	// Step 2: Extract colors from each zone
-	// PERF-007: Pre-allocate with exact capacity since size is known
 	colors := make([]ZoneColor, 0, len(zones))
 
 	for _, zone := range zones {
@@ -171,16 +170,3 @@ func (e *Extractor) applyGamma(value uint8) uint8 {
 	return uint8(corrected * 255.0)
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
