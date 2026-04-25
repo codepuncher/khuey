@@ -216,7 +216,9 @@ func (sc *ScreenCapture) Start() error {
 	if newToken != "" && newToken != sc.restoreToken {
 		sc.restoreToken = newToken
 		if sc.onTokenUpdate != nil {
-			sc.onTokenUpdate(newToken)
+			// Run callback in goroutine to avoid blocking capture startup
+			// (callback may need to acquire locks that caller already holds)
+			go sc.onTokenUpdate(newToken)
 		}
 	}
 
