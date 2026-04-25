@@ -48,12 +48,15 @@ cp ../systemd/hue-tray.desktop ~/.config/autostart/
 - **Scene Control**: Activate any of your Hue scenes with room names
 - **Screen Sync**: Real-time screen color synchronization with Hue lights (Entertainment API)
 - **🎮 Gaming Mode**: Automatic screen sync when gaming (CachyOS-optimized)
+- **🔑 Restore Token**: Eliminates screen share permission dialog
 - **Settings Dialog**: GUI for bridge setup, room selection, and screen sync configuration
 - **Power/Brightness Controls**: Toggle and dim lights with room/zone support
 - **Multi-zone Mapping**: Different screen areas control different lights
 - **Desktop Notifications**: Success/error feedback for all operations
 - **Auto-start**: Backend and tray app start automatically on login
 - **System Tray Integration**: Native KDE StatusNotifierItem integration
+
+**See [FEATURES.md](FEATURES.md) for complete feature documentation.**
 
 ## Usage
 
