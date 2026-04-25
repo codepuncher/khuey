@@ -116,6 +116,18 @@ After installing golangci-lint, uncomment the `go-lint` section in `lefthook.yml
 
 ## Development Workflow
 
+### Continuous Integration
+
+All pull requests automatically run CI checks via GitHub Actions:
+- **Backend tests** - Full Go test suite with race detection
+- **Backend build** - Ensure code compiles
+- **Tray app build** - Ensure Qt/C++ code compiles
+- **Linting** - golangci-lint code quality checks
+- **Code formatting** - go fmt validation
+- **Test coverage** - Ensure coverage doesn't drop below 10%
+
+**PRs must pass all CI checks before merging.** You can view CI status on the PR page.
+
 ### Standard Branch-Based Workflow
 
 All changes must use feature branches and pull requests. Never commit directly to `main`.

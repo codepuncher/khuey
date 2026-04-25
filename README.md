@@ -1,5 +1,8 @@
 # KDE Hue Control - Installation & Quick Start
 
+[![CI](https://github.com/codepuncher/khuey/actions/workflows/ci.yml/badge.svg)](https://github.com/codepuncher/khuey/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+
 A KDE system tray application for controlling Philips Hue lights with real-time screen synchronization.
 
 ## Quick Installation
