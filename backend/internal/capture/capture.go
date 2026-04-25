@@ -25,11 +25,12 @@ const (
 )
 
 // Pool for RGBA image buffers used in frame copying to reduce GC pressure
-// Reusing buffers avoids allocating/deallocating large RGBA images every frame (8MB at 1920x1080)
+// Reusing buffers avoids allocating/deallocating large RGBA images every frame (14.7MB at 2560x1440)
 // Pool size is managed automatically by Go runtime based on usage patterns
+// Default size covers common high-res displays (2560x1440 and below)
 var imageBufferPool = sync.Pool{
 	New: func() any {
-		return image.NewRGBA(image.Rect(0, 0, 1920, 1080))
+		return image.NewRGBA(image.Rect(0, 0, 2560, 1440))
 	},
 }
 

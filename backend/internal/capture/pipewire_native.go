@@ -289,6 +289,8 @@ type NativePipeWireCapture struct {
 	running     atomic.Bool
 	latestFrame *image.RGBA
 	frameMutex  sync.RWMutex
+	rgbaBuffer  *image.RGBA // Reused RGBA buffer to avoid allocations every frame
+	bufferMutex sync.Mutex  // Protects rgbaBuffer during conversion
 }
 
 // NewNativePipeWireCapture creates a new native PipeWire capture instance
@@ -345,7 +347,15 @@ func (npc *NativePipeWireCapture) GetFrame() (*image.RGBA, error) {
 
 // convertToRGBA converts PipeWire buffer to image.RGBA
 func (npc *NativePipeWireCapture) convertToRGBA(data *C.uint8_t, width, height, stride int, format uint32) (*image.RGBA, error) {
-	img := image.NewRGBA(image.Rect(0, 0, width, height))
+	// Reuse RGBA buffer to eliminate per-frame allocations
+	npc.bufferMutex.Lock()
+	bounds := image.Rect(0, 0, width, height)
+	if npc.rgbaBuffer == nil || npc.rgbaBuffer.Bounds() != bounds {
+		// First frame or resolution changed - allocate new buffer
+		npc.rgbaBuffer = image.NewRGBA(bounds)
+	}
+	img := npc.rgbaBuffer
+	npc.bufferMutex.Unlock()
 
 	// Convert C buffer to Go slice (no copy, just reference)
 	bufferSize := stride * height
