@@ -55,19 +55,18 @@ func NewExtractor(subsampleWidth int, gamma float64) (*Extractor, error) {
 }
 
 // ExtractColors extracts average colors from zones in the image
+// OPTIMIZED: Skip global subsampling, sample zones directly with stride
 func (e *Extractor) ExtractColors(img image.Image, zones []Zone) ([]ZoneColor, error) {
 	if img == nil {
 		return nil, fmt.Errorf("image is nil")
 	}
 
-	// Step 1: Subsample the image for performance (using INTER_AREA equivalent)
-	subsampled := e.subsampleImage(img)
-
-	// Step 2: Extract colors from each zone
+	// Extract colors from each zone directly (no global subsampling)
+	// Much faster than resizing the entire image first
 	colors := make([]ZoneColor, 0, len(zones))
 
 	for _, zone := range zones {
-		color, err := e.extractZoneColor(subsampled, zone)
+		color, err := e.extractZoneColor(img, zone)
 		if err != nil {
 			return nil, fmt.Errorf("failed to extract color for zone %d: %w", zone.ID, err)
 		}
@@ -95,7 +94,8 @@ func (e *Extractor) subsampleImage(img image.Image) image.Image {
 	return imaging.Resize(img, e.subsampleWidth, newHeight, imaging.Lanczos)
 }
 
-// extractZoneColor extracts the mean color from a zone
+// extractZoneColor extracts the mean color from a zone using stride sampling
+// OPTIMIZED: Sample pixels with stride instead of processing every pixel
 func (e *Extractor) extractZoneColor(img image.Image, zone Zone) (ZoneColor, error) {
 	bounds := img.Bounds()
 	width := float64(bounds.Dx())
@@ -113,11 +113,15 @@ func (e *Extractor) extractZoneColor(img image.Image, zone Zone) (ZoneColor, err
 	x2 = max(x1+1, min(x2, bounds.Max.X))
 	y2 = max(y1+1, min(y2, bounds.Max.Y))
 
-	// Extract subimage for this zone
-	subImg := imaging.Crop(img, image.Rect(x1, y1, x2, y2))
+	// Calculate stride based on zone size and target subsample width
+	// For a 2560px wide screen with 64px target, stride ≈ 40px
+	zoneWidth := x2 - x1
 
-	// Calculate mean color
-	r, g, b := e.calculateMeanColor(subImg)
+	// Calculate stride to get approximately subsampleWidth samples across zone
+	stride := max(1, zoneWidth/e.subsampleWidth)
+
+	// Calculate mean color with stride sampling (much faster)
+	r, g, b := e.calculateMeanColorWithStride(img, x1, y1, x2, y2, stride)
 
 	// Apply gamma correction
 	r = e.applyGamma(r)
@@ -132,7 +136,32 @@ func (e *Extractor) extractZoneColor(img image.Image, zone Zone) (ZoneColor, err
 	}, nil
 }
 
-// calculateMeanColor computes the average RGB color of an image
+// calculateMeanColorWithStride computes average RGB using stride sampling
+// OPTIMIZED: Sample every Nth pixel instead of all pixels for speed
+func (e *Extractor) calculateMeanColorWithStride(img image.Image, x1, y1, x2, y2, stride int) (uint8, uint8, uint8) {
+	var rSum, gSum, bSum uint64
+	var count uint64
+
+	// Sample pixels with stride
+	for y := y1; y < y2; y += stride {
+		for x := x1; x < x2; x += stride {
+			r, g, b, _ := img.At(x, y).RGBA()
+			// RGBA returns values 0-65535, convert to 0-255
+			rSum += uint64(r >> 8)
+			gSum += uint64(g >> 8)
+			bSum += uint64(b >> 8)
+			count++
+		}
+	}
+
+	if count == 0 {
+		return 0, 0, 0
+	}
+
+	return uint8(rSum / count), uint8(gSum / count), uint8(bSum / count)
+}
+
+// calculateMeanColor computes the average RGB color of an image (legacy - kept for tests)
 func (e *Extractor) calculateMeanColor(img image.Image) (uint8, uint8, uint8) {
 	bounds := img.Bounds()
 	var rSum, gSum, bSum uint64
@@ -169,4 +198,3 @@ func (e *Extractor) applyGamma(value uint8) uint8 {
 	// Convert back to 0-255
 	return uint8(corrected * 255.0)
 }
-
