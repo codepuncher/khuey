@@ -7,7 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+- **CI/CD Pipeline**: GitHub Actions workflow with automated testing, builds, and linting
+- **Test Coverage**: Comprehensive unit tests across 4 packages (config, dbus, capture, gaming)
+- **Quality Gates**: Minimum 10% coverage enforcement on all PRs
+
+### Changed
+- **Test Coverage**: Improved from 14.6% to 23.2% overall (+59% increase)
+  - Config: 3.1% → 78.1% (+75 percentage points)
+  - Gaming: 45.3% → 69.1% (+23.8 percentage points)
+  - Capture: 6.6% → 13.5% (2x increase)
+  - DBus: 0% → 8.4% (new tests)
+- **Testing Philosophy**: All tests follow "real test" pattern - calling actual functions, not duplicating logic
+
+### Fixed
+- Icon change bug in tray app (icon picker wasn't applying changes)
+- Race conditions in DBus service methods (proper mutex usage)
+- Memory leak in screen sync (native PipeWire capture buffer management)
 
 ## [1.0.0] - 2026-04-04
 
