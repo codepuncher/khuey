@@ -19,6 +19,26 @@ import (
 	"github.com/codepuncher/khuey/internal/entertainment"
 )
 
+// PerformanceMetrics tracks sync loop performance
+type PerformanceMetrics struct {
+	mu sync.RWMutex
+
+	// Timing metrics
+	frameCount       uint64
+	startTime        time.Time
+	lastLogTime      time.Time
+	totalFrameTime   time.Duration
+	totalCaptureTime time.Duration
+	totalExtractTime time.Duration
+	totalStreamTime  time.Duration
+
+	// Frame drop tracking
+	framesDropped uint64
+
+	// Histogram buckets for frame times (in milliseconds)
+	frameTimes [100]int // 0-99ms buckets
+}
+
 // Sentinel errors
 var (
 	ErrAlreadyRunning = fmt.Errorf("sync already running")
@@ -38,6 +58,9 @@ type Engine struct {
 	fps        int
 	zones      []color.Zone
 	httpClient *http.Client
+
+	// Performance metrics
+	metrics PerformanceMetrics
 }
 
 // NewEngine creates a new sync engine
@@ -307,6 +330,14 @@ func (e *Engine) syncLoop(ctx context.Context) {
 	lastFPS := e.fps
 	e.mu.RUnlock()
 
+	// Initialize performance metrics
+	e.metrics.mu.Lock()
+	e.metrics.startTime = time.Now()
+	e.metrics.lastLogTime = time.Now()
+	e.metrics.frameCount = 0
+	e.metrics.framesDropped = 0
+	e.metrics.mu.Unlock()
+
 	ticker := time.NewTicker(time.Second / time.Duration(lastFPS))
 	defer ticker.Stop()
 
@@ -319,11 +350,12 @@ func (e *Engine) syncLoop(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
+			e.logFinalMetrics()
 			return
 		case <-ticker.C:
+			frameStart := time.Now()
+
 			// Drain accumulated ticks to handle frame drops gracefully
-			// If processing takes longer than the ticker interval, multiple ticks accumulate
-			// We drain them to skip ahead rather than process stale frames
 			drained := 0
 		drainLoop:
 			for {
@@ -336,20 +368,27 @@ func (e *Engine) syncLoop(ctx context.Context) {
 			}
 			if drained > 0 {
 				log.Printf("[WARN] Frame skip: dropped %d frames (processing too slow for %d FPS)", drained, lastFPS)
+				e.metrics.mu.Lock()
+				e.metrics.framesDropped += uint64(drained)
+				e.metrics.mu.Unlock()
 			}
 
+			// Capture phase
+			captureStart := time.Now()
 			frame, err := e.capturer.CaptureFrame()
+			captureTime := time.Since(captureStart)
+
 			if err != nil {
 				log.Printf("[WARN] Capture error: %v", err)
 				continue
 			}
 
+			// Extract phase
+			extractStart := time.Now()
 			zoneColors, err := extractor.ExtractColors(frame, e.zones)
+			extractTime := time.Since(extractStart)
 
-			// CRITICAL: Return frame buffer to pool immediately after extraction (not deferred)
-			// Using defer in a loop causes defers to accumulate until function exits, not per-iteration
-			// This caused a memory leak where buffers were held until sync stopped (could be hours)
-			// Immediate return ensures buffers are recycled each frame
+			// Return frame buffer to pool immediately
 			capture.PutImageBuffer(frame)
 
 			if err != nil {
@@ -357,6 +396,7 @@ func (e *Engine) syncLoop(ctx context.Context) {
 				continue
 			}
 
+			// Convert colors for streaming
 			channelColors := make([]entertainment.ChannelColor, len(zoneColors))
 			for i, zc := range zoneColors {
 				channelID := 0
@@ -372,12 +412,27 @@ func (e *Engine) syncLoop(ctx context.Context) {
 				}
 			}
 
+			// Stream phase
+			streamStart := time.Now()
 			if err := e.client.StreamColors(channelColors); err != nil {
 				log.Printf("[WARN] Streaming error: %v", err)
 			}
+			streamTime := time.Since(streamStart)
 
-			// Only reset ticker when FPS actually changes (performance optimization)
-			// Ticker.Reset() is relatively expensive, so we cache lastFPS and only reset when different
+			// Update metrics
+			frameTime := time.Since(frameStart)
+			e.updateMetrics(frameTime, captureTime, extractTime, streamTime)
+
+			// Log metrics every 5 seconds
+			e.metrics.mu.RLock()
+			timeSinceLog := time.Since(e.metrics.lastLogTime)
+			e.metrics.mu.RUnlock()
+
+			if timeSinceLog >= 5*time.Second {
+				e.logPerformanceMetrics()
+			}
+
+			// Only reset ticker when FPS actually changes
 			e.mu.RLock()
 			currentFPS := e.fps
 			e.mu.RUnlock()
@@ -444,4 +499,109 @@ func (e *Engine) updateRestoreToken(newToken string) {
 	} else {
 		log.Printf("✅ Screen share permission saved (no dialog next time)")
 	}
+}
+
+// updateMetrics updates performance metrics with frame timing data
+func (e *Engine) updateMetrics(frameTime, captureTime, extractTime, streamTime time.Duration) {
+	e.metrics.mu.Lock()
+	defer e.metrics.mu.Unlock()
+
+	e.metrics.frameCount++
+	e.metrics.totalFrameTime += frameTime
+	e.metrics.totalCaptureTime += captureTime
+	e.metrics.totalExtractTime += extractTime
+	e.metrics.totalStreamTime += streamTime
+
+	// Update histogram (clamp to 0-99ms)
+	bucketMs := int(frameTime.Milliseconds())
+	if bucketMs >= len(e.metrics.frameTimes) {
+		bucketMs = len(e.metrics.frameTimes) - 1
+	}
+	e.metrics.frameTimes[bucketMs]++
+}
+
+// logPerformanceMetrics logs current performance metrics
+func (e *Engine) logPerformanceMetrics() {
+	e.metrics.mu.Lock()
+	defer e.metrics.mu.Unlock()
+
+	if e.metrics.frameCount == 0 {
+		return // No frames yet
+	}
+
+	elapsed := time.Since(e.metrics.startTime)
+	actualFPS := float64(e.metrics.frameCount) / elapsed.Seconds()
+	avgFrameTime := e.metrics.totalFrameTime / time.Duration(e.metrics.frameCount)
+	avgCaptureTime := e.metrics.totalCaptureTime / time.Duration(e.metrics.frameCount)
+	avgExtractTime := e.metrics.totalExtractTime / time.Duration(e.metrics.frameCount)
+	avgStreamTime := e.metrics.totalStreamTime / time.Duration(e.metrics.frameCount)
+
+	// Calculate percentiles from histogram
+	p50 := e.metrics.calculatePercentile(50)
+	p95 := e.metrics.calculatePercentile(95)
+	p99 := e.metrics.calculatePercentile(99)
+
+	targetFPS := e.fps
+	dropRate := float64(e.metrics.framesDropped) / float64(e.metrics.frameCount+e.metrics.framesDropped) * 100
+
+	log.Printf("📊 Performance Metrics (%.1fs elapsed, %d frames):", elapsed.Seconds(), e.metrics.frameCount)
+	log.Printf("   FPS: %.1f actual / %d target", actualFPS, targetFPS)
+	log.Printf("   Frame Time: avg=%.2fms p50=%.0fms p95=%.0fms p99=%.0fms",
+		avgFrameTime.Seconds()*1000, p50, p95, p99)
+	log.Printf("   Pipeline: capture=%.2fms extract=%.2fms stream=%.2fms",
+		avgCaptureTime.Seconds()*1000, avgExtractTime.Seconds()*1000, avgStreamTime.Seconds()*1000)
+	if e.metrics.framesDropped > 0 {
+		log.Printf("   ⚠️  Dropped: %d frames (%.1f%% drop rate)", e.metrics.framesDropped, dropRate)
+	}
+
+	e.metrics.lastLogTime = time.Now()
+}
+
+// logFinalMetrics logs final performance summary on shutdown
+func (e *Engine) logFinalMetrics() {
+	e.metrics.mu.Lock()
+	defer e.metrics.mu.Unlock()
+
+	if e.metrics.frameCount == 0 {
+		return
+	}
+
+	elapsed := time.Since(e.metrics.startTime)
+	actualFPS := float64(e.metrics.frameCount) / elapsed.Seconds()
+	totalFrames := e.metrics.frameCount + e.metrics.framesDropped
+	dropRate := float64(e.metrics.framesDropped) / float64(totalFrames) * 100
+
+	log.Printf("🏁 Screen Sync Final Stats:")
+	log.Printf("   Total Runtime: %.1fs", elapsed.Seconds())
+	log.Printf("   Frames Processed: %d (%.1f FPS average)", e.metrics.frameCount, actualFPS)
+	if e.metrics.framesDropped > 0 {
+		log.Printf("   Frames Dropped: %d (%.1f%% of %d total)", e.metrics.framesDropped, dropRate, totalFrames)
+	} else {
+		log.Printf("   ✅ Zero frame drops!")
+	}
+}
+
+// calculatePercentile calculates percentile from histogram
+// Returns percentile value in milliseconds
+func (e *PerformanceMetrics) calculatePercentile(percentile float64) float64 {
+	totalSamples := uint64(0)
+	for _, count := range e.frameTimes {
+		totalSamples += uint64(count)
+	}
+
+	if totalSamples == 0 {
+		return 0
+	}
+
+	targetCount := uint64(float64(totalSamples) * percentile / 100.0)
+	currentCount := uint64(0)
+
+	for ms, count := range e.frameTimes {
+		currentCount += uint64(count)
+		if currentCount >= targetCount {
+			return float64(ms)
+		}
+	}
+
+	return float64(len(e.frameTimes) - 1)
 }
