@@ -1,6 +1,7 @@
 #ifndef SETTINGSDIALOG_H
 #define SETTINGSDIALOG_H
 
+#include <QCheckBox>
 #include <QComboBox>
 #include <QDBusInterface>
 #include <QDialog>
@@ -10,6 +11,7 @@
 #include <QSlider>
 #include <QSpinBox>
 #include <QTabWidget>
+#include <KIconButton>
 
 class SettingsDialog : public QDialog {
     Q_OBJECT
@@ -26,6 +28,7 @@ class SettingsDialog : public QDialog {
     void onRefreshRoomsClicked();
     void onFpsChanged(int value);
     void onSubsampleChanged(int value);
+    void onGamingModeToggled(bool checked);
 
   private:
     void setupUI();
@@ -43,6 +46,7 @@ class SettingsDialog : public QDialog {
     QSpinBox* subsampleSpinBox;
     QComboBox* monitorCombo;
     QLabel* syncStatusLabel;
+    QCheckBox* gamingModeCheckbox;
 
     // Light Control tab
     QComboBox* roomCombo;
@@ -55,6 +59,15 @@ class SettingsDialog : public QDialog {
     QPushButton* testConnectionButton;
     QPushButton* reconnectButton;
     QLabel* lastErrorLabel;
+
+    // Appearance tab
+    KIconButton* gamingIconButton;
+    KIconButton* syncingIconButton;
+    KIconButton* idleIconButton;
+    QLabel* gamingIconNameLabel;
+    QLabel* syncingIconNameLabel;
+    QLabel* idleIconNameLabel;
+    QPushButton* resetIconsButton;
 
     // Dialog buttons
     QPushButton* okButton;
@@ -69,6 +82,10 @@ class SettingsDialog : public QDialog {
     int currentSubsample;
     QString currentMonitor;
     QString currentRoomID;
+    bool currentGamingMode;
+    QString currentGamingIcon;
+    QString currentSyncingIcon;
+    QString currentIdleIcon;
 };
 
 #endif // SETTINGSDIALOG_H

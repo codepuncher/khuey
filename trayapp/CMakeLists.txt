@@ -8,6 +8,7 @@ set(CMAKE_AUTOMOC ON)
 find_package(Qt6 REQUIRED COMPONENTS Core Widgets DBus)
 find_package(KF6StatusNotifierItem REQUIRED)
 find_package(KF6Notifications REQUIRED)
+find_package(KF6IconThemes REQUIRED)  # Provides KF6::IconWidgets
 
 add_executable(hue-tray 
     main.cpp
@@ -21,6 +22,7 @@ target_link_libraries(hue-tray
     Qt6::DBus
     KF6::StatusNotifierItem
     KF6::Notifications
+    KF6::IconWidgets
 )
 
 install(TARGETS hue-tray DESTINATION bin)

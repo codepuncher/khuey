@@ -46,6 +46,12 @@ type Config struct {
 	// Screen sync settings
 	Sync SyncConfig `mapstructure:"sync"`
 
+	// Gaming mode settings
+	GamingMode GamingModeConfig `mapstructure:"gamingMode"`
+
+	// UI settings
+	UI UIConfig `mapstructure:"ui"`
+
 	// Logging
 	LogLevel string `mapstructure:"log_level"`
 
@@ -77,6 +83,34 @@ type SyncConfig struct {
 	Monitor        string `mapstructure:"monitor"` // Monitor to capture (empty = default)
 }
 
+// GamingModeConfig represents gaming mode auto-sync settings
+type GamingModeConfig struct {
+	Enabled       bool `mapstructure:"enabled"`       // Feature toggle (disabled by default)
+	PollInterval  int  `mapstructure:"pollInterval"`  // How often to check in seconds (default: 2)
+	DebounceDelay int  `mapstructure:"debounceDelay"` // Wait before triggering in seconds (default: 5)
+
+	// CachyOS-optimized detection (recommended)
+	UseSystemdInhibit bool `mapstructure:"useSystemdInhibit"` // systemd-inhibit check (PRIMARY)
+	UsePowerProfile   bool `mapstructure:"usePowerProfile"`   // Power profile validation
+	UseSteamAppId     bool `mapstructure:"useSteamAppId"`     // Steam AppId detection
+
+	// Legacy detection (fallback)
+	UseGameMode   bool `mapstructure:"useGameMode"`   // Feral GameMode (if installed)
+	UseFullscreen bool `mapstructure:"useFullscreen"` // KWin fullscreen (unreliable)
+}
+
+// UIConfig represents user interface settings
+type UIConfig struct {
+	Icons IconConfig `mapstructure:"icons"` // Tray icon configuration
+}
+
+// IconConfig represents tray icon theme names for different states
+type IconConfig struct {
+	Gaming  string `mapstructure:"gaming"`  // Icon when gaming + syncing
+	Syncing string `mapstructure:"syncing"` // Icon when syncing (no game)
+	Idle    string `mapstructure:"idle"`    // Icon when idle
+}
+
 // DefaultConfig returns a configuration with sensible defaults
 func DefaultConfig() *Config {
 	return &Config{
@@ -86,6 +120,23 @@ func DefaultConfig() *Config {
 			FPS:            DefaultFPS,
 			SubsampleWidth: DefaultSubsampleWidth,
 			Monitor:        "",
+		},
+		GamingMode: GamingModeConfig{
+			Enabled:           false, // Disabled by default (opt-in)
+			PollInterval:      2,     // Check every 2 seconds
+			DebounceDelay:     5,     // Wait 5 seconds before triggering
+			UseSystemdInhibit: true,  // CachyOS primary detection
+			UsePowerProfile:   true,  // CachyOS secondary validation
+			UseSteamAppId:     true,  // Steam-specific detection
+			UseGameMode:       false, // Feral GameMode (not installed by default)
+			UseFullscreen:     false, // KWin fullscreen (unreliable on Wayland)
+		},
+		UI: UIConfig{
+			Icons: IconConfig{
+				Gaming:  "applications-games",                // Gaming + Sync icon
+				Syncing: "media-record",                      // Sync active icon
+				Idle:    "preferences-desktop-display-color", // Default idle icon
+			},
 		},
 		LogLevel: "info",
 		Channels: []ChannelConfig{},
@@ -181,6 +232,8 @@ func (c *Config) Save() error {
 	viper.Set("entertainmentConfigurationId", c.EntertainmentConfigurationID)
 	viper.Set("channels", c.Channels)
 	viper.Set("sync", c.Sync)
+	viper.Set("gamingMode", c.GamingMode)
+	viper.Set("ui", c.UI)
 	viper.Set("log_level", c.LogLevel)
 
 	// Validate required fields
@@ -245,6 +298,36 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("sync.subsampleWidth must be between %d and %d (got %d)\n"+
 			"  → Update 'sync.subsampleWidth' in config.yaml\n"+
 			"  → Recommended: %d for good balance", MinSubsampleWidth, MaxSubsampleWidth, c.Sync.SubsampleWidth, DefaultSubsampleWidth)
+	}
+
+	// Validate gaming mode settings
+	if c.GamingMode.PollInterval < 1 || c.GamingMode.PollInterval > 60 {
+		return fmt.Errorf("gamingMode.pollInterval must be between 1 and 60 seconds (got %d)\n"+
+			"  → Update 'gamingMode.pollInterval' in config.yaml\n"+
+			"  → Recommended: 2 for responsive detection", c.GamingMode.PollInterval)
+	}
+
+	if c.GamingMode.DebounceDelay < 0 || c.GamingMode.DebounceDelay > 60 {
+		return fmt.Errorf("gamingMode.debounceDelay must be between 0 and 60 seconds (got %d)\n"+
+			"  → Update 'gamingMode.debounceDelay' in config.yaml\n"+
+			"  → Recommended: 5 to prevent flicker on alt-tab", c.GamingMode.DebounceDelay)
+	}
+
+	// Validate UI icon configuration
+	if c.UI.Icons.Gaming == "" {
+		return fmt.Errorf("ui.icons.gaming is required\n" +
+			"  → Add 'ui.icons.gaming: applications-games' to config.yaml\n" +
+			"  → Use any valid KDE icon theme name")
+	}
+	if c.UI.Icons.Syncing == "" {
+		return fmt.Errorf("ui.icons.syncing is required\n" +
+			"  → Add 'ui.icons.syncing: media-record' to config.yaml\n" +
+			"  → Use any valid KDE icon theme name")
+	}
+	if c.UI.Icons.Idle == "" {
+		return fmt.Errorf("ui.icons.idle is required\n" +
+			"  → Add 'ui.icons.idle: preferences-desktop-display-color' to config.yaml\n" +
+			"  → Use any valid KDE icon theme name")
 	}
 
 	// Validate channels if configured

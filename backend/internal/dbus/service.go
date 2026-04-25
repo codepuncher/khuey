@@ -6,10 +6,12 @@ import (
 	"log"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/codepuncher/khuey/internal/capture"
 	"github.com/codepuncher/khuey/internal/common"
 	"github.com/codepuncher/khuey/internal/config"
+	"github.com/codepuncher/khuey/internal/gaming"
 	"github.com/codepuncher/khuey/internal/hue"
 	syncengine "github.com/codepuncher/khuey/internal/sync"
 	"github.com/godbus/dbus/v5"
@@ -24,12 +26,14 @@ const (
 
 // Service provides DBus interface for the plasmoid
 type Service struct {
-	conn       *dbus.Conn
-	config     *config.Config
-	hueClient  *hue.Client
-	syncEngine *syncengine.Engine
-	mu         sync.RWMutex // Protects config access from concurrent DBus calls
-	ownerUID   uint32       // UID of the service owner for access control
+	conn             *dbus.Conn
+	config           *config.Config
+	hueClient        *hue.Client
+	syncEngine       *syncengine.Engine
+	gamingDetector   *gaming.Detector
+	gamingModeActive bool         // Track if gaming mode triggered sync
+	mu               sync.RWMutex // Protects config access from concurrent DBus calls
+	ownerUID         uint32       // UID of the service owner for access control
 }
 
 // NewService creates a new DBus service
@@ -109,6 +113,9 @@ func (s *Service) Start() error {
 
 // Stop stops the DBus service
 func (s *Service) Stop() {
+	// Stop gaming mode detector if running
+	s.StopGamingMode()
+
 	if s.conn != nil {
 		// Release the DBus name before closing connection to prevent resource leak
 		s.conn.ReleaseName(dbusName)
@@ -247,6 +254,25 @@ func (s *Service) introspectionMethods() []introspect.Method {
 			},
 		},
 		{
+			Name: "SetGamingMode",
+			Args: []introspect.Arg{
+				{Name: "enabled", Type: "b", Direction: "in"},
+				{Name: "success", Type: "b", Direction: "out"},
+			},
+		},
+		{
+			Name: "IsGamingModeEnabled",
+			Args: []introspect.Arg{
+				{Name: "enabled", Type: "b", Direction: "out"},
+			},
+		},
+		{
+			Name: "IsGamingModeActive",
+			Args: []introspect.Arg{
+				{Name: "active", Type: "b", Direction: "out"},
+			},
+		},
+		{
 			Name: "GetBridgeSettings",
 			Args: []introspect.Arg{
 				{Name: "settings", Type: "a{sv}", Direction: "out"}, // Map of string to variant
@@ -268,6 +294,23 @@ func (s *Service) introspectionMethods() []introspect.Method {
 			Name: "SetSelectedRoom",
 			Args: []introspect.Arg{
 				{Name: "roomID", Type: "s", Direction: "in"},
+				{Name: "success", Type: "b", Direction: "out"},
+			},
+		},
+		{
+			Name: "GetTrayIcons",
+			Args: []introspect.Arg{
+				{Name: "gaming", Type: "s", Direction: "out"},
+				{Name: "syncing", Type: "s", Direction: "out"},
+				{Name: "idle", Type: "s", Direction: "out"},
+			},
+		},
+		{
+			Name: "SetTrayIcons",
+			Args: []introspect.Arg{
+				{Name: "gaming", Type: "s", Direction: "in"},
+				{Name: "syncing", Type: "s", Direction: "in"},
+				{Name: "idle", Type: "s", Direction: "in"},
 				{Name: "success", Type: "b", Direction: "out"},
 			},
 		},
@@ -744,5 +787,194 @@ func (s *Service) SetSelectedRoom(roomID string, sender dbus.Sender) (bool, *dbu
 	}
 
 	log.Printf("✅ Selected room set to: %s", roomID)
+	return true, nil
+}
+
+// SetGamingMode enables or disables gaming mode auto-sync
+func (s *Service) SetGamingMode(sender dbus.Sender, enabled bool) (bool, *dbus.Error) {
+	// Check access control
+	if err := s.checkAccess(sender); err != nil {
+		return false, dbus.MakeFailedError(err)
+	}
+
+	s.mu.Lock()
+
+	// Update config
+	s.config.GamingMode.Enabled = enabled
+
+	// Save config
+	if err := s.config.Save(); err != nil {
+		s.mu.Unlock()
+		log.Printf("❌ Failed to save gaming mode config: %v", err)
+		return false, dbus.MakeFailedError(err)
+	}
+
+	s.mu.Unlock()
+
+	// IMPORTANT: Actually start/stop the detector!
+	if enabled {
+		// Stop existing detector if running
+		s.StopGamingMode()
+
+		// Start new detector
+		s.InitGamingMode()
+		log.Println("🎮 Gaming mode enabled - detector started")
+	} else {
+		// Stop detector
+		s.StopGamingMode()
+		log.Println("🎮 Gaming mode disabled - detector stopped")
+	}
+
+	return true, nil
+}
+
+// IsGamingModeEnabled returns whether gaming mode is enabled in config
+func (s *Service) IsGamingModeEnabled() (bool, *dbus.Error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.config.GamingMode.Enabled, nil
+}
+
+// IsGamingModeActive returns whether gaming mode is currently detecting gaming activity
+func (s *Service) IsGamingModeActive() (bool, *dbus.Error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.gamingDetector == nil {
+		return false, nil
+	}
+
+	return s.gamingDetector.IsGaming(), nil
+}
+
+// InitGamingMode initializes the gaming detector if enabled in config
+// Should be called from main() after service is created
+func (s *Service) InitGamingMode() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if !s.config.GamingMode.Enabled {
+		log.Println("ℹ️  Gaming mode disabled in config")
+		return
+	}
+
+	if s.syncEngine == nil {
+		log.Println("⚠️  Gaming mode requires Entertainment API configuration")
+		return
+	}
+
+	// Create gaming detector config
+	gamingCfg := gaming.Config{
+		PollInterval:      time.Duration(s.config.GamingMode.PollInterval) * time.Second,
+		DebounceDelay:     time.Duration(s.config.GamingMode.DebounceDelay) * time.Second,
+		UseSystemdInhibit: s.config.GamingMode.UseSystemdInhibit,
+		UsePowerProfile:   s.config.GamingMode.UsePowerProfile,
+		UseSteamAppId:     s.config.GamingMode.UseSteamAppId,
+		UseGameMode:       s.config.GamingMode.UseGameMode,
+		UseFullscreen:     s.config.GamingMode.UseFullscreen,
+	}
+
+	// Create detector with callback
+	detector, err := gaming.NewDetector(gamingCfg, func(isGaming bool) {
+		s.onGamingStateChanged(isGaming)
+	})
+
+	if err != nil {
+		log.Printf("❌ Failed to create gaming detector: %v", err)
+		return
+	}
+
+	if detector == nil {
+		log.Println("⚠️  No gaming detection methods available")
+		return
+	}
+
+	s.gamingDetector = detector
+	s.gamingDetector.Start()
+	log.Println("✅ Gaming mode detector started")
+}
+
+// StopGamingMode stops the gaming detector
+func (s *Service) StopGamingMode() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.gamingDetector != nil {
+		s.gamingDetector.Close()
+		s.gamingDetector = nil
+		log.Println("🎮 Gaming mode detector stopped")
+	}
+}
+
+// onGamingStateChanged is called when gaming state changes
+func (s *Service) onGamingStateChanged(isGaming bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if isGaming {
+		// Gaming started - auto-start sync
+		log.Println("🎮 Gaming detected - starting screen sync")
+		s.gamingModeActive = true
+
+		if s.syncEngine != nil && !s.syncEngine.IsRunning() {
+			if err := s.syncEngine.Start(context.Background()); err != nil {
+				log.Printf("❌ Failed to start sync for gaming mode: %v", err)
+			} else {
+				log.Println("✅ Screen sync enabled for immersive gaming")
+			}
+		}
+	} else {
+		// Gaming stopped - auto-stop sync (only if we started it)
+		log.Println("🎮 Gaming stopped - stopping screen sync")
+
+		if s.gamingModeActive && s.syncEngine != nil && s.syncEngine.IsRunning() {
+			s.syncEngine.Stop()
+			log.Println("✅ Screen sync disabled")
+		}
+
+		s.gamingModeActive = false
+	}
+}
+
+// GetTrayIcons returns the configured tray icon names
+func (s *Service) GetTrayIcons() (string, string, string, *dbus.Error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.config.UI.Icons.Gaming, s.config.UI.Icons.Syncing, s.config.UI.Icons.Idle, nil
+}
+
+// SetTrayIcons updates the tray icon configuration
+func (s *Service) SetTrayIcons(gaming string, syncing string, idle string, sender dbus.Sender) (bool, *dbus.Error) {
+	// SEC-007: Validate DBus string inputs
+	if err := common.ValidateDBusString("gaming", gaming, 255); err != nil {
+		log.Printf("🚫 SetTrayIcons invalid input: %v", err)
+		return false, dbus.MakeFailedError(err)
+	}
+	if err := common.ValidateDBusString("syncing", syncing, 255); err != nil {
+		log.Printf("🚫 SetTrayIcons invalid input: %v", err)
+		return false, dbus.MakeFailedError(err)
+	}
+	if err := common.ValidateDBusString("idle", idle, 255); err != nil {
+		log.Printf("🚫 SetTrayIcons invalid input: %v", err)
+		return false, dbus.MakeFailedError(err)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Update config
+	s.config.UI.Icons.Gaming = gaming
+	s.config.UI.Icons.Syncing = syncing
+	s.config.UI.Icons.Idle = idle
+
+	// Save to file
+	if err := s.config.Save(); err != nil {
+		log.Printf("❌ Failed to save tray icon settings: %v", err)
+		return false, dbus.MakeFailedError(err)
+	}
+
+	log.Printf("✅ Tray icons updated: Gaming=%s, Syncing=%s, Idle=%s", gaming, syncing, idle)
 	return true, nil
 }

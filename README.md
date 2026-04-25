@@ -47,6 +47,7 @@ cp ../systemd/hue-tray.desktop ~/.config/autostart/
 
 - **Scene Control**: Activate any of your Hue scenes with room names
 - **Screen Sync**: Real-time screen color synchronization with Hue lights (Entertainment API)
+- **🎮 Gaming Mode**: Automatic screen sync when gaming (CachyOS-optimized)
 - **Settings Dialog**: GUI for bridge setup, room selection, and screen sync configuration
 - **Power/Brightness Controls**: Toggle and dim lights with room/zone support
 - **Multi-zone Mapping**: Different screen areas control different lights
