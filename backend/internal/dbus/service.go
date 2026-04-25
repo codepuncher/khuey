@@ -297,6 +297,23 @@ func (s *Service) introspectionMethods() []introspect.Method {
 				{Name: "success", Type: "b", Direction: "out"},
 			},
 		},
+		{
+			Name: "GetTrayIcons",
+			Args: []introspect.Arg{
+				{Name: "gaming", Type: "s", Direction: "out"},
+				{Name: "syncing", Type: "s", Direction: "out"},
+				{Name: "idle", Type: "s", Direction: "out"},
+			},
+		},
+		{
+			Name: "SetTrayIcons",
+			Args: []introspect.Arg{
+				{Name: "gaming", Type: "s", Direction: "in"},
+				{Name: "syncing", Type: "s", Direction: "in"},
+				{Name: "idle", Type: "s", Direction: "in"},
+				{Name: "success", Type: "b", Direction: "out"},
+			},
+		},
 	}
 }
 
@@ -918,4 +935,46 @@ func (s *Service) onGamingStateChanged(isGaming bool) {
 
 		s.gamingModeActive = false
 	}
+}
+
+// GetTrayIcons returns the configured tray icon names
+func (s *Service) GetTrayIcons() (string, string, string, *dbus.Error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.config.UI.Icons.Gaming, s.config.UI.Icons.Syncing, s.config.UI.Icons.Idle, nil
+}
+
+// SetTrayIcons updates the tray icon configuration
+func (s *Service) SetTrayIcons(gaming string, syncing string, idle string, sender dbus.Sender) (bool, *dbus.Error) {
+	// SEC-007: Validate DBus string inputs
+	if err := common.ValidateDBusString("gaming", gaming, 255); err != nil {
+		log.Printf("🚫 SetTrayIcons invalid input: %v", err)
+		return false, dbus.MakeFailedError(err)
+	}
+	if err := common.ValidateDBusString("syncing", syncing, 255); err != nil {
+		log.Printf("🚫 SetTrayIcons invalid input: %v", err)
+		return false, dbus.MakeFailedError(err)
+	}
+	if err := common.ValidateDBusString("idle", idle, 255); err != nil {
+		log.Printf("🚫 SetTrayIcons invalid input: %v", err)
+		return false, dbus.MakeFailedError(err)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Update config
+	s.config.UI.Icons.Gaming = gaming
+	s.config.UI.Icons.Syncing = syncing
+	s.config.UI.Icons.Idle = idle
+
+	// Save to file
+	if err := s.config.Save(); err != nil {
+		log.Printf("❌ Failed to save tray icon settings: %v", err)
+		return false, dbus.MakeFailedError(err)
+	}
+
+	log.Printf("✅ Tray icons updated: Gaming=%s, Syncing=%s, Idle=%s", gaming, syncing, idle)
+	return true, nil
 }

@@ -11,6 +11,7 @@
 #include <QSlider>
 #include <QSpinBox>
 #include <QTabWidget>
+#include <KIconButton>
 
 class SettingsDialog : public QDialog {
     Q_OBJECT
@@ -59,6 +60,15 @@ class SettingsDialog : public QDialog {
     QPushButton* reconnectButton;
     QLabel* lastErrorLabel;
 
+    // Appearance tab
+    KIconButton* gamingIconButton;
+    KIconButton* syncingIconButton;
+    KIconButton* idleIconButton;
+    QLabel* gamingIconNameLabel;
+    QLabel* syncingIconNameLabel;
+    QLabel* idleIconNameLabel;
+    QPushButton* resetIconsButton;
+
     // Dialog buttons
     QPushButton* okButton;
     QPushButton* applyButton;
@@ -73,6 +83,9 @@ class SettingsDialog : public QDialog {
     QString currentMonitor;
     QString currentRoomID;
     bool currentGamingMode;
+    QString currentGamingIcon;
+    QString currentSyncingIcon;
+    QString currentIdleIcon;
 };
 
 #endif // SETTINGSDIALOG_H

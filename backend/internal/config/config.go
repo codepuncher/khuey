@@ -49,6 +49,9 @@ type Config struct {
 	// Gaming mode settings
 	GamingMode GamingModeConfig `mapstructure:"gamingMode"`
 
+	// UI settings
+	UI UIConfig `mapstructure:"ui"`
+
 	// Logging
 	LogLevel string `mapstructure:"log_level"`
 
@@ -96,6 +99,18 @@ type GamingModeConfig struct {
 	UseFullscreen bool `mapstructure:"useFullscreen"` // KWin fullscreen (unreliable)
 }
 
+// UIConfig represents user interface settings
+type UIConfig struct {
+	Icons IconConfig `mapstructure:"icons"` // Tray icon configuration
+}
+
+// IconConfig represents tray icon theme names for different states
+type IconConfig struct {
+	Gaming  string `mapstructure:"gaming"`  // Icon when gaming + syncing
+	Syncing string `mapstructure:"syncing"` // Icon when syncing (no game)
+	Idle    string `mapstructure:"idle"`    // Icon when idle
+}
+
 // DefaultConfig returns a configuration with sensible defaults
 func DefaultConfig() *Config {
 	return &Config{
@@ -115,6 +130,13 @@ func DefaultConfig() *Config {
 			UseSteamAppId:     true,  // Steam-specific detection
 			UseGameMode:       false, // Feral GameMode (not installed by default)
 			UseFullscreen:     false, // KWin fullscreen (unreliable on Wayland)
+		},
+		UI: UIConfig{
+			Icons: IconConfig{
+				Gaming:  "applications-games",                // Gaming + Sync icon
+				Syncing: "media-record",                      // Sync active icon
+				Idle:    "preferences-desktop-display-color", // Default idle icon
+			},
 		},
 		LogLevel: "info",
 		Channels: []ChannelConfig{},
@@ -211,6 +233,7 @@ func (c *Config) Save() error {
 	viper.Set("channels", c.Channels)
 	viper.Set("sync", c.Sync)
 	viper.Set("gamingMode", c.GamingMode)
+	viper.Set("ui", c.UI)
 	viper.Set("log_level", c.LogLevel)
 
 	// Validate required fields
@@ -288,6 +311,23 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("gamingMode.debounceDelay must be between 0 and 60 seconds (got %d)\n"+
 			"  → Update 'gamingMode.debounceDelay' in config.yaml\n"+
 			"  → Recommended: 5 to prevent flicker on alt-tab", c.GamingMode.DebounceDelay)
+	}
+
+	// Validate UI icon configuration
+	if c.UI.Icons.Gaming == "" {
+		return fmt.Errorf("ui.icons.gaming is required\n" +
+			"  → Add 'ui.icons.gaming: applications-games' to config.yaml\n" +
+			"  → Use any valid KDE icon theme name")
+	}
+	if c.UI.Icons.Syncing == "" {
+		return fmt.Errorf("ui.icons.syncing is required\n" +
+			"  → Add 'ui.icons.syncing: media-record' to config.yaml\n" +
+			"  → Use any valid KDE icon theme name")
+	}
+	if c.UI.Icons.Idle == "" {
+		return fmt.Errorf("ui.icons.idle is required\n" +
+			"  → Add 'ui.icons.idle: preferences-desktop-display-color' to config.yaml\n" +
+			"  → Use any valid KDE icon theme name")
 	}
 
 	// Validate channels if configured

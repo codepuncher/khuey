@@ -202,6 +202,90 @@ void SettingsDialog::setupUI() {
     connectionLayout->addStretch();
     tabWidget->addTab(connectionTab, "Connection");
 
+    // === Tab 4: Appearance ===
+    QWidget* appearanceTab = new QWidget();
+    QVBoxLayout* appearanceLayout = new QVBoxLayout(appearanceTab);
+
+    QGroupBox* iconGroup = new QGroupBox("Tray Icons", appearanceTab);
+    QGridLayout* iconLayout = new QGridLayout(iconGroup);
+
+    // Gaming Icon
+    iconLayout->addWidget(new QLabel("Gaming + Sync:"), 0, 0);
+    gamingIconButton = new KIconButton(iconGroup);
+    gamingIconButton->setIcon("applications-games");
+    gamingIconButton->setIconType(KIconLoader::NoGroup, KIconLoader::Any, false);
+    gamingIconButton->setIconSize(32);
+    gamingIconButton->setButtonIconSize(32);
+    gamingIconButton->setToolTip("Click to choose icon for gaming mode + screen sync state");
+    iconLayout->addWidget(gamingIconButton, 0, 1);
+
+    gamingIconNameLabel = new QLabel("applications-games", iconGroup);
+    gamingIconNameLabel->setStyleSheet("QLabel { color: gray; font-size: 9pt; }");
+    iconLayout->addWidget(gamingIconNameLabel, 0, 2);
+
+    connect(gamingIconButton, &KIconButton::iconChanged, this, [this](const QString& icon) {
+        gamingIconNameLabel->setText(icon);
+    });
+
+    // Syncing Icon
+    iconLayout->addWidget(new QLabel("Sync Active:"), 1, 0);
+    syncingIconButton = new KIconButton(iconGroup);
+    syncingIconButton->setIcon("media-record");
+    syncingIconButton->setIconType(KIconLoader::NoGroup, KIconLoader::Any, false);
+    syncingIconButton->setIconSize(32);
+    syncingIconButton->setButtonIconSize(32);
+    syncingIconButton->setToolTip("Click to choose icon for screen sync active state");
+    iconLayout->addWidget(syncingIconButton, 1, 1);
+
+    syncingIconNameLabel = new QLabel("media-record", iconGroup);
+    syncingIconNameLabel->setStyleSheet("QLabel { color: gray; font-size: 9pt; }");
+    iconLayout->addWidget(syncingIconNameLabel, 1, 2);
+
+    connect(syncingIconButton, &KIconButton::iconChanged, this, [this](const QString& icon) {
+        syncingIconNameLabel->setText(icon);
+    });
+
+    // Idle Icon
+    iconLayout->addWidget(new QLabel("Idle:"), 2, 0);
+    idleIconButton = new KIconButton(iconGroup);
+    idleIconButton->setIcon("preferences-desktop-display-color");
+    idleIconButton->setIconType(KIconLoader::NoGroup, KIconLoader::Any, false);
+    idleIconButton->setIconSize(32);
+    idleIconButton->setButtonIconSize(32);
+    idleIconButton->setToolTip("Click to choose icon for idle state");
+    iconLayout->addWidget(idleIconButton, 2, 1);
+
+    idleIconNameLabel = new QLabel("preferences-desktop-display-color", iconGroup);
+    idleIconNameLabel->setStyleSheet("QLabel { color: gray; font-size: 9pt; }");
+    iconLayout->addWidget(idleIconNameLabel, 2, 2);
+
+    connect(idleIconButton, &KIconButton::iconChanged, this, [this](const QString& icon) {
+        idleIconNameLabel->setText(icon);
+    });
+
+    QLabel* iconHint = new QLabel(
+        "ℹ️  Click icon buttons to browse and choose from available icons\n"
+        "Changes apply after restarting the tray app.",
+        iconGroup);
+    iconHint->setWordWrap(true);
+    iconHint->setStyleSheet("QLabel { color: gray; font-size: 10pt; margin-top: 8px; }");
+    iconLayout->addWidget(iconHint, 3, 0, 1, 3);
+
+    resetIconsButton = new QPushButton("Reset to Defaults", iconGroup);
+    connect(resetIconsButton, &QPushButton::clicked, this, [this]() {
+        gamingIconButton->setIcon("applications-games");
+        syncingIconButton->setIcon("media-record");
+        idleIconButton->setIcon("preferences-desktop-display-color");
+        gamingIconNameLabel->setText("applications-games");
+        syncingIconNameLabel->setText("media-record");
+        idleIconNameLabel->setText("preferences-desktop-display-color");
+    });
+    iconLayout->addWidget(resetIconsButton, 4, 0, 1, 3);
+
+    appearanceLayout->addWidget(iconGroup);
+    appearanceLayout->addStretch();
+    tabWidget->addTab(appearanceTab, "Appearance");
+
     mainLayout->addWidget(tabWidget);
 
     // Dialog buttons
@@ -313,6 +397,25 @@ void SettingsDialog::loadSettings() {
             }
         }
     }
+
+    // Load tray icon settings
+    QDBusReply<QString> gamingIconReply = dbusInterface->call("GetTrayIcons");
+    if (gamingIconReply.isValid()) {
+        QDBusMessage iconReply = dbusInterface->call("GetTrayIcons");
+        if (iconReply.type() != QDBusMessage::ErrorMessage && iconReply.arguments().size() >= 3) {
+            currentGamingIcon = iconReply.arguments().at(0).toString();
+            currentSyncingIcon = iconReply.arguments().at(1).toString();
+            currentIdleIcon = iconReply.arguments().at(2).toString();
+
+            gamingIconButton->setIcon(currentGamingIcon);
+            syncingIconButton->setIcon(currentSyncingIcon);
+            idleIconButton->setIcon(currentIdleIcon);
+            
+            gamingIconNameLabel->setText(currentGamingIcon);
+            syncingIconNameLabel->setText(currentSyncingIcon);
+            idleIconNameLabel->setText(currentIdleIcon);
+        }
+    }
 }
 
 void SettingsDialog::saveSettings() {
@@ -354,10 +457,34 @@ void SettingsDialog::saveSettings() {
         }
     }
 
+    // Save tray icon settings
+    QString gamingIcon = gamingIconButton->icon();
+    QString syncingIcon = syncingIconButton->icon();
+    QString idleIcon = idleIconButton->icon();
+
+    // Use defaults if empty
+    if (gamingIcon.isEmpty())
+        gamingIcon = "applications-games";
+    if (syncingIcon.isEmpty())
+        syncingIcon = "media-record";
+    if (idleIcon.isEmpty())
+        idleIcon = "preferences-desktop-display-color";
+
+    QDBusReply<bool> iconReply =
+        dbusInterface->call("SetTrayIcons", gamingIcon, syncingIcon, idleIcon);
+    if (!iconReply.isValid() || !iconReply.value()) {
+        QString errorMsg =
+            iconReply.isValid() ? "Failed to save icons" : iconReply.error().message();
+        QMessageBox::warning(this, "Settings Error",
+                             "Failed to save tray icon settings: " + errorMsg);
+        return;
+    }
+
     QMessageBox::information(
         this, "Settings Saved",
         "Settings saved successfully!\n\n"
-        "Note: If Screen Sync is running, restart it for changes to take effect.");
+        "Note: Restart the tray app for icon changes to take effect.\n"
+        "If Screen Sync is running, restart it for FPS/quality changes to take effect.");
 }
 
 bool SettingsDialog::validateSettings() {
