@@ -151,10 +151,11 @@ func (d *Detector) Start() {
 	// (channel is closed by Stop(), must be recreated)
 	d.stopChan = make(chan struct{})
 	d.isRunning = true
-	d.mu.Unlock()
 
 	log.Println("🎮 Gaming mode detector started")
+	// Spawn goroutine while holding lock to prevent race
 	go d.monitorLoop()
+	d.mu.Unlock()
 }
 
 // Stop stops monitoring

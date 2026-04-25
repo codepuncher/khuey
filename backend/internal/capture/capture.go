@@ -70,6 +70,7 @@ type ScreenCapture struct {
 	frameMutex       sync.RWMutex
 	useMockFrames    bool
 	useNativeCapture bool
+	frameReaderWg    sync.WaitGroup // Tracks frame reader goroutine lifecycle
 
 	// Screenshot-based capture
 	useScreenshot  bool
@@ -371,6 +372,14 @@ func (sc *ScreenCapture) captureScreenshot() (*image.RGBA, error) {
 
 // Stop stops the capture session
 func (sc *ScreenCapture) Stop() {
+	// Cancel context to signal goroutines to stop
+	if sc.cancel != nil {
+		sc.cancel()
+	}
+
+	// Wait for frame reader goroutine to exit (prevents goroutine leak)
+	sc.frameReaderWg.Wait()
+
 	// Stop native capture if active
 	if sc.nativeCapture != nil {
 		sc.nativeCapture.Stop()
@@ -384,9 +393,6 @@ func (sc *ScreenCapture) Stop() {
 		sc.gstCmd.Wait()
 	}
 
-	if sc.cancel != nil {
-		sc.cancel()
-	}
 	if sc.conn != nil {
 		sc.conn.Close()
 	}
@@ -427,7 +433,8 @@ func (sc *ScreenCapture) startNativePipewireCapture() error {
 		return fmt.Errorf("failed to start native capture: %w", err)
 	}
 
-	// Start frame polling goroutine
+	// Start frame polling goroutine with WaitGroup tracking
+	sc.frameReaderWg.Add(1)
 	go sc.nativeFrameReaderLoop()
 
 	log.Printf("Native PipeWire capture started (CGo + libpipewire)")
@@ -436,6 +443,7 @@ func (sc *ScreenCapture) startNativePipewireCapture() error {
 
 // nativeFrameReaderLoop polls frames from native capture
 func (sc *ScreenCapture) nativeFrameReaderLoop() {
+	defer sc.frameReaderWg.Done()
 	ticker := time.NewTicker(sc.GetFrameInterval())
 	defer ticker.Stop()
 
