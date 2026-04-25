@@ -644,18 +644,23 @@ class HueTrayApp : public QApplication {
             return;
         }
 
-        QDBusReply<QDBusVariant> reply = iface.call("GetTrayIcons");
-        if (!reply.isValid()) {
+        QDBusMessage reply = iface.call("GetTrayIcons");
+        if (reply.type() == QDBusMessage::ErrorMessage) {
             // Method failed, keep defaults
+            qDebug() << "Failed to get tray icons:" << reply.errorMessage();
             return;
         }
 
         // GetTrayIcons returns (string gaming, string syncing, string idle)
-        // DBus packs multiple return values into a struct
-        const QDBusArgument arg = reply.value().variant().value<QDBusArgument>();
-        arg.beginStructure();
-        arg >> gamingIconName >> syncingIconName >> idleIconName;
-        arg.endStructure();
+        QList<QVariant> args = reply.arguments();
+        if (args.size() >= 3) {
+            gamingIconName = args[0].toString();
+            syncingIconName = args[1].toString();
+            idleIconName = args[2].toString();
+            qDebug() << "Loaded icon names - Gaming:" << gamingIconName 
+                     << "Syncing:" << syncingIconName 
+                     << "Idle:" << idleIconName;
+        }
     }
 
     void updateTooltip() {
