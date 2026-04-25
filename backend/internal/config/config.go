@@ -156,7 +156,9 @@ func DefaultConfig() *Config {
 
 // getConfigPath returns the path to the config directory
 // Uses ~/.openhue/ to be compatible with openhue-cli
-func getConfigPath() string {
+// getConfigPath returns the config directory path
+// Made as a variable for testing purposes
+var getConfigPath = func() string {
 	// Check XDG_CONFIG_HOME first
 	xdgConfigHome := os.Getenv("XDG_CONFIG_HOME")
 	if xdgConfigHome != "" {
@@ -174,7 +176,8 @@ func getConfigPath() string {
 }
 
 // getConfigFile returns the full path to the config file
-func getConfigFile() string {
+// Made as a variable for testing purposes
+var getConfigFile = func() string {
 	return filepath.Join(getConfigPath(), "config.yaml")
 }
 
