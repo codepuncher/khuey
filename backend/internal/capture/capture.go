@@ -25,6 +25,8 @@ const (
 )
 
 // Pool for RGBA image buffers used in frame copying to reduce GC pressure
+// Reusing buffers avoids allocating/deallocating large RGBA images every frame (8MB at 1920x1080)
+// Pool size is managed automatically by Go runtime based on usage patterns
 var imageBufferPool = sync.Pool{
 	New: func() any {
 		return image.NewRGBA(image.Rect(0, 0, 1920, 1080))
@@ -210,8 +212,10 @@ func (sc *ScreenCapture) Start() error {
 	if newToken != "" && newToken != sc.restoreToken {
 		sc.restoreToken = newToken
 		if sc.onTokenUpdate != nil {
-			// Run callback in goroutine to avoid blocking capture startup
-			// (callback may need to acquire locks that caller already holds)
+			// CRITICAL: Run callback in goroutine to avoid blocking capture startup
+			// The callback saves config which acquires locks that caller (engine.Start) may hold
+			// Running synchronously caused a deadlock where capture.Start blocked indefinitely
+			// Async execution allows capture to complete startup before config save
 			go sc.onTokenUpdate(newToken)
 		}
 	}

@@ -652,6 +652,8 @@ class HueTrayApp : public QApplication {
         }
 
         // GetTrayIcons returns (string gaming, string syncing, string idle)
+        // Parse as three separate QVariant strings in reply.arguments() list
+        // (not as QDBusVariant or struct - that was the initial bug)
         QList<QVariant> args = reply.arguments();
         if (args.size() >= 3) {
             gamingIconName = args[0].toString();
@@ -685,6 +687,8 @@ class HueTrayApp : public QApplication {
         bool syncing = syncReply.isValid() && syncReply.value();
 
         // Update icon based on gaming + sync state
+        // Icons are cached member variables loaded from backend config (not hardcoded)
+        // This allows users to customize icons via settings dialog
         if (syncing && gamingActive) {
             sni->setIconByName(gamingIconName); // Gaming icon when gaming + syncing
         } else if (syncing) {

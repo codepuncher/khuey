@@ -60,6 +60,8 @@ func NewEngine(cfg *config.Config) (*Engine, error) {
 		CaptureWidth:     0,                     // Full resolution (native capture is fast)
 		CaptureHeight:    0,                     // Full resolution (native capture is fast)
 		RestoreToken:     cfg.Sync.RestoreToken, // Pass saved token
+		// Token callback: capture will call this when portal returns new restore token
+		// Callback runs in goroutine (see capture.Start) to avoid blocking capture startup
 		OnTokenUpdate: func(newToken string) {
 			engine.updateRestoreToken(newToken)
 		},
@@ -320,6 +322,8 @@ func (e *Engine) syncLoop(ctx context.Context) {
 			return
 		case <-ticker.C:
 			// Drain accumulated ticks to handle frame drops gracefully
+			// If processing takes longer than the ticker interval, multiple ticks accumulate
+			// We drain them to skip ahead rather than process stale frames
 			drained := 0
 		drainLoop:
 			for {
@@ -342,8 +346,10 @@ func (e *Engine) syncLoop(ctx context.Context) {
 
 			zoneColors, err := extractor.ExtractColors(frame, e.zones)
 
-			// Return frame buffer to pool immediately after extraction (not deferred)
-			// to avoid accumulating defers in loop causing memory leak
+			// CRITICAL: Return frame buffer to pool immediately after extraction (not deferred)
+			// Using defer in a loop causes defers to accumulate until function exits, not per-iteration
+			// This caused a memory leak where buffers were held until sync stopped (could be hours)
+			// Immediate return ensures buffers are recycled each frame
 			capture.PutImageBuffer(frame)
 
 			if err != nil {
@@ -370,7 +376,8 @@ func (e *Engine) syncLoop(ctx context.Context) {
 				log.Printf("[WARN] Streaming error: %v", err)
 			}
 
-			// Only reset ticker when FPS actually changes
+			// Only reset ticker when FPS actually changes (performance optimization)
+			// Ticker.Reset() is relatively expensive, so we cache lastFPS and only reset when different
 			e.mu.RLock()
 			currentFPS := e.fps
 			e.mu.RUnlock()
