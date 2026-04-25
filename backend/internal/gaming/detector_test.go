@@ -181,3 +181,83 @@ func TestNilDetectorMethods(t *testing.T) {
 		t.Error("Expected nil detector to report not gaming")
 	}
 }
+
+// TestGameModeDetector tests GameMode detection
+func TestGameModeDetector(t *testing.T) {
+	detector, err := NewGameModeDetector()
+	if err != nil {
+		t.Skip("GameMode DBus not available (expected in test environment)")
+	}
+	defer detector.Close()
+
+	// IsActive should not panic even if GameMode is unavailable
+	// In test environment, likely returns false
+	isActive := detector.IsActive()
+	_ = isActive // Just verify it doesn't panic
+}
+
+// TestGameModeDetectorNilConn tests GameMode detector with nil connection
+func TestGameModeDetectorNilConn(t *testing.T) {
+	detector := &GameModeDetector{conn: nil}
+	isActive := detector.IsActive()
+	if isActive {
+		t.Error("Expected inactive with nil connection")
+	}
+}
+
+// TestSteamDetector tests Steam game detection
+func TestSteamDetector(t *testing.T) {
+	detector := NewSteamDetector()
+
+	// IsActive should not panic
+	// Will return false unless Steam game is actually running
+	isActive := detector.IsActive()
+	_ = isActive
+
+	// GetAppId should not panic
+	appId := detector.GetAppId()
+	_ = appId
+}
+
+// TestSystemdDetector tests systemd-inhibit detection
+func TestSystemdDetector(t *testing.T) {
+	detector := NewSystemdDetector()
+
+	// IsActive should not panic
+	// Will return false unless gaming inhibitor is active
+	isActive := detector.IsActive()
+	_ = isActive // Just verify it doesn't panic
+}
+
+// TestPowerProfileDetector tests power profile detection
+func TestPowerProfileDetector(t *testing.T) {
+	detector := NewPowerProfileDetector()
+
+	// IsPerformanceMode should not panic
+	// Will return false unless performance mode is active
+	isPerfMode := detector.IsPerformanceMode()
+	_ = isPerfMode // Just verify it doesn't panic
+}
+
+// TestKWinDetector tests KWin fullscreen detection
+func TestKWinDetector(t *testing.T) {
+	detector, err := NewKWinDetector()
+	if err != nil {
+		t.Skip("KWin DBus not available (expected in test environment)")
+	}
+	defer detector.Close()
+
+	// IsFullscreenActive should not panic
+	// In test environment, likely returns false
+	isFullscreen := detector.IsFullscreenActive()
+	_ = isFullscreen // Just verify it doesn't panic
+}
+
+// TestKWinDetectorNilConn tests KWin detector with nil connection
+func TestKWinDetectorNilConn(t *testing.T) {
+	detector := &KWinDetector{conn: nil}
+	isFullscreen := detector.IsFullscreenActive()
+	if isFullscreen {
+		t.Error("Expected not fullscreen with nil connection")
+	}
+}
