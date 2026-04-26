@@ -178,11 +178,27 @@ func (mb *MockBridge) SetResponseError(path string, err error) {
 	mb.ResponseErrors[path] = err
 }
 
+// ClearResponseErrors clears all response errors
+func (mb *MockBridge) ClearResponseErrors() {
+	mb.mu.Lock()
+	defer mb.mu.Unlock()
+	mb.ResponseErrors = make(map[string]error)
+}
+
 // GetRequestCount returns the number of requests received
 func (mb *MockBridge) GetRequestCount() int {
 	mb.mu.RLock()
 	defer mb.mu.RUnlock()
 	return len(mb.RequestLog)
+}
+
+// GetRequestLog returns a copy of the request log
+func (mb *MockBridge) GetRequestLog() []string {
+	mb.mu.RLock()
+	defer mb.mu.RUnlock()
+	logCopy := make([]string, len(mb.RequestLog))
+	copy(logCopy, mb.RequestLog)
+	return logCopy
 }
 
 // ClearRequestLog clears the request log
