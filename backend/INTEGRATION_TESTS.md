@@ -215,3 +215,165 @@ jobs:
 ---
 
 **Test Coverage**: Phase 1 complete with 8 integration tests covering core Hue API workflows and concurrency patterns.
+
+## DBus Integration Tests (Phase 2)
+
+Added in PR #52: DBus service integration tests that validate backend <-> tray app communication without requiring the Qt tray application.
+
+### Test Coverage
+
+**DBus Service Tests (10 tests):**
+1. **TestDBusService_StartAndRegister** - Service registration on session bus
+2. **TestDBusService_GetStatus** - Status method returns correct state
+3. **TestDBusService_GetScenes** - Scene listing via DBus
+4. **TestDBusService_ActivateScene** - Scene activation workflow
+5. **TestDBusService_SyncMethods** - Sync settings and state queries
+6. **TestDBusService_GamingMode** - Gaming mode enable/active state
+7. **TestDBusService_BridgeSettings** - Bridge configuration retrieval
+8. **TestDBusService_TrayIcons** - Icon name retrieval for tray app
+9. **TestDBusService_Introspection** - DBus introspection XML validation
+10. **TestDBusService_ConcurrentCalls** - 10 parallel DBus method calls
+
+**What's Tested:**
+- DBus service lifecycle (start/stop)
+- Method signatures and return values
+- Concurrent method calls (thread safety)
+- Introspection data completeness
+- Default configuration values
+- Integration with mock Hue bridge
+
+**What's NOT Tested:**
+- Screen Sync (requires Entertainment API + user permission dialog)
+- Gaming Mode activation (requires real game process detection)
+- Grouped light control (requires proper room/zone setup in mock)
+
+### Running DBus Tests
+
+```bash
+# Stop any running hue-sync first
+systemctl --user stop hue-backend
+
+# Run DBus tests only
+cd backend
+go test -tags=integration -v -run TestDBusService
+
+# All tests should pass in ~0.25 seconds
+```
+
+**If hue-sync is running:**
+Tests will detect it and skip with message: "Service already running - stop hue-sync before testing"
+
+### How It Works
+
+**Test Setup:**
+1. Creates mock Hue bridge with TLS
+2. Creates Hue client pointing to mock
+3. Creates DBus service with test config
+4. Starts service on session bus
+
+**Test Execution:**
+1. Connect to session bus as client
+2. Call DBus methods via `godbus` library
+3. Verify responses match expectations
+4. Check mock bridge received requests
+
+**Test Cleanup:**
+1. Stop DBus service
+2. Close mock bridge
+3. Restore HTTP transport
+
+### Architecture
+
+```
+Test Process
+│
+├─ Mock Bridge (HTTPS server)
+│  └─ Returns test data (3 scenes, 3 rooms, etc.)
+│
+├─ DBus Service (backend/internal/dbus)
+│  ├─ Registered as org.kde.plasma.hue
+│  ├─ Connected to mock bridge
+│  └─ Exports methods on session bus
+│
+└─ Test Client (godbus connection)
+   └─ Calls methods, verifies responses
+```
+
+### Key Features
+
+**Session Bus Integration:**
+- Uses real DBus session bus (not mock)
+- Tests actual IPC mechanism
+- Validates service registration
+- Tests introspection works
+
+**Thread Safety:**
+- Tests 10 concurrent method calls
+- Verifies no race conditions
+- Confirms mutex protection works
+
+**Service Lifecycle:**
+- Tests Start() registration
+- Tests Stop() cleanup
+- Verifies name release
+
+### Example Test
+
+```go
+func TestDBusService_GetScenes(t *testing.T) {
+    // Setup service with mock bridge
+    service, mock, cleanup := setupTestDBusService(t)
+    defer cleanup()
+
+    err := service.Start()
+    if err != nil {
+        t.Fatalf("Failed to start service: %v", err)
+    }
+
+    // Connect as DBus client
+    conn, _ := godbus.ConnectSessionBus()
+    obj := conn.Object("org.kde.plasma.hue", "/org/kde/plasma/hue")
+
+    // Call method
+    var scenes []string
+    err = obj.Call("org.kde.plasma.hue.GetScenes", 0).Store(&scenes)
+
+    // Verify
+    if len(scenes) != 3 {
+        t.Errorf("Got %d scenes, want 3", len(scenes))
+    }
+}
+```
+
+### Troubleshooting
+
+**"Service already running"**
+- Stop hue-sync: `systemctl --user stop hue-backend`
+- Or run without DBus tests: `go test -tags=integration -run TestHue`
+
+**"Failed to connect to session bus"**
+- Ensure DBUS_SESSION_BUS_ADDRESS is set
+- Check `dbus-daemon --session` is running
+- Try: `systemctl --user status dbus`
+
+**Tests hang on Stop()**
+- Normal - service cleanup can take 200ms
+- Tests include timeout: `-timeout 30s`
+
+### Phase 2 vs Phase 1
+
+**Phase 1 (Mock Bridge):**
+- Tests Hue API client
+- HTTP/TLS mocking
+- No system dependencies
+
+**Phase 2 (DBus Service):**
+- Tests DBus service layer
+- Real session bus required
+- Tests IPC mechanism
+- Validates method signatures
+
+**Phase 3 (Planned):**
+- End-to-end workflows
+- Entertainment API mocking
+- Full tray app simulation
