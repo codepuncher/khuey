@@ -1,0 +1,6 @@
+# Ignore all benchmark results and profiles
+*.txt
+*.prof
+
+# Keep this README
+!README.md
