@@ -9,13 +9,6 @@ linters:
     - unused
     - ineffassign
 
-issues:
-  # Exclude test utilities from some checks
-  exclude-rules:
-    - path: cmd/test-.*
-      linters:
-        - errcheck
-
 run:
   timeout: 5m
   tests: true
