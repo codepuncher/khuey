@@ -83,6 +83,8 @@ func (k *KWinDetector) IsFullscreenActive() bool {
 // Close releases the DBus connection
 func (k *KWinDetector) Close() {
 	if k.conn != nil {
-		k.conn.Close()
+		if err := k.conn.Close(); err != nil {
+			log.Printf("warn: failed to close KWin DBus connection: %v", err)
+		}
 	}
 }

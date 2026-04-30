@@ -216,7 +216,11 @@ func (sc *ScreenCapture) waitForResponse(requestPath dbus.ObjectPath) (map[strin
 			Hint: "DBus connection may be unstable",
 		}
 	}
-	defer sc.conn.RemoveMatchSignal(dbus.WithMatchObjectPath(requestPath))
+	defer func() {
+		if err := sc.conn.RemoveMatchSignal(dbus.WithMatchObjectPath(requestPath)); err != nil {
+			log.Printf("warn: failed to remove signal match: %v", err)
+		}
+	}()
 
 	signals := make(chan *dbus.Signal, 10)
 	sc.conn.Signal(signals)

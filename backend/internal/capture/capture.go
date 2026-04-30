@@ -300,7 +300,11 @@ func (sc *ScreenCapture) captureScreenshot() (*image.RGBA, error) {
 	case "spectacle":
 		// Spectacle doesn't support stdout, use temp file
 		tmpfile := "/tmp/hue-screenshot.png"
-		defer os.Remove(tmpfile) // Ensure cleanup in all paths
+		defer func() {
+			if err := os.Remove(tmpfile); err != nil {
+				log.Printf("warn: failed to remove temp screenshot file: %v", err)
+			}
+		}()
 
 		cmd = exec.CommandContext(sc.ctx, "spectacle", "-b", "-n", "-o", tmpfile)
 		if err = cmd.Run(); err != nil {
@@ -389,13 +393,19 @@ func (sc *ScreenCapture) Stop() {
 
 	// Stop gstreamer pipeline
 	if sc.gstCmd != nil && sc.gstCmd.Process != nil {
-		sc.gstCmd.Process.Kill()
+		if err := sc.gstCmd.Process.Kill(); err != nil {
+			log.Printf("warn: failed to kill gstreamer process: %v", err)
+		}
 		// Wait for process to exit to prevent zombie process
-		sc.gstCmd.Wait()
+		if err := sc.gstCmd.Wait(); err != nil {
+			log.Printf("warn: gstreamer process wait error: %v", err)
+		}
 	}
 
 	if sc.conn != nil {
-		sc.conn.Close()
+		if err := sc.conn.Close(); err != nil {
+			log.Printf("warn: failed to close DBus connection: %v", err)
+		}
 	}
 
 	// Reset portal state so it can be recreated on next Start()

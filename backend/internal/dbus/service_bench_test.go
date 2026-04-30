@@ -108,11 +108,9 @@ func BenchmarkGetGroupedLights(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, err := service.GetGroupedLights()
-		if err != nil {
-			// Note: This will likely fail without actual bridge connection,
-			// but we're benchmarking the method call overhead
-		}
+		_, _ = service.GetGroupedLights()
+		// Note: This will likely fail without actual bridge connection,
+		// but we're benchmarking the method call overhead
 	}
 }
 

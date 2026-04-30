@@ -137,7 +137,7 @@ func (m *MockEntertainmentServer) Stop() {
 
 	// Close listener to unblock Accept()
 	if m.listener != nil {
-		m.listener.Close()
+		m.listener.Close() //nolint:errcheck
 	}
 
 	// Wait for goroutines
@@ -276,7 +276,7 @@ func (m *MockEntertainmentServer) acceptLoop(t *testing.T) {
 // handleConnection processes data from a DTLS connection
 func (m *MockEntertainmentServer) handleConnection(conn net.Conn, t *testing.T) {
 	defer m.wg.Done()
-	defer conn.Close()
+	defer conn.Close() //nolint:errcheck
 
 	buffer := make([]byte, 4096)
 
@@ -289,7 +289,7 @@ func (m *MockEntertainmentServer) handleConnection(conn net.Conn, t *testing.T) 
 		}
 
 		// Set read deadline to allow periodic checking of done channel
-		conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+		conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond)) //nolint:errcheck
 
 		n, err := conn.Read(buffer)
 		if err != nil {

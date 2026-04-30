@@ -92,12 +92,13 @@ func TestNewExtractor(t *testing.T) {
 				}
 				if ext == nil {
 					t.Errorf("Expected extractor but got nil")
-				}
-				if ext.subsampleWidth != tt.subsampleWidth {
-					t.Errorf("Expected subsampleWidth %d, got %d", tt.subsampleWidth, ext.subsampleWidth)
-				}
-				if ext.gammaCorrection != tt.gamma {
-					t.Errorf("Expected gamma %f, got %f", tt.gamma, ext.gammaCorrection)
+				} else {
+					if ext.subsampleWidth != tt.subsampleWidth {
+						t.Errorf("Expected subsampleWidth %d, got %d", tt.subsampleWidth, ext.subsampleWidth)
+					}
+					if ext.gammaCorrection != tt.gamma {
+						t.Errorf("Expected gamma %f, got %f", tt.gamma, ext.gammaCorrection)
+					}
 				}
 			}
 		})

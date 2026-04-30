@@ -123,17 +123,17 @@ func TestNewClient(t *testing.T) {
 				}
 				if client == nil {
 					t.Errorf("Expected client but got nil")
-				}
-
-				// Verify client fields
-				if client.bridgeIP != tt.cfg.BridgeIP {
-					t.Errorf("Expected bridgeIP %q, got %q", tt.cfg.BridgeIP, client.bridgeIP)
-				}
-				if client.username != tt.cfg.Username {
-					t.Errorf("Expected username %q, got %q", tt.cfg.Username, client.username)
-				}
-				if client.clientKey != tt.cfg.ClientKey {
-					t.Errorf("Expected clientKey %q, got %q", tt.cfg.ClientKey, client.clientKey)
+				} else {
+					// Verify client fields
+					if client.bridgeIP != tt.cfg.BridgeIP {
+						t.Errorf("Expected bridgeIP %q, got %q", tt.cfg.BridgeIP, client.bridgeIP)
+					}
+					if client.username != tt.cfg.Username {
+						t.Errorf("Expected username %q, got %q", tt.cfg.Username, client.username)
+					}
+					if client.clientKey != tt.cfg.ClientKey {
+						t.Errorf("Expected clientKey %q, got %q", tt.cfg.ClientKey, client.clientKey)
+					}
 				}
 				if client.entertainmentID != tt.cfg.EntertainmentID {
 					t.Errorf("Expected entertainmentID %q, got %q", tt.cfg.EntertainmentID, client.entertainmentID)

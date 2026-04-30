@@ -38,7 +38,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to create CPU profile: %v", err)
 	}
-	defer f.Close()
+	defer f.Close() //nolint:errcheck
 	if err := pprof.StartCPUProfile(f); err != nil {
 		log.Fatalf("Failed to start CPU profile: %v", err)
 	}
@@ -66,14 +66,14 @@ func main() {
 	log.Printf("\n⏱️  Duration complete (%ds)", *duration)
 
 	// Stop sync
-	engine.Stop()
+	engine.Stop() //nolint:errcheck
 
 	// Write memory profile
 	mf, err := os.Create(*memProfile)
 	if err != nil {
 		log.Fatalf("Failed to create memory profile: %v", err)
 	}
-	defer mf.Close()
+	defer mf.Close() //nolint:errcheck
 	if err := pprof.WriteHeapProfile(mf); err != nil {
 		log.Fatalf("Failed to write memory profile: %v", err)
 	}
