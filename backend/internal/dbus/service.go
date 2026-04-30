@@ -438,9 +438,10 @@ func (s *Service) ActivateScene(displayName string, sender dbus.Sender) (string,
 				if glID, err := s.hueClient.GetGroupedLightIDForRoom(scene.Room); err == nil {
 					s.mu.Lock()
 					s.config.GroupedLightID = glID
+					saveErr := s.config.Save()
 					s.mu.Unlock()
-					if err := s.config.Save(); err != nil {
-						log.Printf("[WARN] Failed to save config after scene activation: %v", err)
+					if saveErr != nil {
+						log.Printf("[WARN] Failed to save config after scene activation: %v", saveErr)
 					}
 					log.Printf("Auto-updated GroupedLightID to %s (room: %s)", glID, scene.Room)
 				} else {

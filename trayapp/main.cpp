@@ -535,7 +535,7 @@ class HueControlDialog : public QDialog {
         QDBusPendingCallWatcher* watcher = new QDBusPendingCallWatcher(call, this);
 
         connect(watcher, &QDBusPendingCallWatcher::finished, this,
-                [this, sceneName, item](QDBusPendingCallWatcher* w) {
+                [this, sceneName](QDBusPendingCallWatcher* w) {
                     // Don't re-enable controls if sync became active during the async call
                     QDBusInterface ifaceCheck("org.kde.plasma.hue", "/org/kde/plasma/hue",
                                              "org.kde.plasma.hue", QDBusConnection::sessionBus());
