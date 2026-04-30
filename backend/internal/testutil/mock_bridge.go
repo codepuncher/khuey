@@ -372,7 +372,7 @@ func (mb *MockBridge) handleGetGroupedLights(w http.ResponseWriter, r *http.Requ
 		"data":   lights,
 	}
 
-	json.NewEncoder(w).Encode(response)
+	json.NewEncoder(w).Encode(response) //nolint:errcheck
 }
 
 // handleGetLights returns mock lights
@@ -408,7 +408,7 @@ func (mb *MockBridge) handleGetLights(w http.ResponseWriter, r *http.Request) {
 		"data":   lights,
 	}
 
-	json.NewEncoder(w).Encode(response)
+	json.NewEncoder(w).Encode(response) //nolint:errcheck
 }
 
 // handleGetEntertainment returns mock entertainment configurations
@@ -440,7 +440,7 @@ func (mb *MockBridge) handleGetEntertainment(w http.ResponseWriter, r *http.Requ
 		"data":   configs,
 	}
 
-	json.NewEncoder(w).Encode(response)
+	json.NewEncoder(w).Encode(response) //nolint:errcheck
 }
 
 // handlePutRequest handles PUT requests (scene activation, light control)
@@ -466,7 +466,7 @@ func (mb *MockBridge) handlePutRequest(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 
-	json.NewEncoder(w).Encode(response)
+	json.NewEncoder(w).Encode(response) //nolint:errcheck
 }
 
 // SetupDefaultScenario sets up a typical test scenario
