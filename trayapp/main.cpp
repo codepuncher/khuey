@@ -47,11 +47,11 @@ class HueControlDialog : public QDialog {
 
         auto layout = new QVBoxLayout(this);
 
-        // Status section with icon
+        // Status section
         auto statusLayout = new QHBoxLayout();
-        statusIconLabel = new QLabel(this);
-        statusIconLabel->setPixmap(QIcon::fromTheme("dialog-information").pixmap(24, 24));
-        statusLayout->addWidget(statusIconLabel);
+        auto statusPrefixLabel = new QLabel("Status:", this);
+        statusPrefixLabel->setStyleSheet("QLabel { font-weight: bold; }");
+        statusLayout->addWidget(statusPrefixLabel);
         statusLabel = new QLabel("Connecting to Hue service...", this);
         statusLabel->setWordWrap(true);
         statusLayout->addWidget(statusLabel, 1);
@@ -357,22 +357,14 @@ class HueControlDialog : public QDialog {
     void updateConnectionState(ConnectionState state) {
         connectionState = state;
         
-        // Update status icon
+        // Update visibility of retry button
         switch (state) {
             case CONNECTING:
-                statusIconLabel->setPixmap(QIcon::fromTheme("network-wireless-acquiring").pixmap(24, 24));
-                retryButton->hide();
-                break;
             case CONNECTED:
-                statusIconLabel->setPixmap(QIcon::fromTheme("network-connect").pixmap(24, 24));
                 retryButton->hide();
                 break;
             case DISCONNECTED:
-                statusIconLabel->setPixmap(QIcon::fromTheme("network-disconnect").pixmap(24, 24));
-                retryButton->show();
-                break;
             case ERROR:
-                statusIconLabel->setPixmap(QIcon::fromTheme("dialog-error").pixmap(24, 24));
                 retryButton->show();
                 break;
         }
@@ -931,7 +923,6 @@ class HueControlDialog : public QDialog {
   private:
     // UI elements
     QLabel* statusLabel;
-    QLabel* statusIconLabel;
     QLabel* connectionDetailsLabel;
     QCheckBox* powerCheckbox;
     QSlider* brightnessSlider;
