@@ -5,12 +5,7 @@ linters:
     - errcheck
     - staticcheck
     - unused
-    - gosimple
     - ineffassign
-  
-  disable:
-    - structcheck  # Deprecated
-    - deadcode     # Deprecated
 
 issues:
   # Exclude test utilities from some checks
