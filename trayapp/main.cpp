@@ -460,7 +460,8 @@ class HueControlDialog : public QDialog {
                                 "Bridge may be unreachable or lights are offline.",
                                 KNotification::CloseOnTimeout);
         } else {
-            // Success - show brief confirmation
+            // Success - clear active scene (power change invalidates it) and show confirmation
+            activeScene.clear();
             statusLabel->setText("Power " + QString(checked ? "On" : "Off"));
         }
 
