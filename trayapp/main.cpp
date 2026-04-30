@@ -143,11 +143,19 @@ class HueControlDialog : public QDialog {
 
         sceneList = new QListWidget(this);
         sceneList->setAlternatingRowColors(true);
-        sceneList->setToolTip("Click a scene to activate it");
         layout->addWidget(sceneList);
 
-        connect(sceneList, &QListWidget::itemClicked, this,
-                &HueControlDialog::onSceneActivated);
+        activateSceneBtn = new QPushButton(QIcon::fromTheme("media-playback-start"), "Activate Scene", this);
+        activateSceneBtn->setEnabled(false);
+        layout->addWidget(activateSceneBtn);
+
+        connect(sceneList, &QListWidget::itemSelectionChanged, this, [this]() {
+            activateSceneBtn->setEnabled(sceneList->currentItem() != nullptr);
+        });
+        connect(activateSceneBtn, &QPushButton::clicked, this, [this]() {
+            if (sceneList->currentItem())
+                onSceneActivated(sceneList->currentItem());
+        });
 
         layout->addSpacing(10);
 
@@ -418,6 +426,7 @@ class HueControlDialog : public QDialog {
         preset75Button->setEnabled(enabled);
         preset100Button->setEnabled(enabled);
         sceneList->setEnabled(enabled);
+        activateSceneBtn->setEnabled(enabled && sceneList->currentItem() != nullptr);
     }
 
     void updatePresetButtons(int value) {
@@ -940,6 +949,7 @@ class HueControlDialog : public QDialog {
     QPushButton* preset100Button;
     QListWidget* sceneList;
     QLabel* sceneCountLabel;
+    QPushButton* activateSceneBtn;
     QPushButton* syncButton;
     QLabel* fpsLabel;
     QPushButton* retryButton;
