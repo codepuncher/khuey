@@ -504,7 +504,6 @@ class HueControlDialog : public QDialog {
         // Show loading state with visual feedback
         statusLabel->setText("⏳ Activating scene: " + sceneName);
         sceneList->setEnabled(false);
-        item->setIcon(QIcon::fromTheme("emblem-synchronizing"));
 
         // Make async call to avoid blocking UI
         QDBusPendingCall call = iface.asyncCall("ActivateScene", sceneName);
@@ -518,7 +517,6 @@ class HueControlDialog : public QDialog {
                     if (reply.isError()) {
                         QString error = reply.error().message();
                         statusLabel->setText("Failed to activate scene");
-                        item->setIcon(QIcon::fromTheme("dialog-error"));
 
                         // Provide user-friendly error messages
                         if (error.contains("unreachable") || error.contains("timeout") || 
@@ -544,15 +542,9 @@ class HueControlDialog : public QDialog {
                                                 "Try again or check bridge status.",
                                                 KNotification::CloseOnTimeout);
                         }
-
-                        // Reset icon after 2 seconds
-                        QTimer::singleShot(2000, [item]() {
-                            item->setIcon(QIcon::fromTheme("favorites"));
-                        });
                     } else {
                         QString result = reply.value();
                         statusLabel->setText("Scene activated: " + sceneName);
-                        item->setIcon(QIcon::fromTheme("emblem-checked"));
 
                         // Show success notification with icon
                         KNotification* notif = new KNotification("sceneActivated");
@@ -561,11 +553,6 @@ class HueControlDialog : public QDialog {
                         notif->setIconName("preferences-desktop-display-color");
                         notif->setUrgency(KNotification::LowUrgency);
                         notif->sendEvent();
-
-                        // Reset icon after 2 seconds
-                        QTimer::singleShot(2000, [item]() {
-                            item->setIcon(QIcon::fromTheme("favorites"));
-                        });
                     }
 
                     w->deleteLater();
