@@ -3,6 +3,7 @@ package capture
 import (
 	"crypto/rand"
 	"fmt"
+	"log"
 	"math/big"
 	"time"
 
