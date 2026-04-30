@@ -418,9 +418,8 @@ class HueControlDialog : public QDialog {
         preset100Button->setEnabled(enabled);
         sceneList->setEnabled(enabled);
 
-        // Refresh power/brightness state when sync ends so UI reflects actual light state
-        if (!syncing)
-            QTimer::singleShot(500, this, &HueControlDialog::refresh);
+        // Refresh power/brightness state on both sync start and stop so UI reflects actual light state
+        QTimer::singleShot(500, this, &HueControlDialog::refresh);
     }
 
     void updatePresetButtons(int value) {
