@@ -71,7 +71,9 @@ func (s *Service) Start() error {
 	var success bool
 	defer func() {
 		if !success && s.conn != nil {
-			s.conn.Close()
+			if err := s.conn.Close(); err != nil {
+				log.Printf("warn: failed to close DBus connection on startup failure: %v", err)
+			}
 		}
 	}()
 
@@ -118,8 +120,12 @@ func (s *Service) Stop() {
 
 	if s.conn != nil {
 		// Release the DBus name before closing connection to prevent resource leak
-		s.conn.ReleaseName(dbusName)
-		s.conn.Close()
+		if _, err := s.conn.ReleaseName(dbusName); err != nil {
+			log.Printf("warn: failed to release DBus name: %v", err)
+		}
+		if err := s.conn.Close(); err != nil {
+			log.Printf("warn: failed to close DBus connection: %v", err)
+		}
 	}
 }
 
@@ -945,7 +951,9 @@ func (s *Service) onGamingStateChanged(isGaming bool) {
 		}
 	} else if shouldStop {
 		log.Println("🎮 Gaming stopped - stopping screen sync")
-		engine.Stop()
+		if err := engine.Stop(); err != nil {
+			log.Printf("warn: failed to stop sync engine: %v", err)
+		}
 		log.Println("✅ Screen sync disabled")
 	}
 }

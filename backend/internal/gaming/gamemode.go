@@ -57,6 +57,8 @@ func (g *GameModeDetector) IsActive() bool {
 // Close releases the DBus connection
 func (g *GameModeDetector) Close() {
 	if g.conn != nil {
-		g.conn.Close()
+		if err := g.conn.Close(); err != nil {
+			log.Printf("warn: failed to close GameMode DBus connection: %v", err)
+		}
 	}
 }

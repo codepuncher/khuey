@@ -275,7 +275,7 @@ func (mb *MockBridge) handleGetScenes(w http.ResponseWriter, r *http.Request) {
 		"data":   scenes,
 	}
 
-	json.NewEncoder(w).Encode(response)
+	json.NewEncoder(w).Encode(response) //nolint:errcheck
 }
 
 // handleGetRooms returns mock rooms
@@ -305,7 +305,7 @@ func (mb *MockBridge) handleGetRooms(w http.ResponseWriter, r *http.Request) {
 		"data":   rooms,
 	}
 
-	json.NewEncoder(w).Encode(response)
+	json.NewEncoder(w).Encode(response) //nolint:errcheck
 }
 
 // handleGetZones returns mock zones
@@ -335,7 +335,7 @@ func (mb *MockBridge) handleGetZones(w http.ResponseWriter, r *http.Request) {
 		"data":   zones,
 	}
 
-	json.NewEncoder(w).Encode(response)
+	json.NewEncoder(w).Encode(response) //nolint:errcheck
 }
 
 // handleGetGroupedLights returns mock grouped lights
