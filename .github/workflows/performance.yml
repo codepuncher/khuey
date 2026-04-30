@@ -15,6 +15,7 @@ on:
       - 'backend/**/*.go'
 
 permissions:
+  contents: read
   issues: write
 
 jobs:
