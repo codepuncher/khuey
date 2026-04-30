@@ -350,13 +350,8 @@ class HueControlDialog : public QDialog {
             sceneCountLabel->setText(QString("(%1 available)").arg(filteredScenes.count()));
         }
 
-        // Get sync status
-        QDBusReply<bool> syncReply = iface.call("IsSyncing");
-        if (syncReply.isValid()) {
-            bool syncing = syncReply.value();
-            updateSyncButton(syncing);
-            updateGamingStatus();
-        }
+        // Get sync status - updateGamingStatus handles both gaming mode and sync button state
+        updateGamingStatus();
     }
 
   private slots:
