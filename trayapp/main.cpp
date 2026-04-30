@@ -309,6 +309,7 @@ class HueControlDialog : public QDialog {
                 powerCheckbox->setChecked(power);
                 brightnessSlider->setValue(brightness);
                 brightnessValueLabel->setText(QString::number(brightness) + "%");
+                updatePresetButtons(brightness);
 
                 // Update pendingBrightness to match actual state
                 pendingBrightness = brightness;
@@ -513,6 +514,7 @@ class HueControlDialog : public QDialog {
         // Show loading state with visual feedback
         statusLabel->setText("⏳ Activating scene: " + sceneName);
         sceneList->setEnabled(false);
+        activateSceneBtn->setEnabled(false);
 
         // Make async call to avoid blocking UI
         QDBusPendingCall call = iface.asyncCall("ActivateScene", sceneName);
@@ -521,6 +523,7 @@ class HueControlDialog : public QDialog {
         connect(watcher, &QDBusPendingCallWatcher::finished, this,
                 [this, sceneName, item](QDBusPendingCallWatcher* w) {
                     sceneList->setEnabled(true);
+                    activateSceneBtn->setEnabled(sceneList->currentItem() != nullptr);
                     QDBusPendingReply<QString> reply = *w;
 
                     if (reply.isError()) {
