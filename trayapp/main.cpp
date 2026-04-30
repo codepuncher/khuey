@@ -417,9 +417,6 @@ class HueControlDialog : public QDialog {
         preset75Button->setEnabled(enabled);
         preset100Button->setEnabled(enabled);
         sceneList->setEnabled(enabled);
-
-        // Refresh power/brightness state on both sync start and stop so UI reflects actual light state
-        QTimer::singleShot(500, this, &HueControlDialog::refresh);
     }
 
     void updatePresetButtons(int value) {
@@ -598,6 +595,7 @@ class HueControlDialog : public QDialog {
             QDBusReply<bool> reply = iface.call("StopSync");
             if (reply.isValid() && reply.value()) {
                 updateSyncButton(false);
+                QTimer::singleShot(500, this, &HueControlDialog::refresh);
 
                 // Show notification with action
                 KNotification* notif = new KNotification("syncStopped");
@@ -691,6 +689,7 @@ class HueControlDialog : public QDialog {
                             }
                         } else {
                             updateSyncButton(true);
+                            QTimer::singleShot(500, this, &HueControlDialog::refresh);
 
                             // Show success notification
                             KNotification* notif = new KNotification("syncStarted");
