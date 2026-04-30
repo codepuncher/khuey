@@ -208,6 +208,20 @@ class HueControlDialog : public QDialog {
         gamingTimer->start(2000); // Check every 2 seconds
     }
 
+  protected:
+    void showEvent(QShowEvent* event) override {
+        connectionTimer->start(10000);
+        gamingTimer->start(2000);
+        refresh();
+        QDialog::showEvent(event);
+    }
+
+    void hideEvent(QHideEvent* event) override {
+        gamingTimer->stop();
+        connectionTimer->stop();
+        QDialog::hideEvent(event);
+    }
+
   public slots:
     void initialConnect() {
         QDBusInterface iface("org.kde.plasma.hue", "/org/kde/plasma/hue", "org.kde.plasma.hue",
