@@ -375,11 +375,14 @@ class HueControlDialog : public QDialog {
             syncButton->setIcon(QIcon::fromTheme("media-playback-stop"));
             fpsLabel->setText("30 FPS");
             fpsLabel->setStyleSheet("QLabel { color: green; font-size: 9pt; padding-left: 10px; }");
-            statusLabel->setText("Screen sync active");
+            syncStatusLabel->setText("");  // Hide status - FPS is enough
+            // Don't update top status - UI already shows sync is active
         } else {
             syncButton->setText("Start Screen Sync");
             syncButton->setIcon(QIcon::fromTheme("media-playback-start"));
-            fpsLabel->setText("");  // Clear but don't hide
+            fpsLabel->setText("");
+            syncStatusLabel->setText("Ready");
+            syncStatusLabel->setStyleSheet("QLabel { color: gray; }");
         }
     }
 
@@ -882,19 +885,17 @@ class HueControlDialog : public QDialog {
         QDBusReply<bool> syncReply = iface.call("IsSyncing");
         bool syncing = syncReply.isValid() && syncReply.value();
 
-        // Update sync status label with gaming mode info
+        // Update sync status - hide status label when FPS is showing (not redundant)
         if (syncing && gamingActive) {
-            syncStatusLabel->setText("Active (Gaming Mode)");
-            syncStatusLabel->setStyleSheet("QLabel { color: green; font-weight: bold; }");
+            syncStatusLabel->setText("");  // Hide - FPS shows it's active
             fpsLabel->setText("30 FPS (Gaming)");
-            fpsLabel->setStyleSheet("QLabel { color: #00ff00; font-size: 9pt; padding-left: 10px; }");
-            statusLabel->setText("Screen sync active (Gaming)");
+            fpsLabel->setStyleSheet("QLabel { color: #00ff00; font-size: 9pt; padding-left: 10px; font-weight: bold; }");
+            // Don't update top status - UI already shows sync is active
         } else if (syncing) {
-            syncStatusLabel->setText("Active");
-            syncStatusLabel->setStyleSheet("QLabel { color: green; }");
+            syncStatusLabel->setText("");  // Hide - FPS shows it's active
             fpsLabel->setText("30 FPS");
             fpsLabel->setStyleSheet("QLabel { color: green; font-size: 9pt; padding-left: 10px; }");
-            statusLabel->setText("Screen sync active");
+            // Don't update top status - UI already shows sync is active
         } else if (gamingEnabled && gamingActive) {
             syncStatusLabel->setText("Game detected - ready to sync");
             syncStatusLabel->setStyleSheet("QLabel { color: orange; }");
