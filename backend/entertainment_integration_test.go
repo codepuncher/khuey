@@ -72,8 +72,8 @@ func TestEntertainmentAPI_ServerStartStop(t *testing.T) {
 func TestEntertainmentAPI_ProtocolParsing(t *testing.T) {
 	// Build a valid HueStream v2 packet manually
 	packet := buildTestPacket(t, 0, []channelData{
-		{id: 0, r: 65535, g: 0, b: 0},     // Red
-		{id: 1, r: 0, g: 65535, b: 0},     // Green
+		{id: 0, r: 65535, g: 0, b: 0}, // Red
+		{id: 1, r: 0, g: 65535, b: 0}, // Green
 	})
 
 	// Parse packet
@@ -104,7 +104,7 @@ func TestEntertainmentAPI_ProtocolParsing(t *testing.T) {
 
 	// Check colors
 	if frame.Channels[0].R != 65535 || frame.Channels[0].G != 0 || frame.Channels[0].B != 0 {
-		t.Errorf("Channel 0 = (%d,%d,%d), want (65535,0,0)", 
+		t.Errorf("Channel 0 = (%d,%d,%d), want (65535,0,0)",
 			frame.Channels[0].R, frame.Channels[0].G, frame.Channels[0].B)
 	}
 
@@ -118,11 +118,11 @@ func TestEntertainmentAPI_ProtocolParsing(t *testing.T) {
 func TestEntertainmentAPI_MultiChannelParsing(t *testing.T) {
 	// Build packet with 5 channels
 	packet := buildTestPacket(t, 42, []channelData{
-		{id: 0, r: 65535, g: 0, b: 0},         // Red
-		{id: 1, r: 0, g: 65535, b: 0},         // Green
-		{id: 2, r: 0, g: 0, b: 65535},         // Blue
-		{id: 3, r: 65535, g: 65535, b: 0},     // Yellow
-		{id: 4, r: 65535, g: 0, b: 65535},     // Magenta
+		{id: 0, r: 65535, g: 0, b: 0},     // Red
+		{id: 1, r: 0, g: 65535, b: 0},     // Green
+		{id: 2, r: 0, g: 0, b: 65535},     // Blue
+		{id: 3, r: 65535, g: 65535, b: 0}, // Yellow
+		{id: 4, r: 65535, g: 0, b: 65535}, // Magenta
 	})
 
 	frame, err := parseHueStreamPacket(packet)
@@ -309,8 +309,8 @@ func TestEntertainmentAPI_StreamWithoutConnect(t *testing.T) {
 // TestEntertainmentAPI_Color8BitTo16Bit tests color conversion
 func TestEntertainmentAPI_Color8BitTo16Bit(t *testing.T) {
 	testCases := []struct {
-		input8  uint8
-		want16  uint16
+		input8 uint8
+		want16 uint16
 	}{
 		{0, 0},
 		{1, 257},
@@ -384,13 +384,13 @@ func buildTestPacket(t *testing.T, sequenceID uint8, channels []channelData) []b
 
 	// Header
 	copy(packet[0:9], "HueStream")
-	packet[9] = 0x02              // Version major
-	packet[10] = 0x00             // Version minor
-	packet[11] = sequenceID       // Sequence ID
-	packet[12] = 0x00             // Reserved
-	packet[13] = 0x00             // Reserved
-	packet[14] = 0x00             // Color space: RGB
-	packet[15] = 0x00             // Reserved
+	packet[9] = 0x02                         // Version major
+	packet[10] = 0x00                        // Version minor
+	packet[11] = sequenceID                  // Sequence ID
+	packet[12] = 0x00                        // Reserved
+	packet[13] = 0x00                        // Reserved
+	packet[14] = 0x00                        // Color space: RGB
+	packet[15] = 0x00                        // Reserved
 	copy(packet[16:52], testEntertainmentID) // Entertainment ID
 
 	// Body: per-channel colors

@@ -18,7 +18,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: '1.23'
+        go-version: '1.25'
         
     - name: Install dependencies
       run: |
@@ -85,7 +85,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: '1.23'
+        go-version: '1.25'
         
     - name: Install dependencies
       run: |
@@ -113,6 +113,7 @@ jobs:
       
     - name: Install dependencies
       run: |
+        sudo add-apt-repository -y ppa:kubuntu-ppa/backports
         sudo apt-get update
         sudo apt-get install -y \
           cmake \
@@ -147,7 +148,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: '1.23'
+        go-version: '1.25'
         
     - name: Install dependencies
       run: |
@@ -155,8 +156,8 @@ jobs:
         sudo apt-get install -y libpipewire-0.3-dev pkg-config
         
     - name: Run golangci-lint
-      uses: golangci/golangci-lint-action@v4
+      uses: golangci/golangci-lint-action@v9
       with:
-        version: latest
+        version: v2.11.4
         working-directory: backend
         args: --timeout=5m

@@ -718,7 +718,7 @@ func TestE2E_GroupedLightsWorkflow(t *testing.T) {
 
 		// Mock should have grouped lights (from default scenario)
 		t.Logf("✓ Retrieved %d grouped lights", len(lights))
-		
+
 		// Note: May return 0 if mock doesn't properly handle grouped lights endpoint
 		if len(lights) == 0 {
 			t.Log("  Note: No grouped lights returned (expected behavior with current mock)")
@@ -743,7 +743,7 @@ func TestE2E_GroupedLightsWorkflow(t *testing.T) {
 		// Should have received GET request for grouped lights
 		foundRequest := containsRequestWithMethod(requests, "GET", "/clip/v2/resource/grouped_light")
 		t.Logf("✓ Bridge grouped lights request: %v", foundRequest)
-		
+
 		// Log all requests for debugging
 		if len(requests) > 0 {
 			t.Logf("  Total requests: %d", len(requests))

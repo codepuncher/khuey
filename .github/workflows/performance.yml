@@ -14,6 +14,9 @@ on:
     paths:
       - 'backend/**/*.go'
 
+permissions:
+  issues: write
+
 jobs:
   performance-tests:
     name: Performance Regression Tests
@@ -26,7 +29,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.21'
+          go-version: '1.25'
           cache-dependency-path: backend/go.sum
 
       - name: Run performance regression tests
