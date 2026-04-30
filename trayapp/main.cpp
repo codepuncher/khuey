@@ -162,10 +162,7 @@ class HueControlDialog : public QDialog {
         fpsLabel->setStyleSheet("QLabel { color: green; font-size: 9pt; padding-left: 10px; }");
         fpsLabel->setMinimumWidth(150);  // Reserve space
         syncHeaderLayout->addWidget(fpsLabel);
-        
-        syncStatusLabel = new QLabel("Ready", this);
-        syncStatusLabel->setStyleSheet("QLabel { color: gray; }");
-        syncHeaderLayout->addWidget(syncStatusLabel, 1);
+        syncHeaderLayout->addStretch();
 
         layout->addLayout(syncHeaderLayout);
 
@@ -375,14 +372,10 @@ class HueControlDialog : public QDialog {
             syncButton->setIcon(QIcon::fromTheme("media-playback-stop"));
             fpsLabel->setText("30 FPS");
             fpsLabel->setStyleSheet("QLabel { color: green; font-size: 9pt; padding-left: 10px; }");
-            syncStatusLabel->setText("");  // Hide status - FPS is enough
-            // Don't update top status - UI already shows sync is active
         } else {
             syncButton->setText("Start Screen Sync");
             syncButton->setIcon(QIcon::fromTheme("media-playback-start"));
             fpsLabel->setText("");
-            syncStatusLabel->setText("Ready");
-            syncStatusLabel->setStyleSheet("QLabel { color: gray; }");
         }
     }
 
@@ -570,8 +563,6 @@ class HueControlDialog : public QDialog {
             QDBusReply<bool> reply = iface.call("StopSync");
             if (reply.isValid() && reply.value()) {
                 updateSyncButton(false);
-                syncStatusLabel->setText("Stopped");
-                syncStatusLabel->setStyleSheet("QLabel { color: gray; }");
 
                 // Show notification with action
                 KNotification* notif = new KNotification("syncStopped");
@@ -592,8 +583,6 @@ class HueControlDialog : public QDialog {
             syncButton->setEnabled(false);
             syncButton->setText("⏳ Starting...");
             syncButton->setIcon(QIcon::fromTheme("chronometer"));
-            syncStatusLabel->setText("Please approve screen sharing dialog...");
-            syncStatusLabel->setStyleSheet("QLabel { color: orange; font-weight: bold; }");
             fpsLabel->setText("");  // Clear text
             statusLabel->setText("Waiting for screen share approval");
 
@@ -616,8 +605,6 @@ class HueControlDialog : public QDialog {
                         if (reply.isError() || !reply.value()) {
                             QString error = reply.isValid() ? reply.error().message() : "Unknown error";
                             updateSyncButton(false);
-                            syncStatusLabel->setText("Failed to start");
-                            syncStatusLabel->setStyleSheet("QLabel { color: red; }");
 
                             // Parse portal errors for user-friendly messages
                             if (error.contains("PortalError:permission_denied")) {
@@ -669,8 +656,6 @@ class HueControlDialog : public QDialog {
                             }
                         } else {
                             updateSyncButton(true);
-                            syncStatusLabel->setText("Active");
-                            syncStatusLabel->setStyleSheet("QLabel { color: green; }");
 
                             // Show success notification
                             KNotification* notif = new KNotification("syncStarted");
@@ -885,30 +870,14 @@ class HueControlDialog : public QDialog {
         QDBusReply<bool> syncReply = iface.call("IsSyncing");
         bool syncing = syncReply.isValid() && syncReply.value();
 
-        // Update sync status - hide status label when FPS is showing (not redundant)
+        // Update FPS label based on sync state
         if (syncing && gamingActive) {
-            syncStatusLabel->setText("");  // Hide - FPS shows it's active
             fpsLabel->setText("30 FPS (Gaming)");
             fpsLabel->setStyleSheet("QLabel { color: #00ff00; font-size: 9pt; padding-left: 10px; font-weight: bold; }");
-            // Don't update top status - UI already shows sync is active
         } else if (syncing) {
-            syncStatusLabel->setText("");  // Hide - FPS shows it's active
             fpsLabel->setText("30 FPS");
             fpsLabel->setStyleSheet("QLabel { color: green; font-size: 9pt; padding-left: 10px; }");
-            // Don't update top status - UI already shows sync is active
-        } else if (gamingEnabled && gamingActive) {
-            syncStatusLabel->setText("Game detected - ready to sync");
-            syncStatusLabel->setStyleSheet("QLabel { color: orange; }");
-            fpsLabel->setText("");
-        } else if (gamingEnabled) {
-            syncStatusLabel->setText("Ready (Gaming Mode: armed)");
-            syncStatusLabel->setStyleSheet("QLabel { color: gray; }");
-            fpsLabel->setText("");
         } else {
-            if (!syncing) {
-                syncStatusLabel->setText("Ready");
-                syncStatusLabel->setStyleSheet("QLabel { color: gray; }");
-            }
             fpsLabel->setText("");
         }
     }
@@ -938,7 +907,6 @@ class HueControlDialog : public QDialog {
     QListWidget* sceneList;
     QLabel* sceneCountLabel;
     QPushButton* syncButton;
-    QLabel* syncStatusLabel;
     QLabel* fpsLabel;
     QPushButton* retryButton;
     
