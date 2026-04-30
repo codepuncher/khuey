@@ -145,9 +145,17 @@ class HueControlDialog : public QDialog {
         sceneList->setAlternatingRowColors(true);
         layout->addWidget(sceneList);
 
+        auto sceneActionLayout = new QHBoxLayout();
         activateSceneBtn = new QPushButton(QIcon::fromTheme("media-playback-start"), "Activate Scene", this);
         activateSceneBtn->setEnabled(false);
-        layout->addWidget(activateSceneBtn);
+        sceneActionLayout->addWidget(activateSceneBtn);
+
+        syncButton = new QPushButton("Start Screen Sync", this);
+        syncButton->setEnabled(true);
+        syncButton->setIcon(QIcon::fromTheme("media-record"));
+        sceneActionLayout->addWidget(syncButton);
+
+        layout->addLayout(sceneActionLayout);
 
         connect(sceneList, &QListWidget::itemSelectionChanged, this, [this]() {
             activateSceneBtn->setEnabled(sceneList->currentItem() != nullptr);
@@ -158,14 +166,6 @@ class HueControlDialog : public QDialog {
             if (sceneList->currentItem())
                 onSceneActivated(sceneList->currentItem());
         });
-
-        layout->addSpacing(10);
-
-        syncButton = new QPushButton("Start Screen Sync", this);
-        syncButton->setEnabled(true);
-        syncButton->setIcon(QIcon::fromTheme("media-playback-start"));
-        layout->addWidget(syncButton);
-
         connect(syncButton, &QPushButton::clicked, this, &HueControlDialog::onSyncToggled);
 
         layout->addSpacing(10);
