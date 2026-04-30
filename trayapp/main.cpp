@@ -570,6 +570,9 @@ class HueControlDialog : public QDialog {
                         notif->setIconName("preferences-desktop-display-color");
                         notif->setUrgency(KNotification::LowUrgency);
                         notif->sendEvent();
+
+                        // Refresh power/brightness state to reflect what the scene set
+                        QTimer::singleShot(500, this, &HueControlDialog::refresh);
                     }
 
                     w->deleteLater();
