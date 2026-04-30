@@ -268,13 +268,23 @@ class HueControlDialog : public QDialog {
         // Check connection status first
         checkConnectionStatus();
 
-        // Get status
+        // Get status - but don't overwrite meaningful state (active scene or sync)
         QDBusReply<QString> statusReply = iface.call("GetStatus");
         if (statusReply.isValid()) {
-            QString status = statusReply.value();
             if (connectionState == CONNECTED) {
-                statusLabel->setText(status);
                 updateConnectionState(CONNECTED);
+                // Only set status from backend if we don't have a more specific state
+                bool syncing = false;
+                QDBusReply<bool> syncReply = iface.call("IsSyncing");
+                if (syncReply.isValid()) syncing = syncReply.value();
+
+                if (syncing) {
+                    statusLabel->setText("Screen sync active");
+                } else if (!activeScene.isEmpty()) {
+                    statusLabel->setText("Scene: " + activeScene);
+                } else {
+                    statusLabel->setText(statusReply.value());
+                }
             }
         }
 
@@ -369,15 +379,20 @@ class HueControlDialog : public QDialog {
     void updateSyncButton(bool syncing) {
         // Update status label to reflect actual state
         if (syncing) {
+            activeScene.clear(); // Sync takes over, scene label is no longer relevant
             statusLabel->setText("Screen sync active");
         } else {
-            // Fetch real backend status to clear transient messages
-            QDBusInterface iface("org.kde.plasma.hue", "/org/kde/plasma/hue", "org.kde.plasma.hue",
-                                 QDBusConnection::sessionBus());
-            if (iface.isValid()) {
-                QDBusReply<QString> statusReply = iface.call("GetStatus");
-                if (statusReply.isValid())
-                    statusLabel->setText(statusReply.value());
+            // Restore scene label if we have one, otherwise fetch backend status
+            if (!activeScene.isEmpty()) {
+                statusLabel->setText("Scene: " + activeScene);
+            } else {
+                QDBusInterface iface("org.kde.plasma.hue", "/org/kde/plasma/hue", "org.kde.plasma.hue",
+                                     QDBusConnection::sessionBus());
+                if (iface.isValid()) {
+                    QDBusReply<QString> statusReply = iface.call("GetStatus");
+                    if (statusReply.isValid())
+                        statusLabel->setText(statusReply.value());
+                }
             }
         }
 
@@ -544,6 +559,7 @@ class HueControlDialog : public QDialog {
                         }
                     } else {
                         QString result = reply.value();
+                        activeScene = sceneName;
                         statusLabel->setText("Scene: " + sceneName);
 
                         // Show success notification with icon
@@ -932,6 +948,7 @@ class HueControlDialog : public QDialog {
     int connectionRetryCount;
     bool lastErrorShown;
     QString selectedRoom; // For room filtering
+    QString activeScene;  // Last successfully activated scene
 };
 
 class HueTrayApp : public QApplication {
