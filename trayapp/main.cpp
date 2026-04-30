@@ -199,7 +199,9 @@ class HueControlDialog : public QDialog {
 
         // Check connection status periodically
         connectionTimer = new QTimer(this);
-        connect(connectionTimer, &QTimer::timeout, this, &HueControlDialog::checkConnectionStatus);
+        connect(connectionTimer, &QTimer::timeout, this, [this]() {
+            checkConnectionStatus();
+        });
         connectionTimer->start(10000); // Check every 10 seconds
 
         // Gaming status is updated by refresh() which already calls updateGamingStatus()
@@ -275,8 +277,8 @@ class HueControlDialog : public QDialog {
 
         lastErrorShown = false;
 
-        // Check connection status first
-        checkConnectionStatus();
+        // Check connection status first (pass iface to avoid duplicate construction)
+        checkConnectionStatus(iface);
 
         // Get status - but don't overwrite meaningful state (active scene or sync)
         QDBusReply<QString> statusReply = iface.call("GetStatus");
@@ -758,10 +760,14 @@ class HueControlDialog : public QDialog {
         }
     }
 
+    // Overload for timer calls - creates interface
     void checkConnectionStatus() {
         QDBusInterface iface("org.kde.plasma.hue", "/org/kde/plasma/hue", "org.kde.plasma.hue",
                              QDBusConnection::sessionBus());
+        checkConnectionStatus(iface);
+    }
 
+    void checkConnectionStatus(QDBusInterface& iface) {
         if (!iface.isValid()) {
             updateConnectionState(DISCONNECTED);
             return; // Service not running
@@ -826,7 +832,8 @@ class HueControlDialog : public QDialog {
                 notif->setUrgency(KNotification::LowUrgency);
                 notif->sendEvent();
 
-                refresh(); // Reload scenes and state
+                // Don't call refresh() here - we're already inside refresh(), just continue
+                // The caller (refresh) will reload scenes and state after this returns
             } else {
                 // Normal connected state
                 updateConnectionState(CONNECTED);
