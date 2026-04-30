@@ -367,13 +367,18 @@ class HueControlDialog : public QDialog {
     }
 
     void updateSyncButton(bool syncing) {
-        // Always fetch real backend status to clear transient messages
-        QDBusInterface iface("org.kde.plasma.hue", "/org/kde/plasma/hue", "org.kde.plasma.hue",
-                             QDBusConnection::sessionBus());
-        if (iface.isValid()) {
-            QDBusReply<QString> statusReply = iface.call("GetStatus");
-            if (statusReply.isValid())
-                statusLabel->setText(statusReply.value());
+        // Update status label to reflect actual state
+        if (syncing) {
+            statusLabel->setText("Screen sync active");
+        } else {
+            // Fetch real backend status to clear transient messages
+            QDBusInterface iface("org.kde.plasma.hue", "/org/kde/plasma/hue", "org.kde.plasma.hue",
+                                 QDBusConnection::sessionBus());
+            if (iface.isValid()) {
+                QDBusReply<QString> statusReply = iface.call("GetStatus");
+                if (statusReply.isValid())
+                    statusLabel->setText(statusReply.value());
+            }
         }
 
         if (syncing) {
@@ -879,15 +884,23 @@ class HueControlDialog : public QDialog {
         QDBusReply<bool> syncReply = iface.call("IsSyncing");
         bool syncing = syncReply.isValid() && syncReply.value();
 
-        // Update FPS label based on sync state
+        // Update FPS label and sync button based on sync state
         if (syncing && gamingActive) {
             fpsLabel->setText("30 FPS (Gaming)");
             fpsLabel->setStyleSheet("QLabel { color: #00ff00; font-size: 9pt; padding-left: 10px; font-weight: bold; }");
+            syncButton->setText("Stop Screen Sync");
+            syncButton->setIcon(QIcon::fromTheme("media-playback-stop"));
+            statusLabel->setText("Screen sync active (Gaming)");
         } else if (syncing) {
             fpsLabel->setText("30 FPS");
             fpsLabel->setStyleSheet("QLabel { color: green; font-size: 9pt; padding-left: 10px; }");
+            syncButton->setText("Stop Screen Sync");
+            syncButton->setIcon(QIcon::fromTheme("media-playback-stop"));
+            statusLabel->setText("Screen sync active");
         } else {
             fpsLabel->setText("");
+            syncButton->setText("Start Screen Sync");
+            syncButton->setIcon(QIcon::fromTheme("media-playback-start"));
         }
     }
 
