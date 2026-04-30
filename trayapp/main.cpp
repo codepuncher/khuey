@@ -152,6 +152,8 @@ class HueControlDialog : public QDialog {
         connect(sceneList, &QListWidget::itemSelectionChanged, this, [this]() {
             activateSceneBtn->setEnabled(sceneList->currentItem() != nullptr);
         });
+        connect(sceneList, &QListWidget::itemDoubleClicked, this,
+                &HueControlDialog::onSceneActivated);
         connect(activateSceneBtn, &QPushButton::clicked, this, [this]() {
             if (sceneList->currentItem())
                 onSceneActivated(sceneList->currentItem());
