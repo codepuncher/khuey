@@ -161,21 +161,10 @@ class HueControlDialog : public QDialog {
 
         layout->addSpacing(10);
 
-        // Sync control with FPS indicator in same row (no layout shift)
-        auto syncHeaderLayout = new QHBoxLayout();
         syncButton = new QPushButton("Start Screen Sync", this);
         syncButton->setEnabled(true);
         syncButton->setIcon(QIcon::fromTheme("media-playback-start"));
-        syncHeaderLayout->addWidget(syncButton);
-        
-        // FPS indicator (always present, empty when not syncing to prevent layout shift)
-        fpsLabel = new QLabel("", this);
-        fpsLabel->setStyleSheet("QLabel { color: green; font-size: 9pt; padding-left: 10px; }");
-        fpsLabel->setMinimumWidth(150);  // Reserve space
-        syncHeaderLayout->addWidget(fpsLabel);
-        syncHeaderLayout->addStretch();
-
-        layout->addLayout(syncHeaderLayout);
+        layout->addWidget(syncButton);
 
         connect(syncButton, &QPushButton::clicked, this, &HueControlDialog::onSyncToggled);
 
@@ -408,14 +397,11 @@ class HueControlDialog : public QDialog {
         }
 
         if (syncing) {
-            syncButton->setText("Stop Screen Sync");
+            syncButton->setText("Stop Screen Sync  •  30 FPS");
             syncButton->setIcon(QIcon::fromTheme("media-playback-stop"));
-            fpsLabel->setText("30 FPS");
-            fpsLabel->setStyleSheet("QLabel { color: green; font-size: 9pt; padding-left: 10px; }");
         } else {
             syncButton->setText("Start Screen Sync");
             syncButton->setIcon(QIcon::fromTheme("media-playback-start"));
-            fpsLabel->setText("");
         }
 
         // Disable brightness/scene controls while syncing - they conflict with sync
@@ -628,7 +614,6 @@ class HueControlDialog : public QDialog {
             syncButton->setEnabled(false);
             syncButton->setText("⏳ Starting...");
             syncButton->setIcon(QIcon::fromTheme("chronometer"));
-            fpsLabel->setText("");  // Clear text
             statusLabel->setText("Waiting for screen share approval");
 
             // Show info about permission dialog
@@ -919,11 +904,13 @@ class HueControlDialog : public QDialog {
         // Update sync button and disable controls if syncing
         updateSyncButton(syncing);
 
-        // Override FPS label for gaming mode
+        // Override button text for gaming mode
         if (syncing && gamingActive) {
-            fpsLabel->setText("30 FPS (Gaming)");
-            fpsLabel->setStyleSheet("QLabel { color: #00ff00; font-size: 9pt; padding-left: 10px; font-weight: bold; }");
+            syncButton->setText("Stop Screen Sync  •  30 FPS (Gaming)");
+            syncButton->setStyleSheet("QPushButton { color: #00ff00; font-weight: bold; }");
             statusLabel->setText("Screen sync active (Gaming)");
+        } else {
+            syncButton->setStyleSheet("");
         }
     }
 
@@ -953,7 +940,6 @@ class HueControlDialog : public QDialog {
     QLabel* sceneCountLabel;
     QPushButton* activateSceneBtn;
     QPushButton* syncButton;
-    QLabel* fpsLabel;
     QPushButton* retryButton;
     
     // Timers
