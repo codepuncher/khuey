@@ -419,6 +419,43 @@ func (c *Client) GetGroupedLights() ([]GroupedLight, error) {
 	return groupedLights, nil
 }
 
+// GetGroupedLightIDForRoom returns the grouped_light resource ID for a given room or zone resource ID
+func (c *Client) GetGroupedLightIDForRoom(roomID string) (string, error) {
+	if err := c.waitForRateLimit(); err != nil {
+		return "", fmt.Errorf("rate limit error: %w", err)
+	}
+
+	// Check rooms first
+	roomsResp, err := c.client.GetRoomsWithResponse(c.ctx)
+	if err == nil && roomsResp.JSON200 != nil && roomsResp.JSON200.Data != nil {
+		for _, room := range *roomsResp.JSON200.Data {
+			if room.Id != nil && *room.Id == roomID && room.Services != nil {
+				for _, svc := range *room.Services {
+					if svc.Rtype != nil && *svc.Rtype == "grouped_light" && svc.Rid != nil {
+						return *svc.Rid, nil
+					}
+				}
+			}
+		}
+	}
+
+	// Check zones
+	zonesResp, err := c.client.GetZonesWithResponse(c.ctx)
+	if err == nil && zonesResp.JSON200 != nil && zonesResp.JSON200.Data != nil {
+		for _, zone := range *zonesResp.JSON200.Data {
+			if zone.Id != nil && *zone.Id == roomID && zone.Services != nil {
+				for _, svc := range *zone.Services {
+					if svc.Rtype != nil && *svc.Rtype == "grouped_light" && svc.Rid != nil {
+						return *svc.Rid, nil
+					}
+				}
+			}
+		}
+	}
+
+	return "", fmt.Errorf("no grouped light found for room/zone %s", roomID)
+}
+
 // GetClientKey returns the API key (for Entertainment API setup)
 func (c *Client) GetClientKey() string {
 	return c.apiKey
