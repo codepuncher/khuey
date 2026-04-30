@@ -376,6 +376,14 @@ class HueControlDialog : public QDialog {
             syncButton->setText("Start Screen Sync");
             syncButton->setIcon(QIcon::fromTheme("media-playback-start"));
             fpsLabel->setText("");
+            // Clear any transient status messages (e.g. "Waiting for screen share approval")
+            QDBusInterface iface("org.kde.plasma.hue", "/org/kde/plasma/hue", "org.kde.plasma.hue",
+                                 QDBusConnection::sessionBus());
+            if (iface.isValid()) {
+                QDBusReply<QString> statusReply = iface.call("GetStatus");
+                if (statusReply.isValid())
+                    statusLabel->setText(statusReply.value());
+            }
         }
     }
 
