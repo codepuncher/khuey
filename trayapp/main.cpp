@@ -337,7 +337,7 @@ class HueControlDialog : public QDialog {
             
             // Add filtered scenes to list
             for (const QString& scene : filteredScenes) {
-                QListWidgetItem* item = new QListWidgetItem(QIcon::fromTheme("favorites"), scene);
+                QListWidgetItem* item = new QListWidgetItem(scene);
                 sceneList->addItem(item);
             }
             
