@@ -391,6 +391,17 @@ class HueControlDialog : public QDialog {
             syncButton->setIcon(QIcon::fromTheme("media-playback-start"));
             fpsLabel->setText("");
         }
+
+        // Disable brightness/scene controls while syncing - they conflict with sync
+        bool enabled = !syncing;
+        powerCheckbox->setEnabled(enabled);
+        brightnessSlider->setEnabled(enabled);
+        brightnessValueLabel->setEnabled(enabled);
+        preset25Button->setEnabled(enabled);
+        preset50Button->setEnabled(enabled);
+        preset75Button->setEnabled(enabled);
+        preset100Button->setEnabled(enabled);
+        sceneList->setEnabled(enabled);
     }
 
     void updatePresetButtons(int value) {
@@ -884,23 +895,14 @@ class HueControlDialog : public QDialog {
         QDBusReply<bool> syncReply = iface.call("IsSyncing");
         bool syncing = syncReply.isValid() && syncReply.value();
 
-        // Update FPS label and sync button based on sync state
+        // Update sync button and disable controls if syncing
+        updateSyncButton(syncing);
+
+        // Override FPS label for gaming mode
         if (syncing && gamingActive) {
             fpsLabel->setText("30 FPS (Gaming)");
             fpsLabel->setStyleSheet("QLabel { color: #00ff00; font-size: 9pt; padding-left: 10px; font-weight: bold; }");
-            syncButton->setText("Stop Screen Sync");
-            syncButton->setIcon(QIcon::fromTheme("media-playback-stop"));
             statusLabel->setText("Screen sync active (Gaming)");
-        } else if (syncing) {
-            fpsLabel->setText("30 FPS");
-            fpsLabel->setStyleSheet("QLabel { color: green; font-size: 9pt; padding-left: 10px; }");
-            syncButton->setText("Stop Screen Sync");
-            syncButton->setIcon(QIcon::fromTheme("media-playback-stop"));
-            statusLabel->setText("Screen sync active");
-        } else {
-            fpsLabel->setText("");
-            syncButton->setText("Start Screen Sync");
-            syncButton->setIcon(QIcon::fromTheme("media-playback-start"));
         }
     }
 
