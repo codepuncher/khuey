@@ -143,9 +143,10 @@ class HueControlDialog : public QDialog {
 
         sceneList = new QListWidget(this);
         sceneList->setAlternatingRowColors(true);
+        sceneList->setToolTip("Click a scene to activate it");
         layout->addWidget(sceneList);
 
-        connect(sceneList, &QListWidget::itemDoubleClicked, this,
+        connect(sceneList, &QListWidget::itemClicked, this,
                 &HueControlDialog::onSceneActivated);
 
         layout->addSpacing(10);
