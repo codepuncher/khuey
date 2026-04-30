@@ -166,6 +166,8 @@ func (c *Client) GetGroupedLightState(groupID string) (power bool, brightness fl
 }
 
 // SetLightBrightness sets the brightness of a grouped light (0-100)
+// When brightness > 0, also turns on all lights in the group to ensure
+// the brightness change applies to all lights (not just those currently on)
 func (c *Client) SetLightBrightness(groupID string, brightness float32) error {
 	if brightness < 0 || brightness > 100 {
 		return fmt.Errorf("brightness must be between 0 and 100")
@@ -179,6 +181,16 @@ func (c *Client) SetLightBrightness(groupID string, brightness float32) error {
 		Dimming: &openhue.Dimming{
 			Brightness: &brightness,
 		},
+	}
+
+	// When setting brightness > 0, also turn on the lights
+	// This ensures all lights in the group respond to the brightness change,
+	// not just the ones that are currently on (e.g., after a scene activation)
+	if brightness > 0 {
+		on := true
+		body.On = &openhue.On{
+			On: &on,
+		}
 	}
 
 	resp, err := c.client.UpdateGroupedLightWithResponse(c.ctx, groupID, body)
