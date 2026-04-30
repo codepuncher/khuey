@@ -204,7 +204,16 @@ class HueControlDialog : public QDialog {
 
         // Check gaming mode status periodically
         gamingTimer = new QTimer(this);
-        connect(gamingTimer, &QTimer::timeout, this, &HueControlDialog::updateGamingStatus);
+        connect(gamingTimer, &QTimer::timeout, this, [this]() {
+            // Fetch current sync status and update gaming display
+            QDBusInterface iface("org.kde.plasma.hue", "/org/kde/plasma/hue", "org.kde.plasma.hue",
+                               QDBusConnection::sessionBus());
+            if (iface.isValid()) {
+                QDBusReply<bool> syncReply = iface.call("IsSyncing");
+                bool syncing = syncReply.isValid() && syncReply.value();
+                updateGamingStatus(syncing);
+            }
+        });
         gamingTimer->start(2000); // Check every 2 seconds
     }
 
@@ -284,15 +293,17 @@ class HueControlDialog : public QDialog {
 
         // Get status - but don't overwrite meaningful state (active scene or sync)
         QDBusReply<QString> statusReply = iface.call("GetStatus");
+        
+        // Get sync status once for use in multiple places
+        QDBusReply<bool> syncReply = iface.call("IsSyncing");
+        bool syncing = syncReply.isValid() && syncReply.value();
+        
         if (statusReply.isValid()) {
             if (connectionState == CONNECTED) {
                 updateConnectionState(CONNECTED);
-                // Only set status from backend if we don't have a more specific state
-                bool syncing = false;
-                QDBusReply<bool> syncReply = iface.call("IsSyncing");
-                if (syncReply.isValid()) syncing = syncReply.value();
-
+                // Update status label based on current state
                 if (syncing) {
+                    activeScene.clear();
                     statusLabel->setText("Screen sync active  •  30 FPS");
                 } else if (!activeScene.isEmpty()) {
                     statusLabel->setText("Scene: " + activeScene);
@@ -365,8 +376,8 @@ class HueControlDialog : public QDialog {
             sceneCountLabel->setText(QString("(%1 available)").arg(filteredScenes.count()));
         }
 
-        // Get sync status - updateGamingStatus handles both gaming mode and sync button state
-        updateGamingStatus();
+        // Update gaming mode display using the sync status we already fetched
+        updateGamingStatus(syncing);
     }
 
   private slots:
@@ -387,25 +398,6 @@ class HueControlDialog : public QDialog {
     }
 
     void updateSyncButton(bool syncing) {
-        // Update status label to reflect actual state
-        if (syncing) {
-            activeScene.clear();
-            statusLabel->setText("Screen sync active  •  30 FPS");
-        } else {
-            // Restore scene label if we have one, otherwise fetch backend status
-            if (!activeScene.isEmpty()) {
-                statusLabel->setText("Scene: " + activeScene);
-            } else {
-                QDBusInterface iface("org.kde.plasma.hue", "/org/kde/plasma/hue", "org.kde.plasma.hue",
-                                     QDBusConnection::sessionBus());
-                if (iface.isValid()) {
-                    QDBusReply<QString> statusReply = iface.call("GetStatus");
-                    if (statusReply.isValid())
-                        statusLabel->setText(statusReply.value());
-                }
-            }
-        }
-
         if (syncing) {
             syncButton->setText("Stop Screen Sync");
             syncButton->setIcon(QIcon::fromTheme("media-playback-stop"));
@@ -536,13 +528,6 @@ class HueControlDialog : public QDialog {
 
         connect(watcher, &QDBusPendingCallWatcher::finished, this,
                 [this, sceneName](QDBusPendingCallWatcher* w) {
-                    // Don't re-enable controls if sync became active during the async call
-                    QDBusInterface ifaceCheck("org.kde.plasma.hue", "/org/kde/plasma/hue",
-                                             "org.kde.plasma.hue", QDBusConnection::sessionBus());
-                    QDBusReply<bool> syncCheck = ifaceCheck.call("IsSyncing");
-                    bool stillSyncing = syncCheck.isValid() && syncCheck.value();
-                    sceneList->setEnabled(!stillSyncing);
-                    activateSceneBtn->setEnabled(!stillSyncing && sceneList->currentItem() != nullptr);
                     QDBusPendingReply<QString> reply = *w;
 
                     if (reply.isError()) {
@@ -585,10 +570,10 @@ class HueControlDialog : public QDialog {
                         notif->setIconName("preferences-desktop-display-color");
                         notif->setUrgency(KNotification::LowUrgency);
                         notif->sendEvent();
-
-                        // Refresh power/brightness state to reflect what the scene set
-                        QTimer::singleShot(500, this, &HueControlDialog::refresh);
                     }
+                    
+                    // Always refresh to update state and re-enable controls appropriately
+                    QTimer::singleShot(reply.isError() ? 100 : 500, this, &HueControlDialog::refresh);
 
                     w->deleteLater();
                 });
@@ -898,7 +883,7 @@ class HueControlDialog : public QDialog {
         }
     }
 
-    void updateGamingStatus() {
+    void updateGamingStatus(bool syncing) {
         QDBusInterface iface("org.kde.plasma.hue", "/org/kde/plasma/hue", "org.kde.plasma.hue",
                              QDBusConnection::sessionBus());
 
@@ -913,10 +898,6 @@ class HueControlDialog : public QDialog {
         // Check if gaming is currently active (game detected)
         QDBusReply<bool> activeReply = iface.call("IsGamingModeActive");
         bool gamingActive = activeReply.isValid() && activeReply.value();
-
-        // Check if syncing
-        QDBusReply<bool> syncReply = iface.call("IsSyncing");
-        bool syncing = syncReply.isValid() && syncReply.value();
 
         // Update sync button and disable controls if syncing
         updateSyncButton(syncing);
