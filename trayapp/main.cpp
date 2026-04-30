@@ -544,7 +544,7 @@ class HueControlDialog : public QDialog {
                         }
                     } else {
                         QString result = reply.value();
-                        statusLabel->setText("Scene activated: " + sceneName);
+                        statusLabel->setText("Scene: " + sceneName);
 
                         // Show success notification with icon
                         KNotification* notif = new KNotification("sceneActivated");
