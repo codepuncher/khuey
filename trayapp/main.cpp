@@ -279,7 +279,7 @@ class HueControlDialog : public QDialog {
                 if (syncReply.isValid()) syncing = syncReply.value();
 
                 if (syncing) {
-                    statusLabel->setText("Screen sync active");
+                    statusLabel->setText("Screen sync active  •  30 FPS");
                 } else if (!activeScene.isEmpty()) {
                     statusLabel->setText("Scene: " + activeScene);
                 } else {
@@ -379,8 +379,8 @@ class HueControlDialog : public QDialog {
     void updateSyncButton(bool syncing) {
         // Update status label to reflect actual state
         if (syncing) {
-            activeScene.clear(); // Sync takes over, scene label is no longer relevant
-            statusLabel->setText("Screen sync active");
+            activeScene.clear();
+            statusLabel->setText("Screen sync active  •  30 FPS");
         } else {
             // Restore scene label if we have one, otherwise fetch backend status
             if (!activeScene.isEmpty()) {
@@ -397,7 +397,7 @@ class HueControlDialog : public QDialog {
         }
 
         if (syncing) {
-            syncButton->setText("Stop Screen Sync  •  30 FPS");
+            syncButton->setText("Stop Screen Sync");
             syncButton->setIcon(QIcon::fromTheme("media-playback-stop"));
         } else {
             syncButton->setText("Start Screen Sync");
@@ -906,9 +906,9 @@ class HueControlDialog : public QDialog {
 
         // Override button text for gaming mode
         if (syncing && gamingActive) {
-            syncButton->setText("Stop Screen Sync  •  30 FPS (Gaming)");
+            syncButton->setText("Stop Screen Sync");
             syncButton->setStyleSheet("QPushButton { color: #00ff00; font-weight: bold; }");
-            statusLabel->setText("Screen sync active (Gaming)");
+            statusLabel->setText("Screen sync active  •  30 FPS (Gaming)");
         } else {
             syncButton->setStyleSheet("");
         }
