@@ -105,7 +105,9 @@ jobs:
 
   tray-build:
     name: Tray App Build
-    runs-on: ubuntu-25.04
+    runs-on: ubuntu-24.04
+    container:
+      image: ubuntu:25.04
     
     steps:
     - name: Checkout code
@@ -113,8 +115,8 @@ jobs:
       
     - name: Install dependencies
       run: |
-        sudo apt-get update
-        sudo apt-get install -y \
+        apt-get update
+        DEBIAN_FRONTEND=noninteractive apt-get install -y \
           cmake \
           extra-cmake-modules \
           qt6-base-dev \
