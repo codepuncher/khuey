@@ -134,6 +134,24 @@ func (s *Service) getCallerUID(sender dbus.Sender) (uint32, error) {
 	return uid, nil
 }
 
+// getGroupedLightID retrieves the grouped light ID from config
+// Returns error if not configured or if hue client is not available
+func (s *Service) getGroupedLightID() (string, error) {
+	if s.hueClient == nil {
+		return "", fmt.Errorf("hue client not initialized")
+	}
+
+	s.mu.RLock()
+	groupedLightID := s.config.GroupedLightID
+	s.mu.RUnlock()
+
+	if groupedLightID == "" {
+		return "", fmt.Errorf("no grouped light configured")
+	}
+
+	return groupedLightID, nil
+}
+
 // checkAccess verifies that the caller is the service owner
 // This prevents other users or processes from controlling your lights
 func (s *Service) checkAccess(sender dbus.Sender) error {
@@ -335,19 +353,12 @@ func (s *Service) SetPower(on bool, sender dbus.Sender) (bool, *dbus.Error) {
 		return false, dbus.MakeFailedError(err)
 	}
 
-	if s.hueClient == nil {
-		return false, dbus.MakeFailedError(fmt.Errorf("hue client not initialized"))
+	groupedLightID, err := s.getGroupedLightID()
+	if err != nil {
+		return false, dbus.MakeFailedError(err)
 	}
 
-	s.mu.RLock()
-	groupedLightID := s.config.GroupedLightID
-	s.mu.RUnlock()
-
-	if groupedLightID == "" {
-		return false, dbus.MakeFailedError(fmt.Errorf("no grouped light configured"))
-	}
-
-	err := s.hueClient.SetLightPower(groupedLightID, on)
+	err = s.hueClient.SetLightPower(groupedLightID, on)
 	if err != nil {
 		log.Printf("[ERROR] Failed to set power: %v", err)
 		return false, dbus.MakeFailedError(err)
@@ -365,23 +376,16 @@ func (s *Service) SetBrightness(brightness int32, sender dbus.Sender) (bool, *db
 		return false, dbus.MakeFailedError(err)
 	}
 
-	if s.hueClient == nil {
-		return false, dbus.MakeFailedError(fmt.Errorf("hue client not initialized"))
-	}
-
 	if brightness < 0 || brightness > 100 {
 		return false, dbus.MakeFailedError(fmt.Errorf("brightness must be 0-100"))
 	}
 
-	s.mu.RLock()
-	groupedLightID := s.config.GroupedLightID
-	s.mu.RUnlock()
-
-	if groupedLightID == "" {
-		return false, dbus.MakeFailedError(fmt.Errorf("no grouped light configured"))
+	groupedLightID, err := s.getGroupedLightID()
+	if err != nil {
+		return false, dbus.MakeFailedError(err)
 	}
 
-	err := s.hueClient.SetLightBrightness(groupedLightID, float32(brightness))
+	err = s.hueClient.SetLightBrightness(groupedLightID, float32(brightness))
 	if err != nil {
 		log.Printf("[ERROR] Failed to set brightness: %v", err)
 		return false, dbus.MakeFailedError(err)
@@ -568,16 +572,9 @@ func (s *Service) IsSyncing() (bool, *dbus.Error) {
 
 // GetState returns the current power and brightness state
 func (s *Service) GetState() (bool, int32, bool, *dbus.Error) {
-	if s.hueClient == nil {
-		return false, 0, false, dbus.MakeFailedError(fmt.Errorf("hue client not initialized"))
-	}
-
-	s.mu.RLock()
-	groupedLightID := s.config.GroupedLightID
-	s.mu.RUnlock()
-
-	if groupedLightID == "" {
-		return false, 0, false, dbus.MakeFailedError(fmt.Errorf("no grouped light configured"))
+	groupedLightID, err := s.getGroupedLightID()
+	if err != nil {
+		return false, 0, false, dbus.MakeFailedError(err)
 	}
 
 	power, brightness, err := s.hueClient.GetGroupedLightState(groupedLightID)

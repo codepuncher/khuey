@@ -202,31 +202,18 @@ class HueControlDialog : public QDialog {
         connect(connectionTimer, &QTimer::timeout, this, &HueControlDialog::checkConnectionStatus);
         connectionTimer->start(10000); // Check every 10 seconds
 
-        // Check gaming mode status periodically
-        gamingTimer = new QTimer(this);
-        connect(gamingTimer, &QTimer::timeout, this, [this]() {
-            // Fetch current sync status and update gaming display
-            QDBusInterface iface("org.kde.plasma.hue", "/org/kde/plasma/hue", "org.kde.plasma.hue",
-                               QDBusConnection::sessionBus());
-            if (iface.isValid()) {
-                QDBusReply<bool> syncReply = iface.call("IsSyncing");
-                bool syncing = syncReply.isValid() && syncReply.value();
-                updateGamingStatus(syncing);
-            }
-        });
-        gamingTimer->start(2000); // Check every 2 seconds
+        // Gaming status is updated by refresh() which already calls updateGamingStatus()
+        // No separate timer needed - refresh runs every 10 seconds and on-demand
     }
 
   protected:
     void showEvent(QShowEvent* event) override {
         connectionTimer->start(10000);
-        gamingTimer->start(2000);
         refresh();
         QDialog::showEvent(event);
     }
 
     void hideEvent(QHideEvent* event) override {
-        gamingTimer->stop();
         connectionTimer->stop();
         QDialog::hideEvent(event);
     }
@@ -943,7 +930,6 @@ class HueControlDialog : public QDialog {
     // Timers
     QTimer* brightnessTimer = nullptr;
     QTimer* connectionTimer;
-    QTimer* gamingTimer;
     
     // State
     int pendingBrightness = 100;
