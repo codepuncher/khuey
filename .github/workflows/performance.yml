@@ -14,6 +14,9 @@ on:
     paths:
       - 'backend/**/*.go'
 
+permissions:
+  pull-requests: write
+
 jobs:
   performance-tests:
     name: Performance Regression Tests
