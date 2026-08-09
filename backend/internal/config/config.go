@@ -49,6 +49,10 @@ type Config struct {
 	EntertainmentConfigurationID string          `mapstructure:"entertainmentConfigurationId"`
 	Channels                     []ChannelConfig `mapstructure:"channels"`
 
+	// Display name (e.g. "Living Room - Relax") of the scene to activate on
+	// startup; empty disables the feature.
+	StartupScene string `mapstructure:"startupScene"`
+
 	// Screen sync settings
 	Sync SyncConfig `mapstructure:"sync"`
 
@@ -124,7 +128,8 @@ type IconConfig struct {
 // DefaultConfig returns a configuration with sensible defaults
 func DefaultConfig() *Config {
 	return &Config{
-		Version: ConfigVersion,
+		Version:      ConfigVersion,
+		StartupScene: "", // Disabled by default
 		Sync: SyncConfig{
 			Enabled:        false,
 			FPS:            DefaultFPS,
@@ -254,6 +259,7 @@ func (c *Config) Save() error {
 	c.v.Set("Bridge", c.Bridge)
 	c.v.Set("Key", c.Key)
 	c.v.Set("grouped_light_id", c.GroupedLightID)
+	c.v.Set("startupScene", c.StartupScene)
 	c.v.Set("clientkey", c.ClientKey)
 	c.v.Set("entertainmentConfigurationId", c.EntertainmentConfigurationID)
 	c.v.Set("channels", c.Channels)

@@ -322,6 +322,19 @@ func (s *Service) introspectionMethods() []introspect.Method {
 			},
 		},
 		{
+			Name: "GetStartupScene",
+			Args: []introspect.Arg{
+				{Name: "sceneName", Type: "s", Direction: "out"},
+			},
+		},
+		{
+			Name: "SetStartupScene",
+			Args: []introspect.Arg{
+				{Name: "sceneName", Type: "s", Direction: "in"},
+				{Name: "success", Type: "b", Direction: "out"},
+			},
+		},
+		{
 			Name: "GetTrayIcons",
 			Args: []introspect.Arg{
 				{Name: "gaming", Type: "s", Direction: "out"},
@@ -414,15 +427,56 @@ func (s *Service) ActivateScene(displayName string, sender dbus.Sender) (string,
 		return "", dbus.MakeFailedError(err)
 	}
 
+	scene, err := s.activateSceneByDisplayName(displayName)
+	if err != nil {
+		return "", dbus.MakeFailedError(err)
+	}
+
+	// Auto-update GroupedLightID to match the scene's room so that
+	// brightness/power controls target the same lights as the scene.
+	if scene.GroupedLightID != "" {
+		s.mu.Lock()
+		s.config.GroupedLightID = scene.GroupedLightID
+		saveErr := s.config.Save()
+		s.mu.Unlock()
+		if saveErr != nil {
+			log.Printf("[WARN] Failed to save config after scene activation: %v", saveErr)
+		}
+		log.Printf("Auto-updated GroupedLightID to %s (room: %s)", scene.GroupedLightID, scene.RoomName)
+	}
+
+	return "Scene activated: " + displayName, nil
+}
+
+// ActivateStartupScene is invoked directly from main() at boot, not over
+// DBus, since the process owner is inherently trusted. It leaves
+// GroupedLightID untouched so it doesn't silently override a room the user
+// separately picked for brightness/power control.
+func (s *Service) ActivateStartupScene() error {
+	s.mu.RLock()
+	displayName := s.config.StartupScene
+	s.mu.RUnlock()
+
+	if displayName == "" {
+		return nil
+	}
+
+	_, err := s.activateSceneByDisplayName(displayName)
+	return err
+}
+
+// activateSceneByDisplayName matches displayName against "Room - SceneName"
+// or bare "SceneName" as returned by GetScenes, and activates it on the bridge.
+func (s *Service) activateSceneByDisplayName(displayName string) (hue.Scene, error) {
 	if s.hueClient == nil {
-		return "", dbus.MakeFailedError(fmt.Errorf("hue client not initialized"))
+		return hue.Scene{}, fmt.Errorf("hue client not initialized")
 	}
 
 	// Get all scenes and find matching one
 	scenes, err := s.hueClient.GetScenes()
 	if err != nil {
 		log.Printf("Failed to get scenes: %v", err)
-		return "", dbus.MakeFailedError(err)
+		return hue.Scene{}, err
 	}
 
 	// displayName might be "Room - SceneName" or just "SceneName"
@@ -438,31 +492,15 @@ func (s *Service) ActivateScene(displayName string, sender dbus.Sender) (string,
 		if sceneDisplayName == displayName || scene.Name == displayName {
 			if err := s.hueClient.ActivateScene(scene.ID); err != nil {
 				log.Printf("Failed to activate scene '%s': %v", displayName, err)
-				return "", dbus.MakeFailedError(err)
+				return hue.Scene{}, err
 			}
 			log.Printf("Activated scene: %s (ID: %s)", displayName, scene.ID)
-
-			// Auto-update GroupedLightID to match the scene's room so that
-			// brightness/power controls target the same lights as the scene.
-			// scene.GroupedLightID was already resolved by the GetScenes call
-			// above, so no extra bridge round trip is needed here.
-			if scene.GroupedLightID != "" {
-				s.mu.Lock()
-				s.config.GroupedLightID = scene.GroupedLightID
-				saveErr := s.config.Save()
-				s.mu.Unlock()
-				if saveErr != nil {
-					log.Printf("[WARN] Failed to save config after scene activation: %v", saveErr)
-				}
-				log.Printf("Auto-updated GroupedLightID to %s (room: %s)", scene.GroupedLightID, scene.Room)
-			}
-
-			return "Scene activated: " + displayName, nil
+			return scene, nil
 		}
 	}
 
 	log.Printf("Scene not found: %s", displayName)
-	return "", dbus.MakeFailedError(fmt.Errorf("scene not found: %s", displayName))
+	return hue.Scene{}, fmt.Errorf("scene not found: %s", displayName)
 }
 
 // GetScenes returns list of available scenes with room names
@@ -803,6 +841,40 @@ func (s *Service) SetSelectedRoom(roomID string, sender dbus.Sender) (bool, *dbu
 	}
 
 	log.Printf("[INFO] Selected room set to: %s", roomID)
+	return true, nil
+}
+
+func (s *Service) GetStartupScene() (string, *dbus.Error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.config.StartupScene, nil
+}
+
+// SetStartupScene clears the startup scene when displayName is empty.
+func (s *Service) SetStartupScene(displayName string, sender dbus.Sender) (bool, *dbus.Error) {
+	if err := common.ValidateDBusString("displayName", displayName, 255); err != nil {
+		log.Printf("[WARN] SetStartupScene invalid input: %v", err)
+		return false, dbus.MakeFailedError(err)
+	}
+
+	// Access control: only service owner can modify settings
+	if err := s.checkAccess(sender); err != nil {
+		log.Printf("[WARN] SetStartupScene access denied")
+		return false, dbus.MakeFailedError(err)
+	}
+
+	s.mu.Lock()
+	s.config.StartupScene = displayName
+	err := s.config.Save()
+	s.mu.Unlock()
+
+	if err != nil {
+		log.Printf("[ERROR] Failed to save startup scene: %v", err)
+		return false, dbus.MakeFailedError(err)
+	}
+
+	log.Printf("[INFO] Startup scene set to: %q", displayName)
 	return true, nil
 }
 
