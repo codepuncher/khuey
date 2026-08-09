@@ -34,6 +34,10 @@ type Service struct {
 	gamingModeActive bool         // Track if gaming mode triggered sync
 	mu               sync.RWMutex // Protects config access from concurrent DBus calls
 	ownerUID         uint32       // UID of the service owner for access control
+	// callerUID resolves a DBus sender to its UID. Set to getCallerUID by
+	// NewService; a nil value (e.g. a directly-constructed Service in tests)
+	// makes checkAccess fail closed rather than allow or fall back.
+	callerUID func(dbus.Sender) (uint32, error)
 }
 
 // NewService creates a new DBus service
@@ -57,13 +61,15 @@ func NewService(cfg *config.Config, client *hue.Client) (*Service, error) {
 		log.Println("[INFO] Entertainment API not configured - screen sync unavailable")
 	}
 
-	return &Service{
+	s := &Service{
 		conn:       conn,
 		config:     cfg,
 		hueClient:  client,
 		syncEngine: engine,
 		ownerUID:   uint32(os.Getuid()), // Store owner UID for access control
-	}, nil
+	}
+	s.callerUID = s.getCallerUID
+	return s, nil
 }
 
 // Start begins the DBus service
@@ -161,7 +167,12 @@ func (s *Service) getGroupedLightID() (string, error) {
 // checkAccess verifies that the caller is the service owner
 // This prevents other users or processes from controlling your lights
 func (s *Service) checkAccess(sender dbus.Sender) error {
-	callerUID, err := s.getCallerUID(sender)
+	if s.callerUID == nil {
+		log.Printf("[WARN] Access denied: no caller UID resolver configured")
+		return fmt.Errorf("access denied: unable to verify caller identity")
+	}
+
+	callerUID, err := s.callerUID(sender)
 	if err != nil {
 		log.Printf("[WARN] Failed to get caller UID: %v", err)
 		return fmt.Errorf("access denied: unable to verify caller identity")
@@ -689,7 +700,13 @@ func (s *Service) GetConnectionStatus() (map[string]interface{}, *dbus.Error) {
 }
 
 // RetryConnection attempts to reconnect to the bridge
-func (s *Service) RetryConnection() (bool, *dbus.Error) {
+func (s *Service) RetryConnection(sender dbus.Sender) (bool, *dbus.Error) {
+	// Access control: only service owner can trigger bridge I/O
+	if err := s.checkAccess(sender); err != nil {
+		log.Printf("[WARN] RetryConnection access denied")
+		return false, dbus.MakeFailedError(err)
+	}
+
 	if s.hueClient == nil {
 		return false, dbus.MakeFailedError(fmt.Errorf("hue client not initialized"))
 	}
@@ -789,7 +806,13 @@ func (s *Service) GetBridgeSettings() (map[string]interface{}, *dbus.Error) {
 }
 
 // TestBridgeConnection tests connectivity to the bridge
-func (s *Service) TestBridgeConnection() (bool, *dbus.Error) {
+func (s *Service) TestBridgeConnection(sender dbus.Sender) (bool, *dbus.Error) {
+	// Access control: only service owner can trigger bridge I/O
+	if err := s.checkAccess(sender); err != nil {
+		log.Printf("[WARN] TestBridgeConnection access denied")
+		return false, dbus.MakeFailedError(err)
+	}
+
 	if s.hueClient == nil {
 		return false, dbus.MakeFailedError(fmt.Errorf("hue client not initialized"))
 	}
@@ -1049,6 +1072,12 @@ func (s *Service) SetTrayIcons(gaming string, syncing string, idle string, sende
 	}
 	if err := common.ValidateDBusString("idle", idle, 255); err != nil {
 		log.Printf("🚫 SetTrayIcons invalid input: %v", err)
+		return false, dbus.MakeFailedError(err)
+	}
+
+	// Access control: only service owner can modify settings
+	if err := s.checkAccess(sender); err != nil {
+		log.Printf("[WARN] SetTrayIcons access denied")
 		return false, dbus.MakeFailedError(err)
 	}
 

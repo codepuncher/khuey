@@ -201,6 +201,7 @@ Attempts to reconnect to the Hue bridge.
 **Errors:**
 - `"bridge still unreachable"` - Bridge is not responding
 - `"hue client not initialized"` - Backend not configured
+- `"access denied"` - Caller is not service owner
 
 **Example (dbus-send):**
 ```bash
@@ -231,6 +232,11 @@ Tests connectivity to the bridge without retrying.
 **Returns:**
 - `true` - Bridge is reachable
 - `false` - Bridge is not reachable
+
+**Errors:**
+- `"bridge is not reachable"` - Bridge is not responding
+- `"hue client not initialized"` - Backend not configured
+- `"access denied"` - Caller is not service owner
 
 **Example (dbus-send):**
 ```bash
