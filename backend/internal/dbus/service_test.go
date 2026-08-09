@@ -404,6 +404,37 @@ func TestSetStartupSceneInvalidInput(t *testing.T) {
 	if dbusErr != nil && strings.Contains(dbusErr.Error(), "access denied") {
 		t.Errorf("SetStartupScene() failed on access check, want invalid-input failure: %v", dbusErr)
 	}
+	// Assert the specific validation message: Save() fails anyway on the
+	// unconfigured default config, so a weaker assertion passes even with the
+	// ValidateDBusString call removed.
+	if dbusErr != nil && !strings.Contains(dbusErr.Error(), "invalid UTF-8") {
+		t.Errorf("SetStartupScene() error = %v, want invalid UTF-8 validation failure", dbusErr)
+	}
+}
+
+// TestSetSelectedRoomInvalidInput pins that SetSelectedRoom, with checkAccess
+// satisfied by an allowing resolver, still rejects invalid UTF-8 input before
+// touching config - i.e. that the invalid-input path is reachable and
+// distinguishable from an access-denied failure.
+func TestSetSelectedRoomInvalidInput(t *testing.T) {
+	const ownerUID = 1000
+	allowingCallerUID := func(dbus.Sender) (uint32, error) {
+		return ownerUID, nil
+	}
+	s := &Service{config: config.DefaultConfig(), ownerUID: ownerUID, callerUID: allowingCallerUID}
+	ok, dbusErr := s.SetSelectedRoom("\xff\xfe invalid utf8", dbus.Sender("owner"))
+	if ok || dbusErr == nil {
+		t.Error("SetSelectedRoom() with invalid UTF-8 should fail validation")
+	}
+	if dbusErr != nil && strings.Contains(dbusErr.Error(), "access denied") {
+		t.Errorf("SetSelectedRoom() failed on access check, want invalid-input failure: %v", dbusErr)
+	}
+	// Config.Save() also fails on DefaultConfig() (no bridge address set), so
+	// pin the specific validation error text - not just "any non-access error" -
+	// to distinguish a real validation rejection from that unrelated save failure.
+	if dbusErr != nil && !strings.Contains(dbusErr.Error(), "invalid UTF-8") {
+		t.Errorf("SetSelectedRoom() error = %v, want invalid UTF-8 validation failure", dbusErr)
+	}
 }
 
 // TestSceneNameMatching tests the scene name matching logic used in ActivateScene

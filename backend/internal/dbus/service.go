@@ -885,6 +885,11 @@ func (s *Service) SetSelectedRoom(roomID string, sender dbus.Sender) (bool, *dbu
 		return false, dbus.MakeFailedError(err)
 	}
 
+	if err := common.ValidateDBusString("roomID", roomID, 255); err != nil {
+		log.Printf("[WARN] SetSelectedRoom invalid input: %v", err)
+		return false, dbus.MakeFailedError(err)
+	}
+
 	if roomID == "" {
 		return false, dbus.MakeFailedError(fmt.Errorf("room ID cannot be empty"))
 	}

@@ -320,7 +320,7 @@ type Service struct {
 **Access Control:**
 - UID-based filtering (only same-user processes)
 - `checkAccess(sender)` verifies caller UID
-- Reads that return bridge or bridge-derived data require owner; purely local config reads (e.g. GetStatus, GetSyncSettings) do not
+- Reads that return bridge or bridge-derived data require owner; local config/state reads that expose no bridge resource identifiers or bridge state (e.g. GetStatus, GetSyncSettings) do not - GetStatus additionally reveals only whether bridge credentials are configured
 - Write methods require owner UID match
 
 **Method Categories:**
@@ -1847,10 +1847,12 @@ Bridge-data readers (return bridge or bridge-derived data):
 - GetConnectionStatus, GetBridgeSettings
 - GetSelectedRoom, GetStartupScene
 
-**Methods Without Access Control** (purely local config/state reads, no bridge data):
+**Methods Without Access Control** (local config/state reads exposing no bridge resource identifiers or bridge state):
 - GetStatus, IsSyncing
 - GetSyncSettings, GetTrayIcons
 - IsGamingModeEnabled, IsGamingModeActive
+
+GetStatus is the exception worth noting: it discloses one bit beyond pure local state - whether `config.Bridge`/`config.Key` are set - via its "Ready" vs "Not configured" result. It stays unguarded as the basic daemon liveness/configured probe; it returns no bridge resource identifiers or bridge state.
 
 ---
 
