@@ -24,6 +24,10 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.LogLevel != "info" {
 		t.Errorf("Expected default log level 'info', got '%s'", cfg.LogLevel)
 	}
+
+	if cfg.StartupScene != "" {
+		t.Errorf("Expected startup scene to be disabled by default, got %q", cfg.StartupScene)
+	}
 }
 
 func TestConfigValidation(t *testing.T) {
@@ -286,6 +290,7 @@ func TestSave(t *testing.T) {
 	cfg.Key = "test-api-key"
 	cfg.ClientKey = "test-client-key"
 	cfg.EntertainmentConfigurationID = "test-ent-id"
+	cfg.StartupScene = "Living Room - Relax"
 
 	// Save config
 	err := cfg.Save()
@@ -322,6 +327,9 @@ func TestSave(t *testing.T) {
 	}
 	if loadedCfg.ClientKey != cfg.ClientKey {
 		t.Errorf("Loaded ClientKey = %q, want %q", loadedCfg.ClientKey, cfg.ClientKey)
+	}
+	if loadedCfg.StartupScene != cfg.StartupScene {
+		t.Errorf("Loaded StartupScene = %q, want %q", loadedCfg.StartupScene, cfg.StartupScene)
 	}
 }
 

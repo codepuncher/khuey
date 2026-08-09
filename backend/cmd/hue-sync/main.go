@@ -74,6 +74,14 @@ func main() {
 	// Initialize gaming mode if enabled in config
 	dbusService.InitGamingMode()
 
+	// Backgrounded: the bridge may still be slow to respond this early in a
+	// login, and that shouldn't hold up backend startup finishing.
+	go func() {
+		if err := dbusService.ActivateStartupScene(); err != nil {
+			log.Printf("WARNING: Failed to activate startup scene: %v", err)
+		}
+	}()
+
 	log.Println("Backend initialized successfully")
 	log.Println("DBus service running at: org.kde.plasma.hue")
 	log.Println()

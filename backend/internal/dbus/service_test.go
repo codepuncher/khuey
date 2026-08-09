@@ -5,6 +5,7 @@ import (
 
 	"github.com/codepuncher/khuey/internal/config"
 	"github.com/codepuncher/khuey/internal/hue"
+	"github.com/godbus/dbus/v5"
 )
 
 // TestGetStatus tests the GetStatus method logic
@@ -309,6 +310,70 @@ func TestGetSelectedRoom(t *testing.T) {
 				t.Errorf("GetSelectedRoom() = %q, want %q", result, tt.want)
 			}
 		})
+	}
+}
+
+// TestGetStartupScene tests startup scene retrieval
+func TestGetStartupScene(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  *config.Config
+		want string
+	}{
+		{
+			name: "Disabled by default",
+			cfg:  config.DefaultConfig(),
+			want: "",
+		},
+		{
+			name: "Startup scene configured",
+			cfg: &config.Config{
+				StartupScene: "Living Room - Relax",
+			},
+			want: "Living Room - Relax",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &Service{config: tt.cfg}
+			result, err := s.GetStartupScene()
+			if err != nil {
+				t.Errorf("GetStartupScene() returned error: %v", err)
+			}
+			if result != tt.want {
+				t.Errorf("GetStartupScene() = %q, want %q", result, tt.want)
+			}
+		})
+	}
+}
+
+// TestActivateStartupScene tests that startup scene activation is a no-op when
+// disabled, and surfaces an error when configured but the bridge is unavailable.
+func TestActivateStartupScene(t *testing.T) {
+	t.Run("Disabled - no-op", func(t *testing.T) {
+		s := &Service{config: config.DefaultConfig()}
+		if err := s.ActivateStartupScene(); err != nil {
+			t.Errorf("ActivateStartupScene() with no scene configured returned error: %v", err)
+		}
+	})
+
+	t.Run("Configured without hue client", func(t *testing.T) {
+		s := &Service{config: &config.Config{StartupScene: "Living Room - Relax"}}
+		if err := s.ActivateStartupScene(); err == nil {
+			t.Error("ActivateStartupScene() expected error with no hue client, got nil")
+		}
+	})
+}
+
+// TestSetStartupSceneInvalidInput tests that SetStartupScene rejects invalid
+// input before touching config or checking access, since neither is safe to
+// exercise here without a live DBus connection.
+func TestSetStartupSceneInvalidInput(t *testing.T) {
+	s := &Service{config: config.DefaultConfig()}
+	ok, dbusErr := s.SetStartupScene("\xff\xfe invalid utf8", dbus.Sender(""))
+	if ok || dbusErr == nil {
+		t.Error("SetStartupScene() with invalid UTF-8 should fail validation")
 	}
 }
 

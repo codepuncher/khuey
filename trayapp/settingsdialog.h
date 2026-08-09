@@ -1,6 +1,7 @@
 #ifndef SETTINGSDIALOG_H
 #define SETTINGSDIALOG_H
 
+#include <KIconButton>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDBusInterface>
@@ -11,7 +12,6 @@
 #include <QSlider>
 #include <QSpinBox>
 #include <QTabWidget>
-#include <KIconButton>
 
 class SettingsDialog : public QDialog {
     Q_OBJECT
@@ -52,6 +52,7 @@ class SettingsDialog : public QDialog {
     QComboBox* roomCombo;
     QLabel* roomPreviewLabel;
     QPushButton* refreshRoomsButton;
+    QComboBox* startupSceneCombo;
 
     // Connection tab
     QLineEdit* bridgeIPEdit;

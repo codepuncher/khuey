@@ -96,19 +96,20 @@ void SettingsDialog::setupUI() {
     // Gaming Mode checkbox
     QGroupBox* gamingGroup = new QGroupBox("Gaming Mode", syncTab);
     QVBoxLayout* gamingLayout = new QVBoxLayout(gamingGroup);
-    
+
     gamingModeCheckbox = new QCheckBox("Automatically enable screen sync when gaming", gamingGroup);
     gamingModeCheckbox->setChecked(false);
     connect(gamingModeCheckbox, &QCheckBox::toggled, this, &SettingsDialog::onGamingModeToggled);
     gamingLayout->addWidget(gamingModeCheckbox);
-    
-    QLabel* gamingHint = new QLabel(
-        "When enabled, screen sync will automatically start when you play games.\n"
-        "Uses GameMode and fullscreen window detection.", gamingGroup);
+
+    QLabel* gamingHint =
+        new QLabel("When enabled, screen sync will automatically start when you play games.\n"
+                   "Uses GameMode and fullscreen window detection.",
+                   gamingGroup);
     gamingHint->setWordWrap(true);
     gamingHint->setStyleSheet("QLabel { color: gray; font-size: 10pt; }");
     gamingLayout->addWidget(gamingHint);
-    
+
     syncLayout->addWidget(gamingGroup);
 
     // Info label
@@ -146,6 +147,26 @@ void SettingsDialog::setupUI() {
     roomLayout->addWidget(roomPreviewLabel);
 
     lightLayout->addWidget(roomGroup);
+
+    QGroupBox* startupSceneGroup = new QGroupBox("Login Behavior", lightTab);
+    QVBoxLayout* startupSceneLayout = new QVBoxLayout(startupSceneGroup);
+
+    QHBoxLayout* startupSceneSelectLayout = new QHBoxLayout();
+    startupSceneSelectLayout->addWidget(new QLabel("Activate scene on login:"));
+    startupSceneCombo = new QComboBox(startupSceneGroup);
+    startupSceneCombo->addItem("(Disabled)", "");
+    startupSceneSelectLayout->addWidget(startupSceneCombo, 1);
+    startupSceneLayout->addLayout(startupSceneSelectLayout);
+
+    QLabel* startupSceneHint =
+        new QLabel("When set, this scene is activated automatically each time the backend starts "
+                   "(e.g. on login).",
+                   startupSceneGroup);
+    startupSceneHint->setWordWrap(true);
+    startupSceneHint->setStyleSheet("QLabel { color: gray; font-size: 10pt; }");
+    startupSceneLayout->addWidget(startupSceneHint);
+
+    lightLayout->addWidget(startupSceneGroup);
     lightLayout->addStretch();
     tabWidget->addTab(lightTab, "Light Control");
 
@@ -223,9 +244,8 @@ void SettingsDialog::setupUI() {
     gamingIconNameLabel->setStyleSheet("QLabel { color: gray; font-size: 9pt; }");
     iconLayout->addWidget(gamingIconNameLabel, 0, 2);
 
-    connect(gamingIconButton, &KIconButton::iconChanged, this, [this](const QString& icon) {
-        gamingIconNameLabel->setText(icon);
-    });
+    connect(gamingIconButton, &KIconButton::iconChanged, this,
+            [this](const QString& icon) { gamingIconNameLabel->setText(icon); });
 
     // Syncing Icon
     iconLayout->addWidget(new QLabel("Sync Active:"), 1, 0);
@@ -241,9 +261,8 @@ void SettingsDialog::setupUI() {
     syncingIconNameLabel->setStyleSheet("QLabel { color: gray; font-size: 9pt; }");
     iconLayout->addWidget(syncingIconNameLabel, 1, 2);
 
-    connect(syncingIconButton, &KIconButton::iconChanged, this, [this](const QString& icon) {
-        syncingIconNameLabel->setText(icon);
-    });
+    connect(syncingIconButton, &KIconButton::iconChanged, this,
+            [this](const QString& icon) { syncingIconNameLabel->setText(icon); });
 
     // Idle Icon
     iconLayout->addWidget(new QLabel("Idle:"), 2, 0);
@@ -259,14 +278,13 @@ void SettingsDialog::setupUI() {
     idleIconNameLabel->setStyleSheet("QLabel { color: gray; font-size: 9pt; }");
     iconLayout->addWidget(idleIconNameLabel, 2, 2);
 
-    connect(idleIconButton, &KIconButton::iconChanged, this, [this](const QString& icon) {
-        idleIconNameLabel->setText(icon);
-    });
+    connect(idleIconButton, &KIconButton::iconChanged, this,
+            [this](const QString& icon) { idleIconNameLabel->setText(icon); });
 
-    QLabel* iconHint = new QLabel(
-        "ℹ️  Click icon buttons to browse and choose from available icons\n"
-        "Changes apply after restarting the tray app.",
-        iconGroup);
+    QLabel* iconHint =
+        new QLabel("ℹ️  Click icon buttons to browse and choose from available icons\n"
+                   "Changes apply after restarting the tray app.",
+                   iconGroup);
     iconHint->setWordWrap(true);
     iconHint->setStyleSheet("QLabel { color: gray; font-size: 10pt; margin-top: 8px; }");
     iconLayout->addWidget(iconHint, 3, 0, 1, 3);
@@ -362,6 +380,29 @@ void SettingsDialog::loadSettings() {
     // Auto-load rooms list on dialog open (fixed QDBusArgument extraction)
     onRefreshRoomsClicked();
 
+    QDBusReply<QString> startupSceneReply = dbusInterface->call("GetStartupScene");
+    QString currentStartupScene =
+        startupSceneReply.isValid() ? startupSceneReply.value() : QString();
+
+    QDBusReply<QStringList> scenesReply = dbusInterface->call("GetScenes");
+    if (scenesReply.isValid()) {
+        for (const QString& scene : scenesReply.value()) {
+            startupSceneCombo->addItem(scene, scene);
+        }
+    } else {
+        QMessageBox::warning(this, "Error",
+                             "Failed to load scenes: " + scenesReply.error().message());
+    }
+    if (!currentStartupScene.isEmpty()) {
+        int index = startupSceneCombo->findData(currentStartupScene);
+        if (index < 0) {
+            // Preserve it even if unresolved, so an unrelated Save can't clear it.
+            startupSceneCombo->addItem(currentStartupScene, currentStartupScene);
+            index = startupSceneCombo->count() - 1;
+        }
+        startupSceneCombo->setCurrentIndex(index);
+    }
+
     // Load bridge settings
     QDBusMessage bridgeReply = dbusInterface->call("GetBridgeSettings");
     if (bridgeReply.type() != QDBusMessage::ErrorMessage && !bridgeReply.arguments().isEmpty()) {
@@ -410,7 +451,7 @@ void SettingsDialog::loadSettings() {
             gamingIconButton->setIcon(currentGamingIcon);
             syncingIconButton->setIcon(currentSyncingIcon);
             idleIconButton->setIcon(currentIdleIcon);
-            
+
             gamingIconNameLabel->setText(currentGamingIcon);
             syncingIconNameLabel->setText(currentSyncingIcon);
             idleIconNameLabel->setText(currentIdleIcon);
@@ -419,45 +460,40 @@ void SettingsDialog::loadSettings() {
 }
 
 void SettingsDialog::saveSettings() {
-    // Save Screen Sync settings
+    auto callSetter = [this](const QString& method, const QVariantList& args,
+                             const QString& label) -> bool {
+        QDBusReply<bool> reply = dbusInterface->callWithArgumentList(QDBus::Block, method, args);
+        if (!reply.isValid() || !reply.value()) {
+            QString errorMsg = reply.isValid() ? "unknown error" : reply.error().message();
+            QMessageBox::warning(this, "Settings Error",
+                                 "Failed to save " + label + ": " + errorMsg);
+            return false;
+        }
+        return true;
+    };
+
     int fps = fpsSpinBox->value();
     int subsample = subsampleSpinBox->value();
     QString monitor = monitorCombo->currentData().toString();
-
-    QDBusReply<bool> syncReply = dbusInterface->call("SetSyncSettings", fps, subsample, monitor);
-    if (!syncReply.isValid() || !syncReply.value()) {
-        QString errorMsg =
-            syncReply.isValid() ? "Failed to save settings" : syncReply.error().message();
-        QMessageBox::warning(this, "Settings Error",
-                             "Failed to save Screen Sync settings: " + errorMsg);
+    if (!callSetter("SetSyncSettings", {fps, subsample, monitor}, "Screen Sync settings")) {
         return;
     }
 
-    // Save gaming mode setting
     bool gamingMode = gamingModeCheckbox->isChecked();
-    QDBusReply<bool> gamingReply = dbusInterface->call("SetGamingMode", gamingMode);
-    if (!gamingReply.isValid() || !gamingReply.value()) {
-        QString errorMsg =
-            gamingReply.isValid() ? "Failed to save gaming mode" : gamingReply.error().message();
-        QMessageBox::warning(this, "Settings Error",
-                             "Failed to save gaming mode setting: " + errorMsg);
+    if (!callSetter("SetGamingMode", {gamingMode}, "gaming mode setting")) {
         return;
     }
 
-    // Save room selection
     QString roomID = roomCombo->currentData().toString();
-    if (!roomID.isEmpty()) {
-        QDBusReply<bool> roomReply = dbusInterface->call("SetSelectedRoom", roomID);
-        if (!roomReply.isValid() || !roomReply.value()) {
-            QString errorMsg =
-                roomReply.isValid() ? "Failed to save room" : roomReply.error().message();
-            QMessageBox::warning(this, "Settings Error",
-                                 "Failed to save room selection: " + errorMsg);
-            return;
-        }
+    if (!roomID.isEmpty() && !callSetter("SetSelectedRoom", {roomID}, "room selection")) {
+        return;
     }
 
-    // Save tray icon settings
+    QString startupScene = startupSceneCombo->currentData().toString();
+    if (!callSetter("SetStartupScene", {startupScene}, "startup scene selection")) {
+        return;
+    }
+
     QString gamingIcon = gamingIconButton->icon();
     QString syncingIcon = syncingIconButton->icon();
     QString idleIcon = idleIconButton->icon();
@@ -470,13 +506,7 @@ void SettingsDialog::saveSettings() {
     if (idleIcon.isEmpty())
         idleIcon = "preferences-desktop-display-color";
 
-    QDBusReply<bool> iconReply =
-        dbusInterface->call("SetTrayIcons", gamingIcon, syncingIcon, idleIcon);
-    if (!iconReply.isValid() || !iconReply.value()) {
-        QString errorMsg =
-            iconReply.isValid() ? "Failed to save icons" : iconReply.error().message();
-        QMessageBox::warning(this, "Settings Error",
-                             "Failed to save tray icon settings: " + errorMsg);
+    if (!callSetter("SetTrayIcons", {gamingIcon, syncingIcon, idleIcon}, "tray icon settings")) {
         return;
     }
 
@@ -627,7 +657,6 @@ void SettingsDialog::onSubsampleChanged(int value) {
 }
 
 void SettingsDialog::onGamingModeToggled(bool checked) {
-    // No immediate action needed - will be saved when Apply/OK is clicked
-    // Just log for debugging
+    // Saved on Apply/OK, not immediately.
     qDebug() << "Gaming mode toggled:" << (checked ? "enabled" : "disabled");
 }
