@@ -36,10 +36,11 @@ type Client struct {
 
 // Scene represents a Hue scene
 type Scene struct {
-	ID       string
-	Name     string
-	Room     string
-	RoomName string
+	ID             string
+	Name           string
+	Room           string
+	RoomName       string
+	GroupedLightID string
 }
 
 // GroupedLight represents a room or zone with grouped lights
@@ -47,6 +48,15 @@ type GroupedLight struct {
 	ID   string
 	Name string
 	Type string // "room" or "zone"
+}
+
+// roomOrZone holds a room or zone's identity and its associated grouped_light
+// service ID (if any), resolved once by getRoomsAndZones for reuse across callers.
+type roomOrZone struct {
+	ID             string
+	Name           string
+	Type           string // "room" or "zone"
+	GroupedLightID string
 }
 
 // NewClient creates a new Hue client with a cancellable context
@@ -185,7 +195,8 @@ func (c *Client) SetLightBrightness(groupID string, brightness float32) error {
 
 	// When setting brightness > 0, also turn on the lights
 	// This ensures all lights in the group respond to the brightness change,
-	// not just the ones that are currently on (e.g., after a scene activation)
+	// not just the ones that are currently on (e.g., after a scene activation).
+	// brightness == 0 intentionally leaves on/off state untouched (asymmetric).
 	if brightness > 0 {
 		on := true
 		body.On = &openhue.On{
@@ -255,24 +266,11 @@ func (c *Client) GetScenes() ([]Scene, error) {
 
 	c.setConnectionSuccess()
 
-	// Get rooms to resolve names
-	roomsResp, err := c.client.GetRoomsWithResponse(c.ctx)
-	roomMap := make(map[string]string)
-	if err == nil && roomsResp.JSON200 != nil && roomsResp.JSON200.Data != nil {
-		for _, room := range *roomsResp.JSON200.Data {
-			if room.Id != nil && room.Metadata != nil && room.Metadata.Name != nil {
-				roomMap[*room.Id] = *room.Metadata.Name
-			}
-		}
-	}
-
-	// Get zones to resolve names
-	zonesResp, err := c.client.GetZonesWithResponse(c.ctx)
-	if err == nil && zonesResp.JSON200 != nil && zonesResp.JSON200.Data != nil {
-		for _, zone := range *zonesResp.JSON200.Data {
-			if zone.Id != nil && zone.Metadata != nil && zone.Metadata.Name != nil {
-				roomMap[*zone.Id] = *zone.Metadata.Name
-			}
+	// Resolve room/zone names and grouped_light IDs for display and activation
+	roomsByID := make(map[string]roomOrZone)
+	if roomsAndZones, _, err := c.getRoomsAndZones(); err == nil {
+		for _, rz := range roomsAndZones {
+			roomsByID[rz.ID] = rz
 		}
 	}
 
@@ -291,11 +289,12 @@ func (c *Client) GetScenes() ([]Scene, error) {
 			Name: *item.Metadata.Name,
 		}
 
-		// Get room/zone name if available
+		// Get room/zone name and grouped_light ID if available
 		if item.Group != nil && item.Group.Rid != nil {
 			scene.Room = *item.Group.Rid
-			if roomName, ok := roomMap[scene.Room]; ok {
-				scene.RoomName = roomName
+			if rz, ok := roomsByID[scene.Room]; ok {
+				scene.RoomName = rz.Name
+				scene.GroupedLightID = rz.GroupedLightID
 			}
 		}
 
@@ -335,80 +334,98 @@ func (c *Client) Ping() error {
 	return nil
 }
 
-// GetGroupedLights lists all available rooms and zones with grouped lights
-func (c *Client) GetGroupedLights() ([]GroupedLight, error) {
+// getRoomsAndZones fetches all rooms and zones from the bridge, resolving each
+// one's name and associated grouped_light service ID. It is the single source
+// of rooms/zones data shared by GetScenes and GetGroupedLights. fetchErrs
+// holds per-endpoint failures (rooms and/or zones); it is not folded into the
+// returned error because a partial fetch (e.g. zones failed but rooms
+// succeeded) is not fatal - callers that care whether they got usable data
+// decide that for themselves. The returned error is only set for a hard
+// failure (rate limiting) before any fetch runs.
+func (c *Client) getRoomsAndZones() (result []roomOrZone, fetchErrs []error, err error) {
 	if err := c.waitForRateLimit(); err != nil {
-		return nil, fmt.Errorf("rate limit error: %w", err)
+		return nil, nil, fmt.Errorf("rate limit error: %w", err)
 	}
 
-	var groupedLights []GroupedLight
-	var errors []error
-
 	// Get rooms (don't fail if this fails, we can still try zones)
-	roomsResp, err := c.client.GetRoomsWithResponse(c.ctx)
-	if err != nil {
-		errors = append(errors, fmt.Errorf("failed to get rooms: %w", err))
+	roomsResp, roomsErr := c.client.GetRoomsWithResponse(c.ctx)
+	if roomsErr != nil {
+		fetchErrs = append(fetchErrs, fmt.Errorf("failed to get rooms: %w", roomsErr))
 	} else if roomsResp.StatusCode() != 200 {
-		errors = append(errors, fmt.Errorf("failed to get rooms: status %d", roomsResp.StatusCode()))
+		fetchErrs = append(fetchErrs, fmt.Errorf("failed to get rooms: status %d", roomsResp.StatusCode()))
 	} else if roomsResp.JSON200 != nil && roomsResp.JSON200.Data != nil {
 		for _, room := range *roomsResp.JSON200.Data {
-			if room.Id != nil && room.Metadata != nil && room.Metadata.Name != nil {
-				// Get the grouped light ID for this room
-				groupedLightID := ""
-				if room.Services != nil {
-					for _, service := range *room.Services {
-						if service.Rtype != nil && *service.Rtype == "grouped_light" && service.Rid != nil {
-							groupedLightID = *service.Rid
-							break
-						}
-					}
-				}
-
-				if groupedLightID != "" {
-					groupedLights = append(groupedLights, GroupedLight{
-						ID:   groupedLightID,
-						Name: *room.Metadata.Name,
-						Type: "room",
-					})
-				}
+			if room.Id == nil || room.Metadata == nil || room.Metadata.Name == nil {
+				continue
 			}
+			result = append(result, roomOrZone{
+				ID:             *room.Id,
+				Name:           *room.Metadata.Name,
+				Type:           "room",
+				GroupedLightID: findGroupedLightService(room.Services),
+			})
 		}
 	}
 
 	// Get zones (don't fail if this fails, we might have rooms)
-	zonesResp, err := c.client.GetZonesWithResponse(c.ctx)
-	if err != nil {
-		errors = append(errors, fmt.Errorf("failed to get zones: %w", err))
+	zonesResp, zonesErr := c.client.GetZonesWithResponse(c.ctx)
+	if zonesErr != nil {
+		fetchErrs = append(fetchErrs, fmt.Errorf("failed to get zones: %w", zonesErr))
 	} else if zonesResp.StatusCode() != 200 {
-		errors = append(errors, fmt.Errorf("failed to get zones: status %d", zonesResp.StatusCode()))
+		fetchErrs = append(fetchErrs, fmt.Errorf("failed to get zones: status %d", zonesResp.StatusCode()))
 	} else if zonesResp.JSON200 != nil && zonesResp.JSON200.Data != nil {
 		for _, zone := range *zonesResp.JSON200.Data {
-			if zone.Id != nil && zone.Metadata != nil && zone.Metadata.Name != nil {
-				// Get the grouped light ID for this zone
-				groupedLightID := ""
-				if zone.Services != nil {
-					for _, service := range *zone.Services {
-						if service.Rtype != nil && *service.Rtype == "grouped_light" && service.Rid != nil {
-							groupedLightID = *service.Rid
-							break
-						}
-					}
-				}
-
-				if groupedLightID != "" {
-					groupedLights = append(groupedLights, GroupedLight{
-						ID:   groupedLightID,
-						Name: *zone.Metadata.Name,
-						Type: "zone",
-					})
-				}
+			if zone.Id == nil || zone.Metadata == nil || zone.Metadata.Name == nil {
+				continue
 			}
+			result = append(result, roomOrZone{
+				ID:             *zone.Id,
+				Name:           *zone.Metadata.Name,
+				Type:           "zone",
+				GroupedLightID: findGroupedLightService(zone.Services),
+			})
 		}
 	}
 
+	return result, fetchErrs, nil
+}
+
+// findGroupedLightService returns the grouped_light resource ID from a
+// room/zone's services list, or "" if none is present.
+func findGroupedLightService(services *[]openhue.ResourceIdentifier) string {
+	if services == nil {
+		return ""
+	}
+	for _, svc := range *services {
+		if svc.Rtype != nil && *svc.Rtype == "grouped_light" && svc.Rid != nil {
+			return *svc.Rid
+		}
+	}
+	return ""
+}
+
+// GetGroupedLights lists all available rooms and zones with grouped lights
+func (c *Client) GetGroupedLights() ([]GroupedLight, error) {
+	roomsAndZones, fetchErrs, err := c.getRoomsAndZones()
+	if err != nil {
+		return nil, err
+	}
+
+	var groupedLights []GroupedLight
+	for _, rz := range roomsAndZones {
+		if rz.GroupedLightID == "" {
+			continue
+		}
+		groupedLights = append(groupedLights, GroupedLight{
+			ID:   rz.GroupedLightID,
+			Name: rz.Name,
+			Type: rz.Type,
+		})
+	}
+
 	// Only fail if we got no lights at all
-	if len(groupedLights) == 0 && len(errors) > 0 {
-		return nil, fmt.Errorf("failed to get any grouped lights: %v", errors)
+	if len(groupedLights) == 0 && len(fetchErrs) > 0 {
+		return nil, fmt.Errorf("failed to get any grouped lights: %v", fetchErrs)
 	}
 
 	// Sort by name
@@ -417,43 +434,6 @@ func (c *Client) GetGroupedLights() ([]GroupedLight, error) {
 	})
 
 	return groupedLights, nil
-}
-
-// GetGroupedLightIDForRoom returns the grouped_light resource ID for a given room or zone resource ID
-func (c *Client) GetGroupedLightIDForRoom(roomID string) (string, error) {
-	if err := c.waitForRateLimit(); err != nil {
-		return "", fmt.Errorf("rate limit error: %w", err)
-	}
-
-	// Check rooms first
-	roomsResp, err := c.client.GetRoomsWithResponse(c.ctx)
-	if err == nil && roomsResp.JSON200 != nil && roomsResp.JSON200.Data != nil {
-		for _, room := range *roomsResp.JSON200.Data {
-			if room.Id != nil && *room.Id == roomID && room.Services != nil {
-				for _, svc := range *room.Services {
-					if svc.Rtype != nil && *svc.Rtype == "grouped_light" && svc.Rid != nil {
-						return *svc.Rid, nil
-					}
-				}
-			}
-		}
-	}
-
-	// Check zones
-	zonesResp, err := c.client.GetZonesWithResponse(c.ctx)
-	if err == nil && zonesResp.JSON200 != nil && zonesResp.JSON200.Data != nil {
-		for _, zone := range *zonesResp.JSON200.Data {
-			if zone.Id != nil && *zone.Id == roomID && zone.Services != nil {
-				for _, svc := range *zone.Services {
-					if svc.Rtype != nil && *svc.Rtype == "grouped_light" && svc.Rid != nil {
-						return *svc.Rid, nil
-					}
-				}
-			}
-		}
-	}
-
-	return "", fmt.Errorf("no grouped light found for room/zone %s", roomID)
 }
 
 // GetClientKey returns the API key (for Entertainment API setup)

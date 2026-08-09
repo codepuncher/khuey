@@ -443,20 +443,18 @@ func (s *Service) ActivateScene(displayName string, sender dbus.Sender) (string,
 			log.Printf("Activated scene: %s (ID: %s)", displayName, scene.ID)
 
 			// Auto-update GroupedLightID to match the scene's room so that
-			// brightness/power controls target the same lights as the scene
-			if scene.Room != "" {
-				if glID, err := s.hueClient.GetGroupedLightIDForRoom(scene.Room); err == nil {
-					s.mu.Lock()
-					s.config.GroupedLightID = glID
-					saveErr := s.config.Save()
-					s.mu.Unlock()
-					if saveErr != nil {
-						log.Printf("[WARN] Failed to save config after scene activation: %v", saveErr)
-					}
-					log.Printf("Auto-updated GroupedLightID to %s (room: %s)", glID, scene.Room)
-				} else {
-					log.Printf("[WARN] Could not find grouped light for scene room %s: %v", scene.Room, err)
+			// brightness/power controls target the same lights as the scene.
+			// scene.GroupedLightID was already resolved by the GetScenes call
+			// above, so no extra bridge round trip is needed here.
+			if scene.GroupedLightID != "" {
+				s.mu.Lock()
+				s.config.GroupedLightID = scene.GroupedLightID
+				saveErr := s.config.Save()
+				s.mu.Unlock()
+				if saveErr != nil {
+					log.Printf("[WARN] Failed to save config after scene activation: %v", saveErr)
 				}
+				log.Printf("Auto-updated GroupedLightID to %s (room: %s)", scene.GroupedLightID, scene.Room)
 			}
 
 			return "Scene activated: " + displayName, nil
