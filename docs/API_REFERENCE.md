@@ -75,10 +75,10 @@ dbus-send --session --print-reply \
 **Protected Methods:**
 - All methods that modify state (SetPower, ActivateScene, StartSync, etc.)
 - Methods that change configuration (SetGroupedLight, SetSyncSettings, etc.)
-- Methods that read bridge or bridge-derived data (GetScenes, GetGroupedLights, GetState, GetConnectionStatus, GetBridgeSettings)
+- Methods that read bridge or bridge-derived data (GetScenes, GetGroupedLights, GetState, GetConnectionStatus, GetBridgeSettings, GetSelectedRoom, GetStartupScene)
 
 **Read-Only Methods (No Access Control):**
-- GetStatus, IsSyncing, IsGamingModeEnabled, IsGamingModeActive, GetSyncSettings, GetSelectedRoom, GetStartupScene, GetTrayIcons
+- GetStatus, IsSyncing, IsGamingModeEnabled, IsGamingModeActive, GetSyncSettings, GetTrayIcons
 
 **Access Denied Response:**
 ```
@@ -505,6 +505,9 @@ Returns the currently selected room/zone ID.
 **Returns:**
 - Grouped light ID (string) - Empty if not configured
 
+**Errors:**
+- `"access denied"` - Caller is not service owner
+
 **Example (dbus-send):**
 ```bash
 dbus-send --session --print-reply \
@@ -527,6 +530,28 @@ Updates the room/zone selection (alias for SetGroupedLight).
 **Returns:**
 - `true` - Successfully saved
 - `false` - Failed (error in DBus error field)
+
+---
+
+#### GetStartupScene
+
+Returns the configured startup scene display name.
+
+**Signature:** `GetStartupScene() → string`
+
+**Returns:**
+- Scene display name (string), e.g. `"Living Room - Relax"` - Empty if not configured
+
+**Errors:**
+- `"access denied"` - Caller is not service owner
+
+**Example (dbus-send):**
+```bash
+dbus-send --session --print-reply \
+  --dest=org.kde.plasma.hue \
+  /org/kde/plasma/hue \
+  org.kde.plasma.hue.GetStartupScene
+```
 
 ---
 

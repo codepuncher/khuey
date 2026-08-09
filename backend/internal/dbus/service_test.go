@@ -306,10 +306,17 @@ func TestGetSelectedRoom(t *testing.T) {
 		},
 	}
 
+	// GetSelectedRoom is owner-guarded (returns a bridge grouped-light UUID);
+	// inject an allowing resolver so this test exercises the config-reading
+	// logic.
+	allowingCallerUID := func(dbus.Sender) (uint32, error) {
+		return 1000, nil
+	}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := &Service{config: tt.cfg}
-			result, err := s.GetSelectedRoom()
+			s := &Service{config: tt.cfg, ownerUID: 1000, callerUID: allowingCallerUID}
+			result, err := s.GetSelectedRoom(dbus.Sender("owner"))
 			if err != nil {
 				t.Errorf("GetSelectedRoom() returned error: %v", err)
 			}
@@ -341,10 +348,17 @@ func TestGetStartupScene(t *testing.T) {
 		},
 	}
 
+	// GetStartupScene is owner-guarded (returns a bridge-derived scene display
+	// name); inject an allowing resolver so this test exercises the
+	// config-reading logic.
+	allowingCallerUID := func(dbus.Sender) (uint32, error) {
+		return 1000, nil
+	}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := &Service{config: tt.cfg}
-			result, err := s.GetStartupScene()
+			s := &Service{config: tt.cfg, ownerUID: 1000, callerUID: allowingCallerUID}
+			result, err := s.GetStartupScene(dbus.Sender("owner"))
 			if err != nil {
 				t.Errorf("GetStartupScene() returned error: %v", err)
 			}
@@ -373,9 +387,10 @@ func TestActivateStartupScene(t *testing.T) {
 	})
 }
 
-// TestSetStartupSceneInvalidInput tests that SetStartupScene rejects invalid
-// input before touching config or checking access, since neither is safe to
-// exercise here without a live DBus connection.
+// TestSetStartupSceneInvalidInput pins that SetStartupScene, with checkAccess
+// satisfied by an allowing resolver, still rejects invalid UTF-8 input before
+// touching config - i.e. that the invalid-input path is reachable and
+// distinguishable from an access-denied failure.
 func TestSetStartupSceneInvalidInput(t *testing.T) {
 	const ownerUID = 1000
 	allowingCallerUID := func(dbus.Sender) (uint32, error) {
@@ -552,10 +567,10 @@ type guardedMethodCase struct {
 }
 
 // guardedMethodCases enumerates every DBus method gated by checkAccess:
-// the original mutators plus the five bridge-data readers (GetScenes,
-// GetGroupedLights, GetState, GetConnectionStatus, GetBridgeSettings)
-// guarded under the "touches the bridge or bridge-derived data requires
-// owner" rule.
+// the original mutators plus the seven bridge-data readers (GetScenes,
+// GetGroupedLights, GetState, GetConnectionStatus, GetBridgeSettings,
+// GetSelectedRoom, GetStartupScene) guarded under the "touches the bridge or
+// bridge-derived data requires owner" rule.
 var guardedMethodCases = []guardedMethodCase{
 	{
 		name: "SetPower",
@@ -710,6 +725,20 @@ var guardedMethodCases = []guardedMethodCase{
 		name: "GetBridgeSettings",
 		call: func(s *Service, sender dbus.Sender) *dbus.Error {
 			_, err := s.GetBridgeSettings(sender)
+			return err
+		},
+	},
+	{
+		name: "GetSelectedRoom",
+		call: func(s *Service, sender dbus.Sender) *dbus.Error {
+			_, err := s.GetSelectedRoom(sender)
+			return err
+		},
+	},
+	{
+		name: "GetStartupScene",
+		call: func(s *Service, sender dbus.Sender) *dbus.Error {
+			_, err := s.GetStartupScene(sender)
 			return err
 		},
 	},

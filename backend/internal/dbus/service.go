@@ -864,7 +864,13 @@ func (s *Service) TestBridgeConnection(sender dbus.Sender) (bool, *dbus.Error) {
 }
 
 // GetSelectedRoom returns the currently selected room/zone for light control
-func (s *Service) GetSelectedRoom() (string, *dbus.Error) {
+func (s *Service) GetSelectedRoom(sender dbus.Sender) (string, *dbus.Error) {
+	// Access control: only service owner can read bridge-derived data
+	if err := s.checkAccess(sender); err != nil {
+		log.Printf("[WARN] GetSelectedRoom access denied")
+		return "", dbus.MakeFailedError(err)
+	}
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -897,7 +903,14 @@ func (s *Service) SetSelectedRoom(roomID string, sender dbus.Sender) (bool, *dbu
 	return true, nil
 }
 
-func (s *Service) GetStartupScene() (string, *dbus.Error) {
+// GetStartupScene returns the configured startup scene display name.
+func (s *Service) GetStartupScene(sender dbus.Sender) (string, *dbus.Error) {
+	// Access control: only service owner can read bridge-derived data
+	if err := s.checkAccess(sender); err != nil {
+		log.Printf("[WARN] GetStartupScene access denied")
+		return "", dbus.MakeFailedError(err)
+	}
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 

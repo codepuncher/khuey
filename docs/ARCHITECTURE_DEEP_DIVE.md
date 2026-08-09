@@ -313,13 +313,14 @@ type Service struct {
     gamingModeActive bool               // Gaming state
     mu               sync.RWMutex       // Protects config access
     ownerUID         uint32             // Service owner UID
+    callerUID        func(dbus.Sender) (uint32, error) // Resolves sender to UID; nil fails closed
 }
 ```
 
 **Access Control:**
 - UID-based filtering (only same-user processes)
 - `checkAccess(sender)` verifies caller UID
-- Read-only methods bypass access control
+- Reads that return bridge or bridge-derived data require owner; purely local config reads (e.g. GetStatus, GetSyncSettings) do not
 - Write methods require owner UID match
 
 **Method Categories:**
@@ -1805,11 +1806,14 @@ func (cb *CircuitBreaker) RecordSuccess() {
 **UID Verification:**
 ```go
 func (s *Service) checkAccess(sender dbus.Sender) error {
-    // Get caller UID via DBus
-    obj := s.conn.Object("org.freedesktop.DBus", "/org/freedesktop/DBus")
-    var callerUID uint32
-    err := obj.Call("org.freedesktop.DBus.GetConnectionUnixUser", 0, sender).Store(&callerUID)
+    if s.callerUID == nil {
+        log.Printf("[WARN] Access denied: no caller UID resolver configured")
+        return fmt.Errorf("access denied: unable to verify caller identity")
+    }
+
+    callerUID, err := s.callerUID(sender)
     if err != nil {
+        log.Printf("[WARN] Failed to get caller UID: %v", err)
         return fmt.Errorf("access denied: unable to verify caller identity")
     }
 
@@ -1823,17 +1827,30 @@ func (s *Service) checkAccess(sender dbus.Sender) error {
 }
 ```
 
+A nil `callerUID` resolver (e.g. a directly-constructed `Service` in tests) fails closed rather than allowing or falling back to the real DBus lookup.
+
 **Methods Requiring Access Control:**
+
+Mutators:
 - SetPower, SetBrightness
 - ActivateScene
-- StartSync, StopSync
 - SetGroupedLight, SetSyncSettings
+- StartSync, StopSync
+- SetSelectedRoom, SetStartupScene
 - SetGamingMode
+- SetTrayIcons
+- RetryConnection, TestBridgeConnection
 
-**Methods Without Access Control:**
-- GetStatus, GetScenes
-- IsSyncing, IsGamingModeEnabled
+Bridge-data readers (return bridge or bridge-derived data):
+- GetScenes, GetGroupedLights
+- GetState
 - GetConnectionStatus, GetBridgeSettings
+- GetSelectedRoom, GetStartupScene
+
+**Methods Without Access Control** (purely local config/state reads, no bridge data):
+- GetStatus, IsSyncing
+- GetSyncSettings, GetTrayIcons
+- IsGamingModeEnabled, IsGamingModeActive
 
 ---
 
