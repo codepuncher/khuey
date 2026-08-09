@@ -264,10 +264,16 @@ func TestGetBridgeSettings(t *testing.T) {
 		},
 	}
 
+	// GetBridgeSettings is owner-guarded (touches bridge-derived data); inject
+	// an allowing resolver so this test exercises the config-reading logic.
+	allowingCallerUID := func(dbus.Sender) (uint32, error) {
+		return 1000, nil
+	}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := &Service{config: tt.cfg}
-			settings, err := s.GetBridgeSettings()
+			s := &Service{config: tt.cfg, ownerUID: 1000, callerUID: allowingCallerUID}
+			settings, err := s.GetBridgeSettings(dbus.Sender("owner"))
 			if err != nil {
 				t.Errorf("GetBridgeSettings() returned error: %v", err)
 			}
@@ -371,10 +377,17 @@ func TestActivateStartupScene(t *testing.T) {
 // input before touching config or checking access, since neither is safe to
 // exercise here without a live DBus connection.
 func TestSetStartupSceneInvalidInput(t *testing.T) {
-	s := &Service{config: config.DefaultConfig()}
-	ok, dbusErr := s.SetStartupScene("\xff\xfe invalid utf8", dbus.Sender(""))
+	const ownerUID = 1000
+	allowingCallerUID := func(dbus.Sender) (uint32, error) {
+		return ownerUID, nil
+	}
+	s := &Service{config: config.DefaultConfig(), ownerUID: ownerUID, callerUID: allowingCallerUID}
+	ok, dbusErr := s.SetStartupScene("\xff\xfe invalid utf8", dbus.Sender("owner"))
 	if ok || dbusErr == nil {
 		t.Error("SetStartupScene() with invalid UTF-8 should fail validation")
+	}
+	if dbusErr != nil && strings.Contains(dbusErr.Error(), "access denied") {
+		t.Errorf("SetStartupScene() failed on access check, want invalid-input failure: %v", dbusErr)
 	}
 }
 
@@ -526,17 +539,197 @@ func sentinelConfig() *config.Config {
 	}
 }
 
-// TestMutatorsRequireOwnerAccess enumerates every mutating DBus method and
-// verifies each one rejects a caller whose UID doesn't match ownerUID. It is
-// a regression test for the SetTrayIcons access-control gap (F4): a bare
-// "err != nil" check would pass even without a checkAccess call, since
-// config.Save() can already fail on its own (e.g. "bridge address is
-// required"), so the assertions here pin both the exact "access denied"
-// error and that config was left untouched.
+// guardedMethodCase describes one checkAccess-gated DBus method, shared by
+// the deny-direction (TestMutatorsRequireOwnerAccess) and allow-direction
+// (TestGuardedMethodsAllowOwnerCaller) tests below.
+type guardedMethodCase struct {
+	name string
+	call func(s *Service, sender dbus.Sender) *dbus.Error
+	// checkUnchanged asserts the field(s) this method mutates on success
+	// were left alone by a denied call. Nil for methods that don't touch
+	// config (e.g. pure bridge reads).
+	checkUnchanged func(t *testing.T, cfg *config.Config)
+}
+
+// guardedMethodCases enumerates every DBus method gated by checkAccess:
+// the original mutators plus the five bridge-data readers (GetScenes,
+// GetGroupedLights, GetState, GetConnectionStatus, GetBridgeSettings)
+// guarded under the "touches the bridge or bridge-derived data requires
+// owner" rule.
+var guardedMethodCases = []guardedMethodCase{
+	{
+		name: "SetPower",
+		call: func(s *Service, sender dbus.Sender) *dbus.Error {
+			_, err := s.SetPower(true, sender)
+			return err
+		},
+	},
+	{
+		name: "SetBrightness",
+		call: func(s *Service, sender dbus.Sender) *dbus.Error {
+			_, err := s.SetBrightness(50, sender)
+			return err
+		},
+	},
+	{
+		name: "ActivateScene",
+		call: func(s *Service, sender dbus.Sender) *dbus.Error {
+			_, err := s.ActivateScene("Living Room - Relax", sender)
+			return err
+		},
+	},
+	{
+		name: "SetGroupedLight",
+		call: func(s *Service, sender dbus.Sender) *dbus.Error {
+			_, err := s.SetGroupedLight("new-light-id", sender)
+			return err
+		},
+		checkUnchanged: func(t *testing.T, cfg *config.Config) {
+			if cfg.GroupedLightID != "sentinel-light-id" {
+				t.Errorf("GroupedLightID = %q, want unchanged %q", cfg.GroupedLightID, "sentinel-light-id")
+			}
+		},
+	},
+	{
+		name: "StartSync",
+		call: func(s *Service, sender dbus.Sender) *dbus.Error {
+			_, err := s.StartSync(sender)
+			return err
+		},
+	},
+	{
+		name: "StopSync",
+		call: func(s *Service, sender dbus.Sender) *dbus.Error {
+			_, err := s.StopSync(sender)
+			return err
+		},
+	},
+	{
+		name: "SetSyncSettings",
+		call: func(s *Service, sender dbus.Sender) *dbus.Error {
+			_, err := s.SetSyncSettings(30, 64, "eDP-1", sender)
+			return err
+		},
+		checkUnchanged: func(t *testing.T, cfg *config.Config) {
+			if cfg.Sync.FPS != 15 || cfg.Sync.SubsampleWidth != 32 || cfg.Sync.Monitor != "sentinel-monitor" {
+				t.Errorf("Sync settings mutated: %+v", cfg.Sync)
+			}
+		},
+	},
+	{
+		name: "SetSelectedRoom",
+		call: func(s *Service, sender dbus.Sender) *dbus.Error {
+			_, err := s.SetSelectedRoom("new-room-id", sender)
+			return err
+		},
+		checkUnchanged: func(t *testing.T, cfg *config.Config) {
+			if cfg.GroupedLightID != "sentinel-light-id" {
+				t.Errorf("GroupedLightID = %q, want unchanged %q", cfg.GroupedLightID, "sentinel-light-id")
+			}
+		},
+	},
+	{
+		name: "SetStartupScene",
+		call: func(s *Service, sender dbus.Sender) *dbus.Error {
+			_, err := s.SetStartupScene("Kitchen - Bright", sender)
+			return err
+		},
+		checkUnchanged: func(t *testing.T, cfg *config.Config) {
+			if cfg.StartupScene != "sentinel-scene" {
+				t.Errorf("StartupScene = %q, want unchanged %q", cfg.StartupScene, "sentinel-scene")
+			}
+		},
+	},
+	{
+		name: "SetGamingMode",
+		call: func(s *Service, sender dbus.Sender) *dbus.Error {
+			_, err := s.SetGamingMode(sender, true)
+			return err
+		},
+		checkUnchanged: func(t *testing.T, cfg *config.Config) {
+			if cfg.GamingMode.Enabled {
+				t.Errorf("GamingMode.Enabled = %v, want unchanged false", cfg.GamingMode.Enabled)
+			}
+		},
+	},
+	{
+		name: "SetTrayIcons",
+		call: func(s *Service, sender dbus.Sender) *dbus.Error {
+			_, err := s.SetTrayIcons("new-gaming", "new-syncing", "new-idle", sender)
+			return err
+		},
+		checkUnchanged: func(t *testing.T, cfg *config.Config) {
+			if cfg.UI.Icons.Gaming != "sentinel-gaming" || cfg.UI.Icons.Syncing != "sentinel-syncing" || cfg.UI.Icons.Idle != "sentinel-idle" {
+				t.Errorf("UI.Icons mutated: %+v", cfg.UI.Icons)
+			}
+		},
+	},
+	{
+		name: "RetryConnection",
+		call: func(s *Service, sender dbus.Sender) *dbus.Error {
+			_, err := s.RetryConnection(sender)
+			return err
+		},
+	},
+	{
+		name: "TestBridgeConnection",
+		call: func(s *Service, sender dbus.Sender) *dbus.Error {
+			_, err := s.TestBridgeConnection(sender)
+			return err
+		},
+	},
+	{
+		name: "GetScenes",
+		call: func(s *Service, sender dbus.Sender) *dbus.Error {
+			_, err := s.GetScenes(sender)
+			return err
+		},
+	},
+	{
+		name: "GetGroupedLights",
+		call: func(s *Service, sender dbus.Sender) *dbus.Error {
+			_, err := s.GetGroupedLights(sender)
+			return err
+		},
+	},
+	{
+		name: "GetState",
+		call: func(s *Service, sender dbus.Sender) *dbus.Error {
+			_, _, _, err := s.GetState(sender)
+			return err
+		},
+	},
+	{
+		name: "GetConnectionStatus",
+		call: func(s *Service, sender dbus.Sender) *dbus.Error {
+			_, err := s.GetConnectionStatus(sender)
+			return err
+		},
+	},
+	{
+		name: "GetBridgeSettings",
+		call: func(s *Service, sender dbus.Sender) *dbus.Error {
+			_, err := s.GetBridgeSettings(sender)
+			return err
+		},
+	},
+}
+
+// TestMutatorsRequireOwnerAccess enumerates every checkAccess-gated DBus
+// method and verifies each one rejects a caller whose UID doesn't match
+// ownerUID. It is a regression test for the SetTrayIcons access-control gap
+// (F4): a bare "err != nil" check would pass even without a checkAccess
+// call, since config.Save() can already fail on its own (e.g. "bridge
+// address is required"), so the assertions here pin both the exact "access
+// denied" error and that config was left untouched.
 //
 // Directly-constructed Services (as used throughout this file) have a nil
 // callerUID resolver, which would make checkAccess panic via getCallerUID's
 // nil conn dereference; a fake resolver is injected here instead.
+//
+// This test alone only pins the deny direction: a checkAccess sabotaged to
+// reject every caller (including the legitimate owner) would still pass it.
+// TestGuardedMethodsAllowOwnerCaller below pins the allow direction.
 func TestMutatorsRequireOwnerAccess(t *testing.T) {
 	// Denied mutators still reach config.Save() before checkAccess in some
 	// paths' failure modes; point it at a throwaway HOME so a future
@@ -550,138 +743,7 @@ func TestMutatorsRequireOwnerAccess(t *testing.T) {
 		return ownerUID + 1, nil
 	}
 
-	tests := []struct {
-		name string
-		call func(s *Service) *dbus.Error
-		// checkUnchanged asserts the field(s) this method mutates on success
-		// were left alone by the denied call. Nil for methods that don't
-		// touch config.
-		checkUnchanged func(t *testing.T, cfg *config.Config)
-	}{
-		{
-			name: "SetPower",
-			call: func(s *Service) *dbus.Error {
-				_, err := s.SetPower(true, dbus.Sender("attacker"))
-				return err
-			},
-		},
-		{
-			name: "SetBrightness",
-			call: func(s *Service) *dbus.Error {
-				_, err := s.SetBrightness(50, dbus.Sender("attacker"))
-				return err
-			},
-		},
-		{
-			name: "ActivateScene",
-			call: func(s *Service) *dbus.Error {
-				_, err := s.ActivateScene("Living Room - Relax", dbus.Sender("attacker"))
-				return err
-			},
-		},
-		{
-			name: "SetGroupedLight",
-			call: func(s *Service) *dbus.Error {
-				_, err := s.SetGroupedLight("new-light-id", dbus.Sender("attacker"))
-				return err
-			},
-			checkUnchanged: func(t *testing.T, cfg *config.Config) {
-				if cfg.GroupedLightID != "sentinel-light-id" {
-					t.Errorf("GroupedLightID = %q, want unchanged %q", cfg.GroupedLightID, "sentinel-light-id")
-				}
-			},
-		},
-		{
-			name: "StartSync",
-			call: func(s *Service) *dbus.Error {
-				_, err := s.StartSync(dbus.Sender("attacker"))
-				return err
-			},
-		},
-		{
-			name: "StopSync",
-			call: func(s *Service) *dbus.Error {
-				_, err := s.StopSync(dbus.Sender("attacker"))
-				return err
-			},
-		},
-		{
-			name: "SetSyncSettings",
-			call: func(s *Service) *dbus.Error {
-				_, err := s.SetSyncSettings(30, 64, "eDP-1", dbus.Sender("attacker"))
-				return err
-			},
-			checkUnchanged: func(t *testing.T, cfg *config.Config) {
-				if cfg.Sync.FPS != 15 || cfg.Sync.SubsampleWidth != 32 || cfg.Sync.Monitor != "sentinel-monitor" {
-					t.Errorf("Sync settings mutated: %+v", cfg.Sync)
-				}
-			},
-		},
-		{
-			name: "SetSelectedRoom",
-			call: func(s *Service) *dbus.Error {
-				_, err := s.SetSelectedRoom("new-room-id", dbus.Sender("attacker"))
-				return err
-			},
-			checkUnchanged: func(t *testing.T, cfg *config.Config) {
-				if cfg.GroupedLightID != "sentinel-light-id" {
-					t.Errorf("GroupedLightID = %q, want unchanged %q", cfg.GroupedLightID, "sentinel-light-id")
-				}
-			},
-		},
-		{
-			name: "SetStartupScene",
-			call: func(s *Service) *dbus.Error {
-				_, err := s.SetStartupScene("Kitchen - Bright", dbus.Sender("attacker"))
-				return err
-			},
-			checkUnchanged: func(t *testing.T, cfg *config.Config) {
-				if cfg.StartupScene != "sentinel-scene" {
-					t.Errorf("StartupScene = %q, want unchanged %q", cfg.StartupScene, "sentinel-scene")
-				}
-			},
-		},
-		{
-			name: "SetGamingMode",
-			call: func(s *Service) *dbus.Error {
-				_, err := s.SetGamingMode(dbus.Sender("attacker"), true)
-				return err
-			},
-			checkUnchanged: func(t *testing.T, cfg *config.Config) {
-				if cfg.GamingMode.Enabled {
-					t.Errorf("GamingMode.Enabled = %v, want unchanged false", cfg.GamingMode.Enabled)
-				}
-			},
-		},
-		{
-			name: "SetTrayIcons",
-			call: func(s *Service) *dbus.Error {
-				_, err := s.SetTrayIcons("new-gaming", "new-syncing", "new-idle", dbus.Sender("attacker"))
-				return err
-			},
-			checkUnchanged: func(t *testing.T, cfg *config.Config) {
-				if cfg.UI.Icons.Gaming != "sentinel-gaming" || cfg.UI.Icons.Syncing != "sentinel-syncing" || cfg.UI.Icons.Idle != "sentinel-idle" {
-					t.Errorf("UI.Icons mutated: %+v", cfg.UI.Icons)
-				}
-			},
-		},
-		{
-			name: "RetryConnection",
-			call: func(s *Service) *dbus.Error {
-				_, err := s.RetryConnection(dbus.Sender("attacker"))
-				return err
-			},
-		},
-		{
-			name: "TestBridgeConnection",
-			call: func(s *Service) *dbus.Error {
-				_, err := s.TestBridgeConnection(dbus.Sender("attacker"))
-				return err
-			},
-		},
-	}
-
-	for _, tt := range tests {
+	for _, tt := range guardedMethodCases {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := sentinelConfig()
 			s := &Service{
@@ -690,7 +752,7 @@ func TestMutatorsRequireOwnerAccess(t *testing.T) {
 				callerUID: deniedCallerUID,
 			}
 
-			dbusErr := tt.call(s)
+			dbusErr := tt.call(s, dbus.Sender("attacker"))
 			if dbusErr == nil {
 				t.Fatalf("%s() with mismatched UID returned no error, want access denied", tt.name)
 			}
@@ -700,6 +762,42 @@ func TestMutatorsRequireOwnerAccess(t *testing.T) {
 
 			if tt.checkUnchanged != nil {
 				tt.checkUnchanged(t, cfg)
+			}
+		})
+	}
+}
+
+// TestGuardedMethodsAllowOwnerCaller is the allow-direction counterpart to
+// TestMutatorsRequireOwnerAccess. Verified empirically: an unconditional
+// `return fmt.Errorf(...)` inserted at the top of checkAccess (denying every
+// caller, including the owner) left the deny-direction test green, since it
+// only ever exercises mismatched UIDs. This test injects a resolver
+// returning the matching ownerUID and checks that checkAccess did not reject
+// the call. Methods still fail downstream for unrelated reasons in this
+// unconfigured test Service (no hueClient, no bridge address for
+// config.Save()), so this deliberately does not assert success - only that
+// the failure, if any, isn't "access denied".
+func TestGuardedMethodsAllowOwnerCaller(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("HOME", t.TempDir())
+
+	const ownerUID = 1000
+	allowingCallerUID := func(dbus.Sender) (uint32, error) {
+		return ownerUID, nil
+	}
+
+	for _, tt := range guardedMethodCases {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := sentinelConfig()
+			s := &Service{
+				config:    cfg,
+				ownerUID:  ownerUID,
+				callerUID: allowingCallerUID,
+			}
+
+			dbusErr := tt.call(s, dbus.Sender("owner"))
+			if dbusErr != nil && strings.Contains(dbusErr.Error(), "access denied") {
+				t.Errorf("%s() with matching UID was denied: %v", tt.name, dbusErr.Error())
 			}
 		})
 	}

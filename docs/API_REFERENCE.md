@@ -75,9 +75,10 @@ dbus-send --session --print-reply \
 **Protected Methods:**
 - All methods that modify state (SetPower, ActivateScene, StartSync, etc.)
 - Methods that change configuration (SetGroupedLight, SetSyncSettings, etc.)
+- Methods that read bridge or bridge-derived data (GetScenes, GetGroupedLights, GetState, GetConnectionStatus, GetBridgeSettings)
 
 **Read-Only Methods (No Access Control):**
-- GetStatus, GetScenes, IsSyncing, IsGamingModeEnabled
+- GetStatus, IsSyncing, IsGamingModeEnabled, IsGamingModeActive, GetSyncSettings, GetSelectedRoom, GetStartupScene, GetTrayIcons
 
 **Access Denied Response:**
 ```
@@ -150,6 +151,9 @@ Returns detailed bridge connection information.
 - `bridgeIP` (string) - Configured bridge IP address
 - `lastAttempt` (string) - Timestamp of last connection attempt (RFC 3339)
 
+**Errors:**
+- `"access denied"` - Caller is not service owner
+
 **Example (dbus-send):**
 ```bash
 dbus-send --session --print-reply \
@@ -196,7 +200,6 @@ Attempts to reconnect to the Hue bridge.
 
 **Returns:**
 - `true` - Connection successful
-- `false` - Connection failed (error in DBus error field)
 
 **Errors:**
 - `"bridge still unreachable"` - Bridge is not responding
@@ -231,7 +234,6 @@ Tests connectivity to the bridge without retrying.
 
 **Returns:**
 - `true` - Bridge is reachable
-- `false` - Bridge is not reachable
 
 **Errors:**
 - `"bridge is not reachable"` - Bridge is not responding
@@ -259,6 +261,9 @@ Returns bridge configuration information.
 - `connected` (bool) - Current connection status
 - `lastError` (string) - Last error message
 
+**Errors:**
+- `"access denied"` - Caller is not service owner
+
 **Example (Qt/C++):**
 ```cpp
 QDBusReply<QVariantMap> reply = iface.call("GetBridgeSettings");
@@ -283,6 +288,10 @@ Returns list of available scenes from all rooms.
 - Array of scene names in format: `"Room Name - Scene Name"`
 - If no room, format is just: `"Scene Name"`
 - **Sorted alphabetically** for consistent UI display
+
+**Errors:**
+- `"hue client not initialized"` - Backend not configured
+- `"access denied"` - Caller is not service owner
 
 **Example (dbus-send):**
 ```bash
@@ -399,6 +408,10 @@ Returns available rooms and zones with grouped lights.
   - `ID` (string) - Grouped light UUID
   - `Name` (string) - Room or zone name
   - `Type` (string) - "room" or "zone"
+
+**Errors:**
+- `"hue client not initialized"` - Backend not configured
+- `"access denied"` - Caller is not service owner
 
 **Example (dbus-send):**
 ```bash
@@ -632,6 +645,7 @@ Returns current power and brightness state of the selected room/zone.
 **Errors:**
 - `"no grouped light configured"` - Must call SetGroupedLight first
 - `"hue client not initialized"` - Backend not configured
+- `"access denied"` - Caller is not service owner
 
 **Example (dbus-send):**
 ```bash

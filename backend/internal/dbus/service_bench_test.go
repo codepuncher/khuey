@@ -8,6 +8,7 @@ import (
 
 	"github.com/codepuncher/khuey/internal/config"
 	"github.com/codepuncher/khuey/internal/hue"
+	"github.com/godbus/dbus/v5"
 )
 
 // BenchmarkGetStatus benchmarks the GetStatus DBus method
@@ -101,14 +102,18 @@ func BenchmarkGetGroupedLights(b *testing.B) {
 		b.Fatalf("Failed to create client: %v", err)
 	}
 
+	// GetGroupedLights is owner-guarded; inject an allowing resolver so the
+	// benchmark measures the method body, not checkAccess's fail-closed path.
 	service := &Service{
 		config:    cfg,
 		hueClient: client,
+		ownerUID:  1000,
+		callerUID: func(dbus.Sender) (uint32, error) { return 1000, nil },
 	}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = service.GetGroupedLights()
+		_, _ = service.GetGroupedLights(dbus.Sender("owner"))
 		// Note: This will likely fail without actual bridge connection,
 		// but we're benchmarking the method call overhead
 	}
