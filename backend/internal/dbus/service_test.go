@@ -791,10 +791,9 @@ var guardedMethodCases = []guardedMethodCase{
 // reject every caller (including the legitimate owner) would still pass it.
 // TestGuardedMethodsAllowOwnerCaller below pins the allow direction.
 func TestMutatorsRequireOwnerAccess(t *testing.T) {
-	// Denied mutators still reach config.Save() before checkAccess in some
-	// paths' failure modes; point it at a throwaway HOME so a future
-	// sentinelConfig() with Bridge/Key set can't write the developer's real
-	// ~/.openhue/config.yaml.
+	// config.Save() writes to the real ~/.openhue/config.yaml; point it at a
+	// throwaway HOME so a future sentinelConfig() gaining Bridge/Key would
+	// fail this test cleanly instead of clobbering the developer's config.
 	t.Setenv("XDG_CONFIG_HOME", "")
 	t.Setenv("HOME", t.TempDir())
 

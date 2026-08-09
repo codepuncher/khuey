@@ -1839,6 +1839,8 @@ Mutators:
 - SetSelectedRoom, SetStartupScene
 - SetGamingMode
 - SetTrayIcons
+
+Bridge probes (trigger on-demand bridge I/O):
 - RetryConnection, TestBridgeConnection
 
 Bridge-data readers (return bridge or bridge-derived data):

@@ -531,6 +531,13 @@ Updates the room/zone selection (alias for SetGroupedLight).
 - `true` - Successfully saved
 - `false` - Failed (error in DBus error field)
 
+**Errors:**
+- `"access denied"` - Caller is not service owner
+- `"roomID exceeds maximum length 255"` - Input too long
+- `"roomID contains invalid UTF-8"` - Malformed input
+- `"room ID cannot be empty"` - Empty parameter
+- `"failed to save config"` - File system error
+
 ---
 
 #### GetStartupScene
@@ -551,6 +558,36 @@ dbus-send --session --print-reply \
   --dest=org.kde.plasma.hue \
   /org/kde/plasma/hue \
   org.kde.plasma.hue.GetStartupScene
+```
+
+---
+
+#### SetStartupScene
+
+Sets the scene to activate automatically the next time the backend starts. Passing an empty string clears the startup scene.
+
+**Signature:** `SetStartupScene(displayName: string) → bool`
+
+**Parameters:**
+- `displayName` (string) - Scene name as returned by GetScenes, e.g. `"Living Room - Relax"`. Empty string clears the configured startup scene.
+
+**Returns:**
+- `true` - Successfully saved
+- `false` - Failed (error in DBus error field)
+
+**Errors:**
+- `"access denied"` - Caller is not service owner
+- `"displayName exceeds maximum length 255"` - Input too long
+- `"displayName contains invalid UTF-8"` - Malformed input
+- `"failed to save config"` - File system error
+
+**Example (dbus-send):**
+```bash
+dbus-send --session --print-reply \
+  --dest=org.kde.plasma.hue \
+  /org/kde/plasma/hue \
+  org.kde.plasma.hue.SetStartupScene \
+  string:"Living Room - Relax"
 ```
 
 ---
