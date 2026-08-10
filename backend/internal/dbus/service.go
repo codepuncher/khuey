@@ -34,6 +34,10 @@ type Service struct {
 	gamingModeActive bool         // Track if gaming mode triggered sync
 	mu               sync.RWMutex // Protects config access from concurrent DBus calls
 	ownerUID         uint32       // UID of the service owner for access control
+	// callerUID resolves a DBus sender to its UID. Set to getCallerUID by
+	// NewService; a nil value (e.g. a directly-constructed Service in tests)
+	// makes checkAccess fail closed rather than allow or fall back.
+	callerUID func(dbus.Sender) (uint32, error)
 }
 
 // NewService creates a new DBus service
@@ -57,13 +61,15 @@ func NewService(cfg *config.Config, client *hue.Client) (*Service, error) {
 		log.Println("[INFO] Entertainment API not configured - screen sync unavailable")
 	}
 
-	return &Service{
+	s := &Service{
 		conn:       conn,
 		config:     cfg,
 		hueClient:  client,
 		syncEngine: engine,
 		ownerUID:   uint32(os.Getuid()), // Store owner UID for access control
-	}, nil
+	}
+	s.callerUID = s.getCallerUID
+	return s, nil
 }
 
 // Start begins the DBus service
@@ -161,7 +167,12 @@ func (s *Service) getGroupedLightID() (string, error) {
 // checkAccess verifies that the caller is the service owner
 // This prevents other users or processes from controlling your lights
 func (s *Service) checkAccess(sender dbus.Sender) error {
-	callerUID, err := s.getCallerUID(sender)
+	if s.callerUID == nil {
+		log.Printf("[WARN] Access denied: no caller UID resolver configured")
+		return fmt.Errorf("access denied: unable to verify caller identity")
+	}
+
+	callerUID, err := s.callerUID(sender)
 	if err != nil {
 		log.Printf("[WARN] Failed to get caller UID: %v", err)
 		return fmt.Errorf("access denied: unable to verify caller identity")
@@ -416,14 +427,14 @@ func (s *Service) SetBrightness(brightness int32, sender dbus.Sender) (bool, *db
 
 // ActivateScene activates a scene by name (with optional room prefix)
 func (s *Service) ActivateScene(displayName string, sender dbus.Sender) (string, *dbus.Error) {
-	if err := common.ValidateDBusString("displayName", displayName, 255); err != nil {
-		log.Printf("[WARN] ActivateScene invalid input: %v", err)
-		return "", dbus.MakeFailedError(err)
-	}
-
 	// Access control: only service owner can control lights
 	if err := s.checkAccess(sender); err != nil {
 		log.Printf("[WARN] ActivateScene access denied")
+		return "", dbus.MakeFailedError(err)
+	}
+
+	if err := common.ValidateDBusString("displayName", displayName, 255); err != nil {
+		log.Printf("[WARN] ActivateScene invalid input: %v", err)
 		return "", dbus.MakeFailedError(err)
 	}
 
@@ -504,7 +515,13 @@ func (s *Service) activateSceneByDisplayName(displayName string) (hue.Scene, err
 }
 
 // GetScenes returns list of available scenes with room names
-func (s *Service) GetScenes() ([]string, *dbus.Error) {
+func (s *Service) GetScenes(sender dbus.Sender) ([]string, *dbus.Error) {
+	// Access control: only service owner can read bridge-derived data
+	if err := s.checkAccess(sender); err != nil {
+		log.Printf("[WARN] GetScenes access denied")
+		return nil, dbus.MakeFailedError(err)
+	}
+
 	if s.hueClient == nil {
 		return nil, dbus.MakeFailedError(fmt.Errorf("hue client not initialized"))
 	}
@@ -528,7 +545,13 @@ func (s *Service) GetScenes() ([]string, *dbus.Error) {
 }
 
 // GetGroupedLights returns available rooms and zones with grouped lights
-func (s *Service) GetGroupedLights() ([]struct{ ID, Name, Type string }, *dbus.Error) {
+func (s *Service) GetGroupedLights(sender dbus.Sender) ([]struct{ ID, Name, Type string }, *dbus.Error) {
+	// Access control: only service owner can read bridge-derived data
+	if err := s.checkAccess(sender); err != nil {
+		log.Printf("[WARN] GetGroupedLights access denied")
+		return nil, dbus.MakeFailedError(err)
+	}
+
 	if s.hueClient == nil {
 		return nil, dbus.MakeFailedError(fmt.Errorf("hue client not initialized"))
 	}
@@ -613,7 +636,13 @@ func (s *Service) IsSyncing() (bool, *dbus.Error) {
 }
 
 // GetState returns the current power and brightness state
-func (s *Service) GetState() (bool, int32, bool, *dbus.Error) {
+func (s *Service) GetState(sender dbus.Sender) (bool, int32, bool, *dbus.Error) {
+	// Access control: only service owner can read bridge-derived data
+	if err := s.checkAccess(sender); err != nil {
+		log.Printf("[WARN] GetState access denied")
+		return false, 0, false, dbus.MakeFailedError(err)
+	}
+
 	groupedLightID, err := s.getGroupedLightID()
 	if err != nil {
 		return false, 0, false, dbus.MakeFailedError(err)
@@ -633,14 +662,14 @@ func (s *Service) GetState() (bool, int32, bool, *dbus.Error) {
 
 // SetGroupedLight sets the grouped light ID in the config
 func (s *Service) SetGroupedLight(groupedLightID string, sender dbus.Sender) (bool, *dbus.Error) {
-	if err := common.ValidateDBusString("groupedLightID", groupedLightID, 255); err != nil {
-		log.Printf("[WARN] SetGroupedLight invalid input: %v", err)
-		return false, dbus.MakeFailedError(err)
-	}
-
 	// Access control: only service owner can modify settings
 	if err := s.checkAccess(sender); err != nil {
 		log.Printf("[WARN] SetGroupedLight access denied")
+		return false, dbus.MakeFailedError(err)
+	}
+
+	if err := common.ValidateDBusString("groupedLightID", groupedLightID, 255); err != nil {
+		log.Printf("[WARN] SetGroupedLight invalid input: %v", err)
 		return false, dbus.MakeFailedError(err)
 	}
 
@@ -663,7 +692,13 @@ func (s *Service) SetGroupedLight(groupedLightID string, sender dbus.Sender) (bo
 }
 
 // GetConnectionStatus returns the current bridge connection status
-func (s *Service) GetConnectionStatus() (map[string]interface{}, *dbus.Error) {
+func (s *Service) GetConnectionStatus(sender dbus.Sender) (map[string]interface{}, *dbus.Error) {
+	// Access control: only service owner can read bridge-derived data
+	if err := s.checkAccess(sender); err != nil {
+		log.Printf("[WARN] GetConnectionStatus access denied")
+		return nil, dbus.MakeFailedError(err)
+	}
+
 	if s.hueClient == nil {
 		return map[string]interface{}{
 			"connected":   false,
@@ -689,7 +724,13 @@ func (s *Service) GetConnectionStatus() (map[string]interface{}, *dbus.Error) {
 }
 
 // RetryConnection attempts to reconnect to the bridge
-func (s *Service) RetryConnection() (bool, *dbus.Error) {
+func (s *Service) RetryConnection(sender dbus.Sender) (bool, *dbus.Error) {
+	// Access control: only service owner can trigger bridge I/O
+	if err := s.checkAccess(sender); err != nil {
+		log.Printf("[WARN] RetryConnection access denied")
+		return false, dbus.MakeFailedError(err)
+	}
+
 	if s.hueClient == nil {
 		return false, dbus.MakeFailedError(fmt.Errorf("hue client not initialized"))
 	}
@@ -726,14 +767,14 @@ func (s *Service) GetSyncSettings() (map[string]interface{}, *dbus.Error) {
 // SetSyncSettings updates Screen Sync configuration
 // Note: Changes require restarting sync for them to take effect
 func (s *Service) SetSyncSettings(fps int32, subsampleWidth int32, monitor string, sender dbus.Sender) (bool, *dbus.Error) {
-	if err := common.ValidateDBusString("monitor", monitor, 255); err != nil {
-		log.Printf("[WARN] SetSyncSettings invalid input: %v", err)
-		return false, dbus.MakeFailedError(err)
-	}
-
 	// Access control: only service owner can modify settings
 	if err := s.checkAccess(sender); err != nil {
 		log.Printf("[WARN] SetSyncSettings access denied")
+		return false, dbus.MakeFailedError(err)
+	}
+
+	if err := common.ValidateDBusString("monitor", monitor, 255); err != nil {
+		log.Printf("[WARN] SetSyncSettings invalid input: %v", err)
 		return false, dbus.MakeFailedError(err)
 	}
 
@@ -764,7 +805,13 @@ func (s *Service) SetSyncSettings(fps int32, subsampleWidth int32, monitor strin
 }
 
 // GetBridgeSettings returns bridge connection information
-func (s *Service) GetBridgeSettings() (map[string]interface{}, *dbus.Error) {
+func (s *Service) GetBridgeSettings(sender dbus.Sender) (map[string]interface{}, *dbus.Error) {
+	// Access control: only service owner can read bridge-derived data
+	if err := s.checkAccess(sender); err != nil {
+		log.Printf("[WARN] GetBridgeSettings access denied")
+		return nil, dbus.MakeFailedError(err)
+	}
+
 	s.mu.RLock()
 	bridgeIP := s.config.Bridge
 	s.mu.RUnlock()
@@ -789,7 +836,13 @@ func (s *Service) GetBridgeSettings() (map[string]interface{}, *dbus.Error) {
 }
 
 // TestBridgeConnection tests connectivity to the bridge
-func (s *Service) TestBridgeConnection() (bool, *dbus.Error) {
+func (s *Service) TestBridgeConnection(sender dbus.Sender) (bool, *dbus.Error) {
+	// Access control: only service owner can trigger bridge I/O
+	if err := s.checkAccess(sender); err != nil {
+		log.Printf("[WARN] TestBridgeConnection access denied")
+		return false, dbus.MakeFailedError(err)
+	}
+
 	if s.hueClient == nil {
 		return false, dbus.MakeFailedError(fmt.Errorf("hue client not initialized"))
 	}
@@ -811,7 +864,13 @@ func (s *Service) TestBridgeConnection() (bool, *dbus.Error) {
 }
 
 // GetSelectedRoom returns the currently selected room/zone for light control
-func (s *Service) GetSelectedRoom() (string, *dbus.Error) {
+func (s *Service) GetSelectedRoom(sender dbus.Sender) (string, *dbus.Error) {
+	// Access control: only service owner can read bridge-derived data
+	if err := s.checkAccess(sender); err != nil {
+		log.Printf("[WARN] GetSelectedRoom access denied")
+		return "", dbus.MakeFailedError(err)
+	}
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -823,6 +882,11 @@ func (s *Service) SetSelectedRoom(roomID string, sender dbus.Sender) (bool, *dbu
 	// Access control: only service owner can modify settings
 	if err := s.checkAccess(sender); err != nil {
 		log.Printf("[WARN] SetSelectedRoom access denied")
+		return false, dbus.MakeFailedError(err)
+	}
+
+	if err := common.ValidateDBusString("roomID", roomID, 255); err != nil {
+		log.Printf("[WARN] SetSelectedRoom invalid input: %v", err)
 		return false, dbus.MakeFailedError(err)
 	}
 
@@ -844,7 +908,14 @@ func (s *Service) SetSelectedRoom(roomID string, sender dbus.Sender) (bool, *dbu
 	return true, nil
 }
 
-func (s *Service) GetStartupScene() (string, *dbus.Error) {
+// GetStartupScene returns the configured startup scene display name.
+func (s *Service) GetStartupScene(sender dbus.Sender) (string, *dbus.Error) {
+	// Access control: only service owner can read bridge-derived data
+	if err := s.checkAccess(sender); err != nil {
+		log.Printf("[WARN] GetStartupScene access denied")
+		return "", dbus.MakeFailedError(err)
+	}
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -853,14 +924,14 @@ func (s *Service) GetStartupScene() (string, *dbus.Error) {
 
 // SetStartupScene clears the startup scene when displayName is empty.
 func (s *Service) SetStartupScene(displayName string, sender dbus.Sender) (bool, *dbus.Error) {
-	if err := common.ValidateDBusString("displayName", displayName, 255); err != nil {
-		log.Printf("[WARN] SetStartupScene invalid input: %v", err)
-		return false, dbus.MakeFailedError(err)
-	}
-
 	// Access control: only service owner can modify settings
 	if err := s.checkAccess(sender); err != nil {
 		log.Printf("[WARN] SetStartupScene access denied")
+		return false, dbus.MakeFailedError(err)
+	}
+
+	if err := common.ValidateDBusString("displayName", displayName, 255); err != nil {
+		log.Printf("[WARN] SetStartupScene invalid input: %v", err)
 		return false, dbus.MakeFailedError(err)
 	}
 
@@ -1038,6 +1109,12 @@ func (s *Service) GetTrayIcons() (string, string, string, *dbus.Error) {
 
 // SetTrayIcons updates the tray icon configuration
 func (s *Service) SetTrayIcons(gaming string, syncing string, idle string, sender dbus.Sender) (bool, *dbus.Error) {
+	// Access control: only service owner can modify settings
+	if err := s.checkAccess(sender); err != nil {
+		log.Printf("[WARN] SetTrayIcons access denied")
+		return false, dbus.MakeFailedError(err)
+	}
+
 	// SEC-007: Validate DBus string inputs
 	if err := common.ValidateDBusString("gaming", gaming, 255); err != nil {
 		log.Printf("🚫 SetTrayIcons invalid input: %v", err)

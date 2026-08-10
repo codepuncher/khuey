@@ -75,9 +75,10 @@ dbus-send --session --print-reply \
 **Protected Methods:**
 - All methods that modify state (SetPower, ActivateScene, StartSync, etc.)
 - Methods that change configuration (SetGroupedLight, SetSyncSettings, etc.)
+- Methods that read bridge or bridge-derived data (GetScenes, GetGroupedLights, GetState, GetConnectionStatus, GetBridgeSettings, GetSelectedRoom, GetStartupScene)
 
 **Read-Only Methods (No Access Control):**
-- GetStatus, GetScenes, IsSyncing, IsGamingModeEnabled
+- GetStatus, IsSyncing, IsGamingModeEnabled, IsGamingModeActive, GetSyncSettings, GetTrayIcons
 
 **Access Denied Response:**
 ```
@@ -150,6 +151,9 @@ Returns detailed bridge connection information.
 - `bridgeIP` (string) - Configured bridge IP address
 - `lastAttempt` (string) - Timestamp of last connection attempt (RFC 3339)
 
+**Errors:**
+- `"access denied"` - Caller is not service owner
+
 **Example (dbus-send):**
 ```bash
 dbus-send --session --print-reply \
@@ -196,11 +200,11 @@ Attempts to reconnect to the Hue bridge.
 
 **Returns:**
 - `true` - Connection successful
-- `false` - Connection failed (error in DBus error field)
 
 **Errors:**
 - `"bridge still unreachable"` - Bridge is not responding
 - `"hue client not initialized"` - Backend not configured
+- `"access denied"` - Caller is not service owner
 
 **Example (dbus-send):**
 ```bash
@@ -230,7 +234,11 @@ Tests connectivity to the bridge without retrying.
 
 **Returns:**
 - `true` - Bridge is reachable
-- `false` - Bridge is not reachable
+
+**Errors:**
+- `"bridge is not reachable"` - Bridge is not responding
+- `"hue client not initialized"` - Backend not configured
+- `"access denied"` - Caller is not service owner
 
 **Example (dbus-send):**
 ```bash
@@ -252,6 +260,9 @@ Returns bridge configuration information.
 - `bridgeIP` (string) - Configured bridge IP address
 - `connected` (bool) - Current connection status
 - `lastError` (string) - Last error message
+
+**Errors:**
+- `"access denied"` - Caller is not service owner
 
 **Example (Qt/C++):**
 ```cpp
@@ -277,6 +288,10 @@ Returns list of available scenes from all rooms.
 - Array of scene names in format: `"Room Name - Scene Name"`
 - If no room, format is just: `"Scene Name"`
 - **Sorted alphabetically** for consistent UI display
+
+**Errors:**
+- `"hue client not initialized"` - Backend not configured
+- `"access denied"` - Caller is not service owner
 
 **Example (dbus-send):**
 ```bash
@@ -394,6 +409,10 @@ Returns available rooms and zones with grouped lights.
   - `Name` (string) - Room or zone name
   - `Type` (string) - "room" or "zone"
 
+**Errors:**
+- `"hue client not initialized"` - Backend not configured
+- `"access denied"` - Caller is not service owner
+
 **Example (dbus-send):**
 ```bash
 dbus-send --session --print-reply \
@@ -486,6 +505,9 @@ Returns the currently selected room/zone ID.
 **Returns:**
 - Grouped light ID (string) - Empty if not configured
 
+**Errors:**
+- `"access denied"` - Caller is not service owner
+
 **Example (dbus-send):**
 ```bash
 dbus-send --session --print-reply \
@@ -508,6 +530,65 @@ Updates the room/zone selection (alias for SetGroupedLight).
 **Returns:**
 - `true` - Successfully saved
 - `false` - Failed (error in DBus error field)
+
+**Errors:**
+- `"access denied"` - Caller is not service owner
+- `"roomID exceeds maximum length 255"` - Input too long
+- `"roomID contains invalid UTF-8"` - Malformed input
+- `"room ID cannot be empty"` - Empty parameter
+- `"failed to save config"` - File system error
+
+---
+
+#### GetStartupScene
+
+Returns the configured startup scene display name.
+
+**Signature:** `GetStartupScene() → string`
+
+**Returns:**
+- Scene display name (string), e.g. `"Living Room - Relax"` - Empty if not configured
+
+**Errors:**
+- `"access denied"` - Caller is not service owner
+
+**Example (dbus-send):**
+```bash
+dbus-send --session --print-reply \
+  --dest=org.kde.plasma.hue \
+  /org/kde/plasma/hue \
+  org.kde.plasma.hue.GetStartupScene
+```
+
+---
+
+#### SetStartupScene
+
+Sets the scene to activate automatically the next time the backend starts. Passing an empty string clears the startup scene.
+
+**Signature:** `SetStartupScene(displayName: string) → bool`
+
+**Parameters:**
+- `displayName` (string) - Scene name as returned by GetScenes, e.g. `"Living Room - Relax"`. Empty string clears the configured startup scene.
+
+**Returns:**
+- `true` - Successfully saved
+- `false` - Failed (error in DBus error field)
+
+**Errors:**
+- `"access denied"` - Caller is not service owner
+- `"displayName exceeds maximum length 255"` - Input too long
+- `"displayName contains invalid UTF-8"` - Malformed input
+- `"failed to save config"` - File system error
+
+**Example (dbus-send):**
+```bash
+dbus-send --session --print-reply \
+  --dest=org.kde.plasma.hue \
+  /org/kde/plasma/hue \
+  org.kde.plasma.hue.SetStartupScene \
+  string:"Living Room - Relax"
+```
 
 ---
 
@@ -626,6 +707,7 @@ Returns current power and brightness state of the selected room/zone.
 **Errors:**
 - `"no grouped light configured"` - Must call SetGroupedLight first
 - `"hue client not initialized"` - Backend not configured
+- `"access denied"` - Caller is not service owner
 
 **Example (dbus-send):**
 ```bash

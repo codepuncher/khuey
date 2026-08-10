@@ -313,13 +313,14 @@ type Service struct {
     gamingModeActive bool               // Gaming state
     mu               sync.RWMutex       // Protects config access
     ownerUID         uint32             // Service owner UID
+    callerUID        func(dbus.Sender) (uint32, error) // Resolves sender to UID; nil fails closed
 }
 ```
 
 **Access Control:**
 - UID-based filtering (only same-user processes)
 - `checkAccess(sender)` verifies caller UID
-- Read-only methods bypass access control
+- Reads that return bridge or bridge-derived data require owner; local config/state reads that expose no bridge resource identifiers or bridge state (e.g. GetStatus, GetSyncSettings) do not - GetStatus additionally reveals only whether bridge credentials are configured
 - Write methods require owner UID match
 
 **Method Categories:**
@@ -1805,11 +1806,14 @@ func (cb *CircuitBreaker) RecordSuccess() {
 **UID Verification:**
 ```go
 func (s *Service) checkAccess(sender dbus.Sender) error {
-    // Get caller UID via DBus
-    obj := s.conn.Object("org.freedesktop.DBus", "/org/freedesktop/DBus")
-    var callerUID uint32
-    err := obj.Call("org.freedesktop.DBus.GetConnectionUnixUser", 0, sender).Store(&callerUID)
+    if s.callerUID == nil {
+        log.Printf("[WARN] Access denied: no caller UID resolver configured")
+        return fmt.Errorf("access denied: unable to verify caller identity")
+    }
+
+    callerUID, err := s.callerUID(sender)
     if err != nil {
+        log.Printf("[WARN] Failed to get caller UID: %v", err)
         return fmt.Errorf("access denied: unable to verify caller identity")
     }
 
@@ -1823,17 +1827,34 @@ func (s *Service) checkAccess(sender dbus.Sender) error {
 }
 ```
 
+A nil `callerUID` resolver (e.g. a directly-constructed `Service` in tests) fails closed rather than allowing or falling back to the real DBus lookup.
+
 **Methods Requiring Access Control:**
+
+Mutators:
 - SetPower, SetBrightness
 - ActivateScene
-- StartSync, StopSync
 - SetGroupedLight, SetSyncSettings
+- StartSync, StopSync
+- SetSelectedRoom, SetStartupScene
 - SetGamingMode
+- SetTrayIcons
 
-**Methods Without Access Control:**
-- GetStatus, GetScenes
-- IsSyncing, IsGamingModeEnabled
+Bridge probes (trigger on-demand bridge I/O):
+- RetryConnection, TestBridgeConnection
+
+Bridge-data readers (return bridge or bridge-derived data):
+- GetScenes, GetGroupedLights
+- GetState
 - GetConnectionStatus, GetBridgeSettings
+- GetSelectedRoom, GetStartupScene
+
+**Methods Without Access Control** (local config/state reads exposing no bridge resource identifiers or bridge state):
+- GetStatus, IsSyncing
+- GetSyncSettings, GetTrayIcons
+- IsGamingModeEnabled, IsGamingModeActive
+
+GetStatus is the exception worth noting: it discloses one bit beyond pure local state - whether `config.Bridge`/`config.Key` are set - via its "Ready" vs "Not configured" result. It stays unguarded as the basic daemon liveness/configured probe; it returns no bridge resource identifiers or bridge state.
 
 ---
 
