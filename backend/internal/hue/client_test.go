@@ -169,21 +169,6 @@ func TestGroupedLightValidation(t *testing.T) {
 	}
 }
 
-// TestGetClientKey tests the GetClientKey method
-func TestGetClientKey(t *testing.T) {
-	ctx := context.Background()
-	apiKey := "test-api-key-12345"
-
-	client, err := NewClient(ctx, "192.168.1.100", apiKey)
-	if err != nil {
-		t.Fatalf("Failed to create client: %v", err)
-	}
-
-	if client.GetClientKey() != apiKey {
-		t.Errorf("GetClientKey() = %v, want %v", client.GetClientKey(), apiKey)
-	}
-}
-
 // TestSceneSorting tests that scenes are sorted alphabetically
 func TestSceneSorting(t *testing.T) {
 	scenes := []Scene{

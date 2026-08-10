@@ -436,11 +436,6 @@ func (c *Client) GetGroupedLights() ([]GroupedLight, error) {
 	return groupedLights, nil
 }
 
-// GetClientKey returns the API key (for Entertainment API setup)
-func (c *Client) GetClientKey() string {
-	return c.apiKey
-}
-
 // GetConnectionStatus returns the current connection status
 func (c *Client) GetConnectionStatus() ConnectionStatus {
 	c.connMutex.RLock()

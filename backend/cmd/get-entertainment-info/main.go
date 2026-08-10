@@ -1,12 +1,11 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"log"
 
+	"github.com/codepuncher/khuey/internal/common"
 	"github.com/codepuncher/khuey/internal/config"
-	"github.com/codepuncher/khuey/internal/hue"
 )
 
 func main() {
@@ -21,18 +20,19 @@ func main() {
 	}
 
 	fmt.Printf("Bridge: %s\n", cfg.Bridge)
-	fmt.Printf("Username: %s\n\n", cfg.Key)
+	fmt.Printf("Username: %s\n\n", common.SanitizeForLog(cfg.Key))
 
-	// Create Hue client
-	client, err := hue.NewClient(context.Background(), cfg.Bridge, cfg.Key)
-	if err != nil {
-		log.Fatalf("Failed to create client: %v\n", err)
+	if cfg.ClientKey == "" {
+		fmt.Println("No Entertainment client key is configured.")
+		fmt.Println("Run 'go run ./cmd/register-entertainment' to obtain one from the bridge,")
+		fmt.Println("then add it to ~/.openhue/config.yaml:")
+		fmt.Println("  clientkey: YOUR_CLIENT_KEY")
+		fmt.Println()
+	} else {
+		// Printed unmasked: the user needs to copy this into config.yaml.
+		fmt.Println("Client Key (for Entertainment API):")
+		fmt.Printf("  %s\n\n", cfg.ClientKey)
 	}
-
-	// Get client key (needed for Entertainment API)
-	clientKey := client.GetClientKey()
-	fmt.Println("Client Key (for Entertainment API):")
-	fmt.Printf("  %s\n\n", clientKey)
 
 	// Note: Entertainment Areas must be created in the Hue app
 	// The Entertainment Configuration API endpoint is: /clip/v2/resource/entertainment_configuration
