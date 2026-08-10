@@ -4,7 +4,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/home/lee/Code/misc/khuey/backend/hue-sync
+ExecStart=/path/to/khuey/backend/hue-sync
 Restart=on-failure
 RestartSec=5
 
