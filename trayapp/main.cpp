@@ -658,7 +658,7 @@ class HueControlDialog : public QDialog {
             } else {
                 syncButton->setText("Stop Screen Sync");
                 showErrorNotification("Failed to Stop Sync",
-                                    reply.isValid() ? reply.error().message() : "Unknown error",
+                                    reply.isValid() ? "Unknown error" : reply.error().message(),
                                     KNotification::CloseOnTimeout);
             }
             syncButton->setEnabled(true);
@@ -686,7 +686,7 @@ class HueControlDialog : public QDialog {
                         QDBusPendingReply<bool> reply = *w;
 
                         if (reply.isError() || !reply.value()) {
-                            QString error = reply.isValid() ? reply.error().message() : "Unknown error";
+                            QString error = reply.isValid() ? "Unknown error" : reply.error().message();
                             updateSyncButton(false);
 
                             // Parse portal errors for user-friendly messages
