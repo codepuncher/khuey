@@ -46,7 +46,7 @@ func (g *GameModeDetector) IsActive() bool {
 
 	var status int32
 	if err := call.Store(&status); err != nil {
-		log.Printf("⚠️  Failed to parse GameMode status: %v", err)
+		log.Printf("[WARN] Failed to parse GameMode status: %v", err)
 		return false
 	}
 

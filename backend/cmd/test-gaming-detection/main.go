@@ -9,7 +9,7 @@ import (
 )
 
 func main() {
-	log.Println("🎮 Gaming Detection Test Utility")
+	log.Println("[INFO] Gaming Detection Test Utility")
 	log.Println("=================================")
 	log.Println()
 	log.Println("This utility tests all gaming detection methods in real-time.")
@@ -19,13 +19,13 @@ func main() {
 	// Initialize all detectors
 	log.Println("Initializing detectors...")
 	systemd := gaming.NewSystemdDetector()
-	log.Println("✅ systemd-inhibit detector ready")
+	log.Println("[INFO] systemd-inhibit detector ready")
 
 	power := gaming.NewPowerProfileDetector()
-	log.Println("✅ Power profile detector ready")
+	log.Println("[INFO] Power profile detector ready")
 
 	steam := gaming.NewSteamDetector()
-	log.Println("✅ Steam AppId detector ready")
+	log.Println("[INFO] Steam AppId detector ready")
 
 	log.Println()
 	log.Println("Monitoring gaming activity (Ctrl+C to exit)...")
@@ -52,15 +52,9 @@ func main() {
 		// Print status
 		fmt.Printf("[%s]\n", timestamp)
 		fmt.Printf("  systemd-inhibit: %v", systemdActive)
-		if systemdActive {
-			fmt.Printf(" ✅")
-		}
 		fmt.Println()
 
 		fmt.Printf("  Power profile:   %v", powerPerf)
-		if powerPerf {
-			fmt.Printf(" ✅")
-		}
 		fmt.Println()
 
 		fmt.Printf("  Steam AppId:     %v", steamActive)
@@ -68,16 +62,11 @@ func main() {
 			if appId := steam.GetAppId(); appId != "" {
 				fmt.Printf(" (AppId: %s)", appId)
 			}
-			fmt.Printf(" ✅")
 		}
 		fmt.Println()
 
-		// Overall result with emoji
-		if gaming {
-			fmt.Printf("  🎮 Gaming Active: %v ✅\n", gaming)
-		} else {
-			fmt.Printf("  🎮 Gaming Active: %v\n", gaming)
-		}
+		// Overall result
+		fmt.Printf("  Gaming Active: %v\n", gaming)
 		fmt.Println()
 	}
 }

@@ -90,46 +90,46 @@ func NewDetector(cfg Config, callback StateChangeCallback) (*Detector, error) {
 	// Initialize CachyOS-optimized detectors
 	if cfg.UseSystemdInhibit {
 		d.systemdDetector = NewSystemdDetector()
-		log.Println("✅ systemd-inhibit detector initialized (CachyOS)")
+		log.Println("[INFO] systemd-inhibit detector initialized (CachyOS)")
 	}
 
 	if cfg.UsePowerProfile {
 		d.powerProfileDetector = NewPowerProfileDetector()
-		log.Println("✅ Power profile detector initialized (CachyOS)")
+		log.Println("[INFO] Power profile detector initialized (CachyOS)")
 	}
 
 	if cfg.UseSteamAppId {
 		d.steamDetector = NewSteamDetector()
-		log.Println("✅ Steam AppId detector initialized")
+		log.Println("[INFO] Steam AppId detector initialized")
 	}
 
 	// Initialize legacy detectors as fallback
 	if cfg.UseGameMode {
 		gameMode, err := NewGameModeDetector()
 		if err != nil {
-			log.Printf("⚠️  GameMode detection unavailable: %v", err)
+			log.Printf("[WARN] GameMode detection unavailable: %v", err)
 			log.Println("   Will use other detection methods")
 		} else {
 			d.gameMode = gameMode
-			log.Println("✅ GameMode detector initialized (legacy)")
+			log.Println("[INFO] GameMode detector initialized (legacy)")
 		}
 	}
 
 	if cfg.UseFullscreen {
 		kwin, err := NewKWinDetector()
 		if err != nil {
-			log.Printf("⚠️  KWin fullscreen detection unavailable: %v", err)
+			log.Printf("[WARN] KWin fullscreen detection unavailable: %v", err)
 			log.Println("   Will use other detection methods")
 		} else {
 			d.kwin = kwin
-			log.Println("✅ KWin fullscreen detector initialized (legacy)")
+			log.Println("[INFO] KWin fullscreen detector initialized (legacy)")
 		}
 	}
 
 	// Check if at least one detector is available
 	if d.systemdDetector == nil && d.powerProfileDetector == nil && d.steamDetector == nil &&
 		d.gameMode == nil && d.kwin == nil {
-		log.Println("❌ No gaming detectors available - feature disabled")
+		log.Println("[ERROR] No gaming detectors available - feature disabled")
 		return nil, nil
 	}
 
@@ -152,7 +152,7 @@ func (d *Detector) Start() {
 	d.stopChan = make(chan struct{}, 1) // Buffered to prevent blocking
 	d.isRunning = true
 
-	log.Println("🎮 Gaming mode detector started")
+	log.Println("[INFO] Gaming mode detector started")
 	// Spawn goroutine while holding lock to prevent race
 	go d.monitorLoop()
 	d.mu.Unlock()
@@ -173,7 +173,7 @@ func (d *Detector) Stop() {
 	d.mu.Unlock()
 
 	close(d.stopChan)
-	log.Println("🎮 Gaming mode detector stopped")
+	log.Println("[INFO] Gaming mode detector stopped")
 }
 
 // monitorLoop polls for gaming activity and triggers callbacks with debouncing
@@ -205,7 +205,7 @@ func (d *Detector) checkGamingState() {
 			d.pendingState = isGaming
 			d.stateChangedAt = time.Now()
 			d.debounceTriggered = false
-			log.Printf("🎮 Gaming state change detected: %v → %v (waiting for debounce)", d.currentState, isGaming)
+			log.Printf("[INFO] Gaming state change detected: %v → %v (waiting for debounce)", d.currentState, isGaming)
 			return
 		}
 
@@ -214,7 +214,7 @@ func (d *Detector) checkGamingState() {
 			// Debounce period elapsed - trigger callback and update state
 			d.currentState = isGaming
 			d.debounceTriggered = true
-			log.Printf("🎮 Gaming state changed: %v (debounced after %v)", isGaming, time.Since(d.stateChangedAt))
+			log.Printf("[INFO] Gaming state changed: %v (debounced after %v)", isGaming, time.Since(d.stateChangedAt))
 			if d.callback != nil {
 				go d.callback(isGaming)
 			}

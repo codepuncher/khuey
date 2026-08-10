@@ -23,7 +23,7 @@ func main() {
 	defer cap.Stop()
 
 	frame, _ := cap.CaptureFrame()
-	fmt.Printf("📸 Frame: %dx%d\n", frame.Bounds().Dx(), frame.Bounds().Dy())
+	fmt.Printf("Frame: %dx%d\n", frame.Bounds().Dx(), frame.Bounds().Dy())
 
 	// Define zones
 	zones := []hucolor.Zone{
@@ -54,7 +54,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	fmt.Printf("\n✅ Visualization saved to: %s\n", outFile)
+	fmt.Printf("\nVisualization saved to: %s\n", outFile)
 	fmt.Println("\nZone colors:")
 	for _, c := range colors {
 		fmt.Printf("  Zone %d: RGB(%3d, %3d, %3d) #%02X%02X%02X\n",

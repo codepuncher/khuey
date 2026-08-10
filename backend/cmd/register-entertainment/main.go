@@ -18,7 +18,7 @@ func main() {
 	bridgeIP := "192.168.0.9"
 
 	fmt.Printf("Registering with bridge: %s\n", bridgeIP)
-	fmt.Println("\n⚠️  PLEASE PRESS THE LINK BUTTON ON YOUR HUE BRIDGE NOW!")
+	fmt.Println("\nPLEASE PRESS THE LINK BUTTON ON YOUR HUE BRIDGE NOW!")
 	fmt.Println("    Attempting registration in 3 seconds...")
 	fmt.Println()
 
@@ -38,7 +38,7 @@ func main() {
 		log.Fatalf("Failed to create client: %v", err)
 	}
 
-	fmt.Println("\n📡 Attempting registration...")
+	fmt.Println("\nAttempting registration...")
 
 	// Make authentication request with generateclientkey
 	deviceType := "khuey#desktop"
@@ -86,7 +86,7 @@ func main() {
 		log.Fatalf("Missing username or clientkey in response")
 	}
 
-	fmt.Println("\n✅ Registration successful!")
+	fmt.Println("\nRegistration successful!")
 	fmt.Println("\n════════════════════════════════════════")
 	fmt.Println("SAVE THESE CREDENTIALS:")
 	fmt.Println("════════════════════════════════════════")

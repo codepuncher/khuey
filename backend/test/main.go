@@ -39,7 +39,7 @@ func main() {
 			log.Fatalf("Failed: %v", err)
 		}
 
-		fmt.Printf("✓ Config loaded\n")
+		fmt.Printf("Config loaded\n")
 		fmt.Printf("  Bridge: %s\n", cfg.Bridge)
 		fmt.Printf("  Configured: %v\n", cfg.IsConfigured())
 		fmt.Printf("  Sync FPS: %d\n", cfg.Sync.FPS)
@@ -70,17 +70,17 @@ func main() {
 
 		fmt.Print("Ping... ")
 		if err := client.Ping(); err != nil {
-			fmt.Printf("❌ %v\n", err)
+			fmt.Printf("%v\n", err)
 			os.Exit(1)
 		}
-		fmt.Println("✓")
+		fmt.Println()
 
 		fmt.Print("Scenes... ")
 		scenes, err := client.GetScenes()
 		if err != nil {
-			fmt.Printf("❌ %v\n", err)
+			fmt.Printf("%v\n", err)
 		} else {
-			fmt.Printf("✓ %d scene(s)\n", len(scenes))
+			fmt.Printf("%d scene(s)\n", len(scenes))
 			for i, s := range scenes {
 				if i < 3 {
 					fmt.Printf("  - %s\n", s.Name)

@@ -20,7 +20,7 @@ func main() {
 	flag.Parse()
 
 	log.SetFlags(log.Ltime | log.Lmicroseconds)
-	log.Println("🔬 Screen Sync Performance Profiler")
+	log.Println("[INFO] Screen Sync Performance Profiler")
 	log.Printf("   Duration: %d seconds", *duration)
 
 	// Load config
@@ -55,7 +55,7 @@ func main() {
 	defer cancel()
 
 	// Start sync
-	log.Println("\n▶️  Starting screen sync...")
+	log.Println("\n[INFO] Starting screen sync...")
 	log.Println("   NOTE: Will show permission dialog - approve to start profiling")
 	if err := engine.Start(ctx); err != nil {
 		log.Fatalf("Failed to start sync: %v", err)
@@ -63,7 +63,7 @@ func main() {
 
 	// Wait for duration
 	<-ctx.Done()
-	log.Printf("\n⏱️  Duration complete (%ds)", *duration)
+	log.Printf("\n[INFO] Duration complete (%ds)", *duration)
 
 	// Stop sync
 	engine.Stop() //nolint:errcheck
@@ -79,7 +79,7 @@ func main() {
 	}
 	log.Printf("   Memory profile: %s", *memProfile)
 
-	log.Println("\n✅ Profiling complete!")
+	log.Println("\n[INFO] Profiling complete!")
 	log.Println("\nAnalyze results:")
 	log.Printf("   go tool pprof -http=:8080 %s", *cpuProfile)
 	log.Printf("   go tool pprof -http=:8081 %s", *memProfile)

@@ -15,7 +15,7 @@ func main() {
 	fmt.Println()
 
 	// Step 1: Get a test frame
-	fmt.Println("📸 Generating test frame...")
+	fmt.Println("Generating test frame...")
 	cap, err := capture.NewScreenCapture(capture.Config{FPS: 30, Monitor: -1})
 	if err != nil {
 		log.Fatalf("Failed to create capture: %v", err)
@@ -26,7 +26,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to capture frame: %v", err)
 	}
-	fmt.Printf("✅ Frame: %dx%d\n\n", frame.Bounds().Dx(), frame.Bounds().Dy())
+	fmt.Printf("Frame: %dx%d\n\n", frame.Bounds().Dx(), frame.Bounds().Dy())
 
 	// Step 2: Define test zones
 	// Simulate a typical 3-light setup: left, center, right
@@ -57,7 +57,7 @@ func main() {
 		},
 	}
 
-	fmt.Println("🎯 Test zones:")
+	fmt.Println("Test zones:")
 	for _, zone := range zones {
 		fmt.Printf("  Zone %d (%s): UV=(%.2f,%.2f)-(%.2f,%.2f)\n",
 			zone.ID, zone.Name, zone.U1, zone.V1, zone.U2, zone.V2)
@@ -66,7 +66,7 @@ func main() {
 
 	// Step 3: Create color extractor
 	// Using 64px subsample width and gamma 2.2 (typical display gamma)
-	fmt.Println("🎨 Creating color extractor...")
+	fmt.Println("Creating color extractor...")
 	extractor, err := color.NewExtractor(64, 2.2)
 	if err != nil {
 		log.Fatalf("Failed to create extractor: %v", err)
@@ -76,14 +76,14 @@ func main() {
 	fmt.Println()
 
 	// Step 4: Extract colors
-	fmt.Println("⚡ Extracting colors from zones...")
+	fmt.Println("Extracting colors from zones...")
 	colors, err := extractor.ExtractColors(frame, zones)
 	if err != nil {
 		log.Fatalf("Failed to extract colors: %v", err)
 	}
 
 	// Step 5: Display results
-	fmt.Println("✅ Colors extracted!")
+	fmt.Println("Colors extracted!")
 	fmt.Println()
 	fmt.Println("Results:")
 	fmt.Println("--------")
@@ -96,7 +96,7 @@ func main() {
 	}
 
 	// Step 6: Performance test
-	fmt.Println("🔥 Performance test (100 extractions)...")
+	fmt.Println("Performance test (100 extractions)...")
 	iterations := 100
 
 	start := time.Now()
@@ -111,16 +111,16 @@ func main() {
 	avgTime := elapsed / time.Duration(iterations)
 	fps := float64(time.Second) / float64(avgTime)
 
-	fmt.Printf("✅ %d iterations in %v\n", iterations, elapsed)
+	fmt.Printf("%d iterations in %v\n", iterations, elapsed)
 	fmt.Printf("   Average: %v per extraction\n", avgTime)
 	fmt.Printf("   Max FPS: %.1f\n", fps)
 
 	if fps >= 30 {
-		fmt.Println("   ✅ Performance: Excellent (can support 30+ FPS)")
+		fmt.Println("   Performance: Excellent (can support 30+ FPS)")
 	} else if fps >= 15 {
-		fmt.Println("   ⚠️  Performance: Acceptable (15-30 FPS)")
+		fmt.Println("   Performance: Acceptable (15-30 FPS)")
 	} else {
-		fmt.Println("   ❌ Performance: Poor (<15 FPS)")
+		fmt.Println("   Performance: Poor (<15 FPS)")
 	}
 }
 

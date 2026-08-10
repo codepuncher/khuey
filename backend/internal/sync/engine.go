@@ -497,9 +497,9 @@ func (e *Engine) updateRestoreToken(newToken string) {
 	e.mu.Unlock()
 
 	if err := e.config.Save(); err != nil {
-		log.Printf("⚠️  Failed to save restore token: %v", err)
+		log.Printf("[WARN] Failed to save restore token: %v", err)
 	} else {
-		log.Printf("✅ Screen share permission saved (no dialog next time)")
+		log.Printf("[INFO] Screen share permission saved (no dialog next time)")
 	}
 }
 
@@ -546,14 +546,14 @@ func (e *Engine) logPerformanceMetrics() {
 	targetFPS := e.fps
 	dropRate := float64(e.metrics.framesDropped) / float64(e.metrics.frameCount+e.metrics.framesDropped) * 100
 
-	log.Printf("📊 Performance Metrics (%.1fs elapsed, %d frames):", elapsed.Seconds(), e.metrics.frameCount)
+	log.Printf("[INFO] Performance Metrics (%.1fs elapsed, %d frames):", elapsed.Seconds(), e.metrics.frameCount)
 	log.Printf("   FPS: %.1f actual / %d target", actualFPS, targetFPS)
 	log.Printf("   Frame Time: avg=%.2fms p50=%.0fms p95=%.0fms p99=%.0fms",
 		avgFrameTime.Seconds()*1000, p50, p95, p99)
 	log.Printf("   Pipeline: capture=%.2fms extract=%.2fms stream=%.2fms",
 		avgCaptureTime.Seconds()*1000, avgExtractTime.Seconds()*1000, avgStreamTime.Seconds()*1000)
 	if e.metrics.framesDropped > 0 {
-		log.Printf("   ⚠️  Dropped: %d frames (%.1f%% drop rate)", e.metrics.framesDropped, dropRate)
+		log.Printf("   [WARN] Dropped: %d frames (%.1f%% drop rate)", e.metrics.framesDropped, dropRate)
 	}
 
 	e.metrics.lastLogTime = time.Now()
@@ -573,13 +573,13 @@ func (e *Engine) logFinalMetrics() {
 	totalFrames := e.metrics.frameCount + e.metrics.framesDropped
 	dropRate := float64(e.metrics.framesDropped) / float64(totalFrames) * 100
 
-	log.Printf("🏁 Screen Sync Final Stats:")
+	log.Printf("[INFO] Screen Sync Final Stats:")
 	log.Printf("   Total Runtime: %.1fs", elapsed.Seconds())
 	log.Printf("   Frames Processed: %d (%.1f FPS average)", e.metrics.frameCount, actualFPS)
 	if e.metrics.framesDropped > 0 {
 		log.Printf("   Frames Dropped: %d (%.1f%% of %d total)", e.metrics.framesDropped, dropRate, totalFrames)
 	} else {
-		log.Printf("   ✅ Zero frame drops!")
+		log.Printf("   [INFO] Zero frame drops!")
 	}
 }
 
