@@ -2,7 +2,7 @@
 Type=Application
 Name=Hue Control Tray
 Comment=Philips Hue Control System Tray App
-Exec=/home/lee/Code/misc/khuey/trayapp/hue-tray
+Exec=/path/to/khuey/trayapp/hue-tray
 Icon=preferences-desktop-display-color
 Terminal=false
 Categories=Utility;
