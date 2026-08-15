@@ -24,13 +24,17 @@ const (
 	MaxFPS = 60 // Maximum frames per second
 )
 
-// Pool for RGBA image buffers used in frame copying to reduce GC pressure
-// Reusing buffers avoids allocating/deallocating large RGBA images every frame (14.7MB at 2560x1440)
-// Pool size is managed automatically by Go runtime based on usage patterns
-// Default size covers common high-res displays (2560x1440 and below)
+// Pool for RGBA image buffers used in frame copying to reduce GC pressure.
+// Reusing buffers avoids allocating/deallocating large RGBA images every frame
+// (14.7MB at 2560x1440). Pool size is managed automatically by the runtime.
+//
+// New returns an empty image rather than a pre-sized one: GetImageBuffer
+// allocates at the caller's bounds whenever the fetched buffer is the wrong
+// size, so pre-sizing here is only ever right for one display and costs a
+// full-resolution allocation that is discarded immediately on every other.
 var imageBufferPool = sync.Pool{
 	New: func() any {
-		return image.NewRGBA(image.Rect(0, 0, 2560, 1440))
+		return image.NewRGBA(image.Rectangle{})
 	},
 }
 
@@ -223,6 +227,13 @@ func (sc *ScreenCapture) Start() error {
 		}
 	}
 
+	// The breaker counter outlives a capture session: the engine builds one
+	// ScreenCapture in NewEngine and reuses it for every StartSync. Left at
+	// its tripped value, the first "no frame available yet" of the next
+	// session (guaranteed, until PipeWire negotiates a format) trips it again
+	// straight away and cancels the fresh context.
+	sc.consecutiveErrs = 0
+
 	// Start real Pipewire capture if not using mock frames
 	if !sc.useMockFrames {
 		if err := sc.startPipewireCapture(); err != nil {
@@ -413,9 +424,23 @@ func (sc *ScreenCapture) Stop() {
 	sc.streamNode = 0
 	sc.conn = nil
 
+	sc.publishFrame(nil)
+}
+
+// publishFrame installs frame as the latest captured frame and returns the
+// buffer it replaced to the pool. Recycling is only safe because the write
+// lock waits for every outstanding RLock holder to release before it is
+// granted: any CaptureFrame call that read the old pointer has therefore
+// finished copying out of it by the time Lock returns. Downgrading this to
+// an RLock, or dropping it, hands a buffer back to the pool while a reader
+// is still copying from it, and the next writer scribbles over the read.
+func (sc *ScreenCapture) publishFrame(frame *image.RGBA) {
 	sc.frameMutex.Lock()
-	sc.frameBuffer = nil
+	old := sc.frameBuffer
+	sc.frameBuffer = frame
 	sc.frameMutex.Unlock()
+
+	PutImageBuffer(old)
 }
 
 // startPipewireCapture starts capturing frames from Pipewire
@@ -437,10 +462,21 @@ func (sc *ScreenCapture) startNativePipewireCapture() error {
 		return fmt.Errorf("failed to create native capture: %w", err)
 	}
 
+	// Stop() is the only complete unwinder for a running instance: it also
+	// cancels the context and joins nativeFrameReaderLoop, which a teardown
+	// here could not do without tearing down the context this Start just set
+	// up. A partial stop here would leave the old reader polling and racing
+	// the write below, so rely on the engine's Start/Stop pairing instead.
 	sc.nativeCapture = nativeCapture
 
 	// Start capture (runs in background)
 	if err := sc.nativeCapture.Start(); err != nil {
+		// NewNativePipeWireCapture already connected the stream and created
+		// the loop, and no caller unwinds this: ScreenCapture.Start's defer
+		// only cancels the context, and the engine returns without calling
+		// Stop. Release it here or every retry leaks a loop thread.
+		sc.nativeCapture.Stop()
+		sc.nativeCapture = nil
 		return fmt.Errorf("failed to start native capture: %w", err)
 	}
 
@@ -465,7 +501,9 @@ func (sc *ScreenCapture) nativeFrameReaderLoop() {
 		case <-sc.ctx.Done():
 			return
 		case <-ticker.C:
-			// Get frame from native capture
+			// GetFrame's conversion runs unlocked: it draws its destination
+			// from the shared image buffer pool (see convertToRGBA), so it
+			// never touches whatever sc.frameBuffer currently points to.
 			frame, err := sc.nativeCapture.GetFrame()
 			if err != nil {
 				sc.consecutiveErrs++
@@ -483,10 +521,7 @@ func (sc *ScreenCapture) nativeFrameReaderLoop() {
 			// Frame captured successfully - reset error counter
 			sc.consecutiveErrs = 0
 
-			// Update frame buffer
-			sc.frameMutex.Lock()
-			sc.frameBuffer = frame
-			sc.frameMutex.Unlock()
+			sc.publishFrame(frame)
 		}
 	}
 }
@@ -514,7 +549,8 @@ func (sc *ScreenCapture) startGStreamerCapture() error {
 		return fmt.Errorf("failed to start gstreamer: %w", err)
 	}
 
-	// Start goroutine to read frames
+	// Tracked so Stop's Wait covers this path too, not just the native one
+	sc.frameReaderWg.Add(1)
 	go sc.frameReaderLoop()
 
 	log.Printf("GStreamer Pipewire capture started (fallback)")
@@ -523,6 +559,8 @@ func (sc *ScreenCapture) startGStreamerCapture() error {
 
 // frameReaderLoop reads frames written by gstreamer
 func (sc *ScreenCapture) frameReaderLoop() {
+	defer sc.frameReaderWg.Done()
+
 	ticker := time.NewTicker(sc.GetFrameInterval())
 	defer ticker.Stop()
 
@@ -549,10 +587,7 @@ func (sc *ScreenCapture) frameReaderLoop() {
 						draw.Draw(rgba, bounds, frame, bounds.Min, draw.Src)
 					}
 
-					// Update frame buffer
-					sc.frameMutex.Lock()
-					sc.frameBuffer = rgba
-					sc.frameMutex.Unlock()
+					sc.publishFrame(rgba)
 				}
 			}
 

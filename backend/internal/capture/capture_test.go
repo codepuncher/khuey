@@ -2,6 +2,7 @@ package capture
 
 import (
 	"image"
+	"sync"
 	"testing"
 	"time"
 )
@@ -273,4 +274,140 @@ func containsHelper(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+// fillPix paints every byte of img with v so a reader can tell in one pass
+// whether it copied a single frame or a buffer that changed under it.
+func fillPix(img *image.RGBA, v byte) {
+	for i := range img.Pix {
+		img.Pix[i] = v
+	}
+}
+
+// TestPublishFrameRecyclingIsSafeUnderConcurrentCapture drives publishFrame
+// the way nativeFrameReaderLoop does while several CaptureFrame readers run
+// concurrently. Each published frame is uniformly painted with its own marker
+// byte, so a buffer recycled before its readers finished shows up as a frame
+// containing two different markers. Weakening publishFrame's write lock, or
+// pooling the old buffer before the swap is visible, fails this test and
+// trips the race detector.
+func TestPublishFrameRecyclingIsSafeUnderConcurrentCapture(t *testing.T) {
+	const (
+		frames  = 2000
+		readers = 4
+	)
+
+	bounds := image.Rect(0, 0, 32, 32)
+	sc := &ScreenCapture{}
+
+	seed := GetImageBuffer(bounds)
+	fillPix(seed, 1)
+	sc.frameBuffer = seed
+
+	done := make(chan struct{})
+	var wg sync.WaitGroup
+
+	for r := 0; r < readers; r++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-done:
+					return
+				default:
+				}
+
+				frame, err := sc.CaptureFrame()
+				if err != nil {
+					t.Errorf("CaptureFrame: %v", err)
+					return
+				}
+
+				want := frame.Pix[0]
+				for i, got := range frame.Pix {
+					if got != want {
+						t.Errorf("torn frame: byte %d is %d, want %d (a recycled buffer was rewritten mid-copy)", i, got, want)
+						PutImageBuffer(frame)
+						return
+					}
+				}
+				PutImageBuffer(frame)
+			}
+		}()
+	}
+
+	for i := 0; i < frames; i++ {
+		next := GetImageBuffer(bounds)
+		fillPix(next, byte(i%254)+1)
+		sc.publishFrame(next)
+	}
+
+	close(done)
+	wg.Wait()
+}
+
+// TestSourceBytesPerPixel pins the format table validateFrameGeometry sizes
+// its bounds check against. A format listed here but not in convertToRGBA's
+// switch (or vice versa) is what the switch's default case guards against.
+func TestSourceBytesPerPixel(t *testing.T) {
+	fourByte := []uint32{
+		SPA_VIDEO_FORMAT_BGRx, SPA_VIDEO_FORMAT_BGRA,
+		SPA_VIDEO_FORMAT_RGBx, SPA_VIDEO_FORMAT_RGBA,
+		SPA_VIDEO_FORMAT_xBGR, SPA_VIDEO_FORMAT_xRGB,
+	}
+	for _, format := range fourByte {
+		if got := sourceBytesPerPixel(format); got != 4 {
+			t.Errorf("sourceBytesPerPixel(%d) = %d, want 4", format, got)
+		}
+	}
+
+	for _, format := range []uint32{SPA_VIDEO_FORMAT_BGR, SPA_VIDEO_FORMAT_RGB} {
+		if got := sourceBytesPerPixel(format); got != 3 {
+			t.Errorf("sourceBytesPerPixel(%d) = %d, want 3", format, got)
+		}
+	}
+
+	for _, format := range []uint32{0, 1, 99, 4294967295} {
+		if got := sourceBytesPerPixel(format); got != 0 {
+			t.Errorf("sourceBytesPerPixel(%d) = %d, want 0 for an unhandled format", format, got)
+		}
+	}
+}
+
+// TestValidateFrameGeometry covers the geometry a malformed PipeWire frame can
+// report. Every rejected case would otherwise index past the end of the C
+// mapping in convertToRGBA and panic the daemon, so these are crash cases, not
+// merely invalid input.
+func TestValidateFrameGeometry(t *testing.T) {
+	tests := []struct {
+		name                                 string
+		width, height, stride, bytesPerPixel int
+		wantErr                              bool
+	}{
+		{"typical 1440p BGRx", 2560, 1440, 10240, 4, false},
+		{"stride padded beyond the row", 1920, 1080, 8192, 4, false},
+		{"tightly packed 24-bit", 1920, 1080, 5760, 3, false},
+		{"zero stride on a data-less frame", 1920, 1080, 0, 4, true},
+		{"stride one byte short of a row", 1920, 1080, 7679, 4, true},
+		{"stride sized for 3 bytes but format needs 4", 1920, 1080, 5760, 4, true},
+		{"zero width", 0, 1080, 0, 4, true},
+		{"zero height", 1920, 0, 7680, 4, true},
+		{"negative height", 1920, -1, 7680, 4, true},
+		{"negative stride", 1920, 1080, -7680, 4, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateFrameGeometry(tt.width, tt.height, tt.stride, tt.bytesPerPixel)
+			if tt.wantErr && err == nil {
+				t.Errorf("validateFrameGeometry(%d, %d, %d, %d) = nil, want an error",
+					tt.width, tt.height, tt.stride, tt.bytesPerPixel)
+			}
+			if !tt.wantErr && err != nil {
+				t.Errorf("validateFrameGeometry(%d, %d, %d, %d) = %v, want nil",
+					tt.width, tt.height, tt.stride, tt.bytesPerPixel, err)
+			}
+		})
+	}
 }
