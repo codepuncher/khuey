@@ -1,6 +1,7 @@
 package capture
 
 import (
+	"fmt"
 	"image"
 	"sync"
 	"testing"
@@ -407,6 +408,72 @@ func TestValidateFrameGeometry(t *testing.T) {
 			if !tt.wantErr && err != nil {
 				t.Errorf("validateFrameGeometry(%d, %d, %d, %d) = %v, want nil",
 					tt.width, tt.height, tt.stride, tt.bytesPerPixel, err)
+			}
+		})
+	}
+}
+
+// TestCaptureBreakerTripped covers the frame-capture grace period. It has to
+// be a deadline rather than a count of failed polls: the reader loop ticks at
+// the configured FPS, so a count would give 0.5s of grace at 60 FPS and 3s at
+// 10, and raising the frame rate alone could stop capture before the
+// compositor delivered its first buffer.
+func TestCaptureBreakerTripped(t *testing.T) {
+	const grace = time.Second
+	start := time.Now()
+
+	tests := []struct {
+		name       string
+		firstErrAt time.Time
+		now        time.Time
+		want       bool
+	}{
+		{name: "no failures yet", firstErrAt: time.Time{}, now: start, want: false},
+		{name: "within the grace period", firstErrAt: start, now: start.Add(999 * time.Millisecond), want: false},
+		{name: "at the grace period", firstErrAt: start, now: start.Add(grace), want: true},
+		{name: "past the grace period", firstErrAt: start, now: start.Add(5 * time.Second), want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := captureBreakerTripped(tt.firstErrAt, tt.now, grace); got != tt.want {
+				t.Errorf("captureBreakerTripped(%v, %v, %v) = %v, want %v", tt.firstErrAt, tt.now, grace, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestCaptureBreakerGraceIsIndependentOfFPS pins the deadline's semantics: the
+// same wall-clock streak trips at every supported frame rate, while the number
+// of polls to get there tracks the rate. It drives captureBreakerTripped
+// directly and simulates the cadence, so it does not catch nativeFrameReaderLoop
+// going back to counting errors; testing that needs a live PipeWire stream.
+func TestCaptureBreakerGraceIsIndependentOfFPS(t *testing.T) {
+	const grace = time.Second
+
+	for _, fps := range []int{MinFPS, 30, MaxFPS} {
+		t.Run(fmt.Sprintf("%d FPS", fps), func(t *testing.T) {
+			interval := time.Second / time.Duration(fps)
+			now := time.Now()
+			firstErrAt := now
+
+			polls := 0
+			for !captureBreakerTripped(firstErrAt, now, grace) {
+				now = now.Add(interval)
+				polls++
+				if polls > 10*fps {
+					t.Fatalf("breaker never tripped after %d polls", polls)
+				}
+			}
+
+			if elapsed := now.Sub(firstErrAt); elapsed < grace || elapsed > grace+interval {
+				t.Errorf("tripped after %v, want about %v", elapsed, grace)
+			}
+			// time.Second/fps truncates, so the streak can need one extra poll
+			// to clear the deadline. The point is that the poll count tracks
+			// the frame rate while the wall-clock deadline does not.
+			if polls < fps || polls > fps+1 {
+				t.Errorf("tripped after %d polls at %d FPS, want %d or %d", polls, fps, fps, fps+1)
 			}
 		})
 	}

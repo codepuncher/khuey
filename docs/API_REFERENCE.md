@@ -898,9 +898,9 @@ Returns current screen sync configuration.
 **Signature:** `GetSyncSettings() → map[string]interface{}`
 
 **Returns (map keys):**
-- `fps` (int) - Target frames per second (1-60)
+- `fps` (int) - Target frames per second (10-60)
 - `subsampleWidth` (int) - Resize width for processing (16-256)
-- `monitor` (string) - Monitor name to capture (empty = default)
+- `monitor` (string) - Monitor name; stored but not yet applied, capture uses all monitors
 - `enabled` (bool) - Whether sync is enabled in config
 
 **Example (dbus-send):**
@@ -945,16 +945,16 @@ Updates screen sync configuration.
 **Signature:** `SetSyncSettings(fps: int32, subsampleWidth: int32, monitor: string) → bool`
 
 **Parameters:**
-- `fps` (int32) - Target frames per second (1-60)
+- `fps` (int32) - Target frames per second (10-60)
 - `subsampleWidth` (int32) - Resize width for processing (16-256)
-- `monitor` (string) - Monitor name (empty = default monitor)
+- `monitor` (string) - Monitor name; stored but not yet applied, capture uses all monitors
 
 **Returns:**
 - `true` - Settings saved successfully
 - `false` - Failed (error in DBus error field)
 
 **Errors:**
-- `"FPS must be between 1 and 60"` - Invalid FPS
+- `"FPS must be between 10 and 60"` - Invalid FPS
 - `"subsample width must be between 16 and 256"` - Invalid width
 - `"access denied"` - Caller is not service owner
 - `"failed to save sync settings"` - File system error
@@ -1185,7 +1185,7 @@ DBus errors are returned as `*dbus.Error` with the following formats:
 
 **Validation Errors:**
 - `"brightness must be 0-100"`
-- `"FPS must be between 1 and 60 (got X)"`
+- `"FPS must be between 10 and 60 (got X)"`
 - `"subsample width must be between 16 and 256 (got X)"`
 - `"displayName exceeds maximum length"`
 

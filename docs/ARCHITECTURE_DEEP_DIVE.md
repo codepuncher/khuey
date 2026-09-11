@@ -1534,7 +1534,7 @@ grouped_light_id: "room-uuid-here"
 # Screen sync settings
 sync:
   enabled: false
-  fps: 30                    # 1-60
+  fps: 30                    # 10-60
   subsampleWidth: 64         # 16-256
   monitor: ""                # Empty = default monitor
   restoreToken: ""           # Portal session token
@@ -1630,9 +1630,9 @@ log_level: "info"
 - `ClientKey` - Optional (Entertainment API only)
 
 **Sync Settings:**
-- `sync.fps` - Range: 1-60
+- `sync.fps` - Range: 10-60
 - `sync.subsampleWidth` - Range: 16-256
-- `sync.monitor` - Any string (empty = default)
+- `sync.monitor` - Any string; stored but not yet applied
 
 **Gaming Mode:**
 - `gamingMode.pollInterval` - Minimum: 1 second

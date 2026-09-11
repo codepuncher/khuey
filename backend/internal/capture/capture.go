@@ -20,8 +20,8 @@ import (
 
 // Constants for screen capture
 const (
-	MinFPS = 10 // Minimum frames per second for capture (stricter than config.MinFPS)
-	MaxFPS = 60 // Maximum frames per second
+	MinFPS = 10 // Minimum frames per second for capture (matches config.MinFPS)
+	MaxFPS = 60 // Maximum frames per second (matches config.MaxFPS)
 )
 
 // Pool for RGBA image buffers used in frame copying to reduce GC pressure.
@@ -64,6 +64,7 @@ type ScreenCapture struct {
 	sessionHandle string
 	streamNode    uint32
 	fps           int
+	fpsMutex      sync.RWMutex
 	ctx           context.Context
 	cancel        context.CancelFunc
 
@@ -75,7 +76,7 @@ type ScreenCapture struct {
 	useMockFrames    bool
 	useNativeCapture bool
 	frameReaderWg    sync.WaitGroup // Tracks frame reader goroutine lifecycle
-	consecutiveErrs  int            // Track consecutive frame errors for circuit breaker
+	consecutiveErrs  int            // Attempts in the current failure streak, reported when capture gives up
 
 	// Screenshot-based capture
 	useScreenshot  bool
@@ -226,13 +227,6 @@ func (sc *ScreenCapture) Start() error {
 			go sc.onTokenUpdate(newToken)
 		}
 	}
-
-	// The breaker counter outlives a capture session: the engine builds one
-	// ScreenCapture in NewEngine and reuses it for every StartSync. Left at
-	// its tripped value, the first "no frame available yet" of the next
-	// session (guaranteed, until PipeWire negotiates a format) trips it again
-	// straight away and cancels the fresh context.
-	sc.consecutiveErrs = 0
 
 	// Start real Pipewire capture if not using mock frames
 	if !sc.useMockFrames {
@@ -488,27 +482,56 @@ func (sc *ScreenCapture) startNativePipewireCapture() error {
 	return nil
 }
 
+// captureBreakerTripped reports whether a run of failed polls that began at
+// firstErrAt has lasted long enough to give up on capture.
+func captureBreakerTripped(firstErrAt, now time.Time, grace time.Duration) bool {
+	if firstErrAt.IsZero() {
+		return false
+	}
+	return now.Sub(firstErrAt) >= grace
+}
+
 // nativeFrameReaderLoop polls frames from native capture
 func (sc *ScreenCapture) nativeFrameReaderLoop() {
 	defer sc.frameReaderWg.Done()
-	ticker := time.NewTicker(sc.GetFrameInterval())
+	interval := sc.GetFrameInterval()
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	const maxConsecutiveErrors = 30 // Circuit breaker: stop after 30 consecutive errors (~1 sec at 30 FPS)
+	// A deadline, not an error count. This loop's period follows the
+	// configured FPS, so counting ticks would give 0.5s of grace at 60 and 3s
+	// at 10: raising the frame rate alone could stop capture before the
+	// compositor delivered its first buffer.
+	const captureGrace = time.Second
+	var firstErrAt time.Time
+
+	// The field outlives this loop, so a previous session's streak would be
+	// added to the attempt count the breaker reports.
+	sc.consecutiveErrs = 0
 
 	for {
 		select {
 		case <-sc.ctx.Done():
 			return
 		case <-ticker.C:
+			if current := sc.GetFrameInterval(); current != interval {
+				interval = current
+				ticker.Reset(interval)
+			}
+
 			// GetFrame's conversion runs unlocked: it draws its destination
 			// from the shared image buffer pool (see convertToRGBA), so it
 			// never touches whatever sc.frameBuffer currently points to.
 			frame, err := sc.nativeCapture.GetFrame()
 			if err != nil {
 				sc.consecutiveErrs++
-				if sc.consecutiveErrs >= maxConsecutiveErrors {
-					log.Printf("[ERROR] Frame capture failed %d times consecutively, stopping capture (possible permission denial or PipeWire issue)", sc.consecutiveErrs)
+				now := time.Now()
+				if firstErrAt.IsZero() {
+					firstErrAt = now
+				}
+				if captureBreakerTripped(firstErrAt, now, captureGrace) {
+					log.Printf("[ERROR] Frame capture failing for %v (%d attempts), stopping capture (possible permission denial or PipeWire issue)",
+						now.Sub(firstErrAt).Round(time.Millisecond), sc.consecutiveErrs)
 					if sc.cancel != nil {
 						sc.cancel() // Stop the capture to prevent wasting CPU
 					}
@@ -518,8 +541,9 @@ func (sc *ScreenCapture) nativeFrameReaderLoop() {
 				continue
 			}
 
-			// Frame captured successfully - reset error counter
+			// Frame captured successfully - reset the failure streak
 			sc.consecutiveErrs = 0
+			firstErrAt = time.Time{}
 
 			sc.publishFrame(frame)
 		}
@@ -539,8 +563,11 @@ func (sc *ScreenCapture) startGStreamerCapture() error {
 			"jpegenc ! "+
 			"multifilesink location=/tmp/hue-frame-%%05d.jpg post-messages=true max-files=2",
 		sc.streamNode,
-		sc.fps,
+		int(time.Second/sc.GetFrameInterval()),
 	)
+	// The pipeline's framerate is fixed for the life of the process, so a
+	// later SetFPS only changes how often this path samples the files gst
+	// writes. Applying a new rate fully would mean respawning gst-launch.
 
 	// Start gstreamer pipeline
 	sc.gstCmd = exec.CommandContext(sc.ctx, "gst-launch-1.0", "-q", pipeline)
@@ -561,7 +588,8 @@ func (sc *ScreenCapture) startGStreamerCapture() error {
 func (sc *ScreenCapture) frameReaderLoop() {
 	defer sc.frameReaderWg.Done()
 
-	ticker := time.NewTicker(sc.GetFrameInterval())
+	interval := sc.GetFrameInterval()
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	frameNum := 0
@@ -571,6 +599,11 @@ func (sc *ScreenCapture) frameReaderLoop() {
 		case <-sc.ctx.Done():
 			return
 		case <-ticker.C:
+			if current := sc.GetFrameInterval(); current != interval {
+				interval = current
+				ticker.Reset(interval)
+			}
+
 			// Read the latest frame file
 			// Gstreamer writes to /tmp/hue-frame-00000.jpg, hue-frame-00001.jpg in rotation
 			framePath := fmt.Sprintf("/tmp/hue-frame-%05d.jpg", frameNum%2)
@@ -598,5 +631,20 @@ func (sc *ScreenCapture) frameReaderLoop() {
 
 // GetFrameInterval returns the time between frames based on FPS
 func (sc *ScreenCapture) GetFrameInterval() time.Duration {
+	sc.fpsMutex.RLock()
+	defer sc.fpsMutex.RUnlock()
 	return time.Second / time.Duration(sc.fps)
+}
+
+// SetFPS changes the capture rate. The reader loop picks it up on its next
+// tick; without this the loop would keep producing frames at the rate set in
+// NewScreenCapture and cap the sync engine no matter what it was told.
+func (sc *ScreenCapture) SetFPS(fps int) error {
+	if fps < MinFPS || fps > MaxFPS {
+		return fmt.Errorf("FPS must be between %d and %d, got %d", MinFPS, MaxFPS, fps)
+	}
+	sc.fpsMutex.Lock()
+	sc.fps = fps
+	sc.fpsMutex.Unlock()
+	return nil
 }

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -162,6 +163,35 @@ func TestValidate(t *testing.T) {
 			},
 			wantErr: true,
 			errMsg:  "sync.fps must be between",
+		},
+		{
+			// FPS values below capture.MinFPS (10) must be rejected here too:
+			// SetSyncSettings validates against capture's bounds, so a value
+			// that passes Validate but fails there would let a hand-edited
+			// config load fine yet be unchangeable via the tray settings UI.
+			name: "FPS below capture minimum",
+			cfg: &Config{
+				Bridge: "192.168.1.100",
+				Key:    "test-key",
+				Sync: SyncConfig{
+					FPS:            5,
+					SubsampleWidth: 64,
+				},
+			},
+			wantErr: true,
+			errMsg:  "sync.fps must be between",
+		},
+		{
+			name: "FPS at reconciled minimum",
+			cfg: &Config{
+				Bridge: "192.168.1.100",
+				Key:    "test-key",
+				Sync: SyncConfig{
+					FPS:            MinFPS,
+					SubsampleWidth: 64,
+				},
+			},
+			wantErr: false,
 		},
 		{
 			name: "SubsampleWidth too low",
@@ -562,4 +592,142 @@ func stringContains(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+// loadConfigYAML writes body to a temp config file and loads it through Load,
+// returning the config file path so callers can assert on what was written.
+func loadConfigYAML(t *testing.T, body string) (*Config, string, error) {
+	t.Helper()
+
+	tempDir := t.TempDir()
+	configFile := filepath.Join(tempDir, "config.yaml")
+	if err := os.WriteFile(configFile, []byte(body), 0600); err != nil {
+		t.Fatalf("Failed to write test config: %v", err)
+	}
+
+	originalGetConfigFile := getConfigFile
+	originalGetConfigPath := getConfigPath
+	getConfigFile = func() string { return configFile }
+	getConfigPath = func() string { return tempDir }
+	defer func() {
+		getConfigFile = originalGetConfigFile
+		getConfigPath = originalGetConfigPath
+	}()
+
+	cfg, err := Load()
+	return cfg, configFile, err
+}
+
+func TestLoadClampsLegacyFPS(t *testing.T) {
+	tests := []struct {
+		name    string
+		fps     int
+		want    int
+		wantErr bool
+	}{
+		{"legacy value below the new minimum is clamped", 5, MinFPS, false},
+		{"the old floor is still loadable", legacyMinFPS, MinFPS, false},
+		{"a value at the new minimum is untouched", MinFPS, MinFPS, false},
+		{"a normal value is untouched", 30, 30, false},
+		{"zero was never valid and stays an error", 0, 0, true},
+		{"a negative value stays an error", -1, 0, true},
+		{"above the maximum stays an error", MaxFPS + 1, 0, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body := fmt.Sprintf("Bridge: 192.168.1.100\nKey: test-api-key\nsync:\n  fps: %d\n  subsampleWidth: 128\n", tt.fps)
+			cfg, _, err := loadConfigYAML(t, body)
+
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("Load() with fps %d: expected an error, got none", tt.fps)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Load() with fps %d: unexpected error: %v", tt.fps, err)
+			}
+			if cfg.Sync.FPS != tt.want {
+				t.Errorf("Sync.FPS = %d, want %d", cfg.Sync.FPS, tt.want)
+			}
+		})
+	}
+}
+
+func TestLoadDoesNotRewriteConfigWhenClamping(t *testing.T) {
+	body := "Bridge: 192.168.1.100\nKey: test-api-key\nsync:\n  fps: 5\n  subsampleWidth: 128\n"
+	cfg, configFile, err := loadConfigYAML(t, body)
+	if err != nil {
+		t.Fatalf("Load() unexpected error: %v", err)
+	}
+	if cfg.Sync.FPS != MinFPS {
+		t.Fatalf("Sync.FPS = %d, want %d", cfg.Sync.FPS, MinFPS)
+	}
+
+	// Load must not edit the file: it is shared with openhue-cli, Save is a
+	// full rewrite that drops comments, and read-only tools call Load too.
+	written, err := os.ReadFile(configFile)
+	if err != nil {
+		t.Fatalf("Failed to read back config: %v", err)
+	}
+	if string(written) != body {
+		t.Errorf("Load rewrote the config file.\ngot:\n%s\nwant:\n%s", written, body)
+	}
+}
+
+// TestSavePersistsSyncFields guards the whole SyncConfig struct through a
+// Save/Load round trip. A per-field Set("sync.restoreToken") used to shadow the
+// struct, so FPS and subsampleWidth changes were silently dropped while the
+// token itself survived; the restore-token chain and the tray's FPS control
+// both depend on this working.
+func TestSavePersistsSyncFields(t *testing.T) {
+	tempDir := t.TempDir()
+	configFile := filepath.Join(tempDir, "config.yaml")
+	body := "Bridge: 192.168.1.100\nKey: test-api-key\nsync:\n  fps: 30\n  subsampleWidth: 128\n  restoreToken: old-token\n"
+	if err := os.WriteFile(configFile, []byte(body), 0600); err != nil {
+		t.Fatalf("Failed to write test config: %v", err)
+	}
+
+	originalGetConfigFile := getConfigFile
+	originalGetConfigPath := getConfigPath
+	getConfigFile = func() string { return configFile }
+	getConfigPath = func() string { return tempDir }
+	defer func() {
+		getConfigFile = originalGetConfigFile
+		getConfigPath = originalGetConfigPath
+	}()
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Sync.RestoreToken != "old-token" {
+		t.Fatalf("restoreToken did not load: %q", cfg.Sync.RestoreToken)
+	}
+
+	cfg.Sync.FPS = 45
+	cfg.Sync.SubsampleWidth = 96
+	cfg.Sync.Monitor = "DP-1"
+	cfg.Sync.RestoreToken = "new-token"
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	reloaded, err := Load()
+	if err != nil {
+		t.Fatalf("Load() after Save error = %v", err)
+	}
+	if reloaded.Sync.FPS != 45 {
+		t.Errorf("Sync.FPS = %d, want 45", reloaded.Sync.FPS)
+	}
+	if reloaded.Sync.SubsampleWidth != 96 {
+		t.Errorf("Sync.SubsampleWidth = %d, want 96", reloaded.Sync.SubsampleWidth)
+	}
+	if reloaded.Sync.Monitor != "DP-1" {
+		t.Errorf("Sync.Monitor = %q, want \"DP-1\"", reloaded.Sync.Monitor)
+	}
+	if reloaded.Sync.RestoreToken != "new-token" {
+		t.Errorf("Sync.RestoreToken = %q, want \"new-token\"", reloaded.Sync.RestoreToken)
+	}
 }

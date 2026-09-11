@@ -290,9 +290,9 @@ Configuration for real-time screen-to-lights synchronization.
 | Option | Type | Default | Range/Values | Description |
 |--------|------|---------|--------------|-------------|
 | `sync.enabled` | bool | `false` | `true`/`false` | Enable/disable screen sync on startup |
-| `sync.fps` | int | `30` | `1` - `60` | Frame rate for screen capture and streaming |
+| `sync.fps` | int | `30` | `10` - `60` | Frame rate for screen capture and streaming |
 | `sync.subsampleWidth` | int | `64` | `16` - `256` | Resize width for processing (performance tuning) |
-| `sync.monitor` | string | `""` | Monitor name or empty | Which monitor to capture (empty = primary) |
+| `sync.monitor` | string | `""` | Monitor name or empty | Persisted but not yet applied; capture always uses all monitors |
 | `sync.restoreToken` | string | `""` | Portal token | XDG Portal restore token (auto-generated) |
 
 #### sync.enabled
@@ -320,8 +320,10 @@ sync:
 
 **Type:** Integer
 **Default:** `30`
-**Range:** `1` - `60` FPS
-**Validation:** Must be within range or config load fails
+**Range:** `10` - `60` FPS
+**Validation:** Values of `1` - `9` are raised to `10` on load, with a warning.
+The file itself is left alone. Anything else outside the range fails config
+load.
 
 Frame rate for screen capture and Entertainment API streaming.
 
@@ -402,13 +404,16 @@ sync:
 #### sync.monitor
 
 **Type:** String
-**Default:** `""` (empty = primary monitor)
+**Default:** `""`
 **Format:** Monitor name from Wayland compositor
 **Example:** `"DP-1"`, `"HDMI-1"`, `"eDP-1"`
 
-Which monitor to capture for screen sync.
+**Not applied yet.** The value is stored, returned by `GetSyncSettings` and
+shown in the settings dialog, but the sync engine always captures all monitors:
+`NewEngine` passes `Monitor: -1` and nothing reads `sync.monitor`. Setting it
+changes nothing today.
 
-**How to find monitor names:**
+**How to find monitor names** (for when it is honoured):
 ```bash
 # Wayland (KDE Plasma)
 kscreen-doctor -o
@@ -420,8 +425,8 @@ kscreen-doctor -o
 **Example:**
 ```yaml
 sync:
-  monitor: ""        # Primary monitor (default)
-  # monitor: "DP-1"  # Specific monitor
+  monitor: ""        # Default
+  # monitor: "DP-1"  # Stored, but capture still uses all monitors
 ```
 
 **When to set:**
@@ -1973,15 +1978,16 @@ Key: "generated-key-here"
 
 | Rule | Error Message |
 |------|---------------|
-| FPS < 1 | `sync.fps must be between 1 and 60 (got X)` |
-| FPS > 60 | `sync.fps must be between 1 and 60 (got X)` |
+| FPS < 1 | `sync.fps must be between 10 and 60 (got X)` |
+| FPS 1 - 9 | clamped to 10 with a warning, no error |
+| FPS > 60 | `sync.fps must be between 10 and 60 (got X)` |
 | SubsampleWidth < 16 | `sync.subsampleWidth must be between 16 and 256 (got X)` |
 | SubsampleWidth > 256 | `sync.subsampleWidth must be between 16 and 256 (got X)` |
 
 **How to fix:**
 ```yaml
 sync:
-  fps: 30              # Must be 1-60
+  fps: 30              # Must be 10-60
   subsampleWidth: 64   # Must be 16-256
 ```
 
