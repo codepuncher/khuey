@@ -52,7 +52,7 @@ func (k *KWinDetector) IsFullscreenActive() bool {
 
 	var scriptId int32
 	if err := call.Store(&scriptId); err != nil {
-		log.Printf("⚠️  Failed to load KWin script: %v", err)
+		log.Printf("[WARN] Failed to load KWin script: %v", err)
 		return false
 	}
 

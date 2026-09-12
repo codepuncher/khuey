@@ -36,21 +36,21 @@ func main() {
 		log.Fatalf("Failed to start capture: %v", err)
 	}
 
-	fmt.Println("✅ Screen capture started successfully!")
-	fmt.Printf("📊 FPS: %d (frame interval: %v)\n", 30, cap.GetFrameInterval())
+	fmt.Println("Screen capture started successfully!")
+	fmt.Printf("FPS: %d (frame interval: %v)\n", 30, cap.GetFrameInterval())
 
 	// Wait a moment for PipeWire to connect and start streaming
-	fmt.Println("\n⏳ Waiting for PipeWire connection...")
+	fmt.Println("\nWaiting for PipeWire connection...")
 	time.Sleep(2 * time.Second)
 
 	// Capture a test frame
-	fmt.Println("\n📸 Capturing test frame...")
+	fmt.Println("\nCapturing test frame...")
 	frame, err := cap.CaptureFrame()
 	if err != nil {
 		log.Printf("Warning: Failed to capture initial frame: %v", err)
 		fmt.Println("   (This is normal - frames will be available shortly)")
 	} else {
-		fmt.Printf("✅ Frame captured: %dx%d\n", frame.Bounds().Dx(), frame.Bounds().Dy())
+		fmt.Printf("Frame captured: %dx%d\n", frame.Bounds().Dx(), frame.Bounds().Dy())
 	}
 
 	fmt.Println("\nPress Ctrl+C to stop...")
@@ -84,18 +84,18 @@ func main() {
 
 			if frameCount%30 == 0 {
 				fps := float64(frameCount) / elapsed.Seconds()
-				fmt.Printf("📸 Captured %d frames (%.1f FPS actual) - Size: %dx%d\n",
+				fmt.Printf("Captured %d frames (%.1f FPS actual) - Size: %dx%d\n",
 					frameCount, fps, frame.Bounds().Dx(), frame.Bounds().Dy())
 			}
 
 		case <-sigChan:
 			elapsed := time.Since(startTime)
 			fps := float64(frameCount) / elapsed.Seconds()
-			fmt.Printf("\n\n📊 Final stats:\n")
+			fmt.Printf("\n\nFinal stats:\n")
 			fmt.Printf("   Total frames: %d\n", frameCount)
 			fmt.Printf("   Duration: %.1fs\n", elapsed.Seconds())
 			fmt.Printf("   Average FPS: %.1f\n", fps)
-			fmt.Println("\n✅ Stopped gracefully")
+			fmt.Println("\nStopped gracefully")
 			return
 		}
 	}

@@ -964,7 +964,7 @@ func (s *Service) SetGamingMode(sender dbus.Sender, enabled bool) (bool, *dbus.E
 	// Save config
 	if err := s.config.Save(); err != nil {
 		s.mu.Unlock()
-		log.Printf("❌ Failed to save gaming mode config: %v", err)
+		log.Printf("[ERROR] Failed to save gaming mode config: %v", err)
 		return false, dbus.MakeFailedError(err)
 	}
 
@@ -977,11 +977,11 @@ func (s *Service) SetGamingMode(sender dbus.Sender, enabled bool) (bool, *dbus.E
 
 		// Start new detector
 		s.InitGamingMode()
-		log.Println("🎮 Gaming mode enabled - detector started")
+		log.Println("[INFO] Gaming mode enabled - detector started")
 	} else {
 		// Stop detector
 		s.StopGamingMode()
-		log.Println("🎮 Gaming mode disabled - detector stopped")
+		log.Println("[INFO] Gaming mode disabled - detector stopped")
 	}
 
 	return true, nil
@@ -1014,12 +1014,12 @@ func (s *Service) InitGamingMode() {
 	defer s.mu.Unlock()
 
 	if !s.config.GamingMode.Enabled {
-		log.Println("ℹ️  Gaming mode disabled in config")
+		log.Println("[INFO] Gaming mode disabled in config")
 		return
 	}
 
 	if s.syncEngine == nil {
-		log.Println("⚠️  Gaming mode requires Entertainment API configuration")
+		log.Println("[WARN] Gaming mode requires Entertainment API configuration")
 		return
 	}
 
@@ -1040,18 +1040,18 @@ func (s *Service) InitGamingMode() {
 	})
 
 	if err != nil {
-		log.Printf("❌ Failed to create gaming detector: %v", err)
+		log.Printf("[ERROR] Failed to create gaming detector: %v", err)
 		return
 	}
 
 	if detector == nil {
-		log.Println("⚠️  No gaming detection methods available")
+		log.Println("[WARN] No gaming detection methods available")
 		return
 	}
 
 	s.gamingDetector = detector
 	s.gamingDetector.Start()
-	log.Println("✅ Gaming mode detector started")
+	log.Println("[INFO] Gaming mode detector started")
 }
 
 // StopGamingMode stops the gaming detector
@@ -1062,7 +1062,7 @@ func (s *Service) StopGamingMode() {
 	if s.gamingDetector != nil {
 		s.gamingDetector.Close()
 		s.gamingDetector = nil
-		log.Println("🎮 Gaming mode detector stopped")
+		log.Println("[INFO] Gaming mode detector stopped")
 	}
 }
 
@@ -1083,19 +1083,19 @@ func (s *Service) onGamingStateChanged(isGaming bool) {
 
 	// Perform sync operations WITHOUT holding lock to avoid deadlock
 	if shouldStart {
-		log.Println("🎮 Gaming detected - starting screen sync")
+		log.Println("[INFO] Gaming detected - starting screen sync")
 		// Use Background context - sync engine manages its own lifecycle via Stop()
 		if err := engine.Start(context.Background()); err != nil {
-			log.Printf("❌ Failed to start sync for gaming mode: %v", err)
+			log.Printf("[ERROR] Failed to start sync for gaming mode: %v", err)
 		} else {
-			log.Println("✅ Screen sync enabled for immersive gaming")
+			log.Println("[INFO] Screen sync enabled for immersive gaming")
 		}
 	} else if shouldStop {
-		log.Println("🎮 Gaming stopped - stopping screen sync")
+		log.Println("[INFO] Gaming stopped - stopping screen sync")
 		if err := engine.Stop(); err != nil {
 			log.Printf("warn: failed to stop sync engine: %v", err)
 		}
-		log.Println("✅ Screen sync disabled")
+		log.Println("[INFO] Screen sync disabled")
 	}
 }
 
@@ -1117,15 +1117,15 @@ func (s *Service) SetTrayIcons(gaming string, syncing string, idle string, sende
 
 	// SEC-007: Validate DBus string inputs
 	if err := common.ValidateDBusString("gaming", gaming, 255); err != nil {
-		log.Printf("🚫 SetTrayIcons invalid input: %v", err)
+		log.Printf("[WARN] SetTrayIcons invalid input: %v", err)
 		return false, dbus.MakeFailedError(err)
 	}
 	if err := common.ValidateDBusString("syncing", syncing, 255); err != nil {
-		log.Printf("🚫 SetTrayIcons invalid input: %v", err)
+		log.Printf("[WARN] SetTrayIcons invalid input: %v", err)
 		return false, dbus.MakeFailedError(err)
 	}
 	if err := common.ValidateDBusString("idle", idle, 255); err != nil {
-		log.Printf("🚫 SetTrayIcons invalid input: %v", err)
+		log.Printf("[WARN] SetTrayIcons invalid input: %v", err)
 		return false, dbus.MakeFailedError(err)
 	}
 
@@ -1139,10 +1139,10 @@ func (s *Service) SetTrayIcons(gaming string, syncing string, idle string, sende
 
 	// Save to file
 	if err := s.config.Save(); err != nil {
-		log.Printf("❌ Failed to save tray icon settings: %v", err)
+		log.Printf("[ERROR] Failed to save tray icon settings: %v", err)
 		return false, dbus.MakeFailedError(err)
 	}
 
-	log.Printf("✅ Tray icons updated: Gaming=%s, Syncing=%s, Idle=%s", gaming, syncing, idle)
+	log.Printf("[INFO] Tray icons updated: Gaming=%s, Syncing=%s, Idle=%s", gaming, syncing, idle)
 	return true, nil
 }
