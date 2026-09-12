@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/codepuncher/khuey/internal/capture"
@@ -39,6 +40,10 @@ type PerformanceMetrics struct {
 	frameTimes [100]int // 0-99ms buckets
 }
 
+// dropLogInterval throttles the frame-skip warning; the periodic metrics line
+// carries the totals.
+const dropLogInterval = 5 * time.Second
+
 // Sentinel errors
 var (
 	ErrAlreadyRunning = fmt.Errorf("sync already running")
@@ -55,7 +60,9 @@ type Engine struct {
 	running bool
 	cancel  context.CancelFunc
 
-	fps        int
+	// Atomic so a settings change never blocks on e.mu, which Start holds
+	// across the portal dialog and the DTLS connect.
+	fps        atomic.Int64
 	zones      []color.Zone
 	httpClient *http.Client
 
@@ -69,13 +76,13 @@ func NewEngine(cfg *config.Config) (*Engine, error) {
 	engine := &Engine{
 		config:     cfg,
 		running:    false,
-		fps:        30,                        // Default 30 FPS
 		httpClient: common.NewHueHTTPClient(), // PERF-004: Reuse HTTP client
 	}
+	engine.fps.Store(int64(cfg.Sync.FPS))
 
 	// Create screen capture - native PipeWire capture with CGo
 	capturer, err := capture.NewScreenCapture(capture.Config{
-		FPS:              30,                    // Default 30 FPS
+		FPS:              cfg.Sync.FPS,
 		Monitor:          -1,                    // All monitors
 		UseMockFrames:    false,                 // Disable mock frames
 		UseNativeCapture: true,                  // Use native CGo PipeWire capture
@@ -276,7 +283,7 @@ func (e *Engine) Start(ctx context.Context) error {
 	// Start sync loop in goroutine
 	go e.syncLoop(syncCtx)
 
-	log.Printf("Screen sync started at %d FPS", e.fps)
+	log.Printf("Screen sync started at %d FPS", e.fps.Load())
 	return nil
 }
 
@@ -314,23 +321,29 @@ func (e *Engine) IsRunning() bool {
 	return e.running
 }
 
-// SetFPS updates the target frame rate
+// SetFPS updates the target frame rate. Takes effect on the next tick of a
+// running sync loop, or immediately for a subsequent Start.
+//
+// The capturer holds its own copy driving the frame reader loop, so it is
+// updated too: leaving it stale would cap how often a new frame exists and
+// make the sync loop re-read the same one at the higher rate.
 func (e *Engine) SetFPS(fps int) error {
-	if fps < 1 || fps > 60 {
-		return fmt.Errorf("fps must be 1-60")
+	if fps < capture.MinFPS || fps > capture.MaxFPS {
+		return fmt.Errorf("fps must be between %d and %d", capture.MinFPS, capture.MaxFPS)
 	}
-	e.mu.Lock()
-	e.fps = fps
-	e.mu.Unlock()
+	if e.capturer != nil {
+		if err := e.capturer.SetFPS(fps); err != nil {
+			return err
+		}
+	}
+	e.fps.Store(int64(fps))
 	log.Printf("FPS set to %d", fps)
 	return nil
 }
 
 // syncLoop is the main synchronization loop
 func (e *Engine) syncLoop(ctx context.Context) {
-	e.mu.RLock()
-	lastFPS := e.fps
-	e.mu.RUnlock()
+	lastFPS := int(e.fps.Load())
 
 	// Initialize performance metrics
 	e.metrics.mu.Lock()
@@ -340,8 +353,11 @@ func (e *Engine) syncLoop(ctx context.Context) {
 	e.metrics.framesDropped = 0
 	e.metrics.mu.Unlock()
 
-	ticker := time.NewTicker(time.Second / time.Duration(lastFPS))
+	interval := time.Second / time.Duration(lastFPS)
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
+	drops := &dropCounter{interval: interval, lastTick: time.Now()}
+	var lastDropLog time.Time
 
 	extractor, err := color.NewExtractor(e.config.Sync.SubsampleWidth, 2.2)
 	if err != nil {
@@ -357,22 +373,32 @@ func (e *Engine) syncLoop(ctx context.Context) {
 		case <-ticker.C:
 			frameStart := time.Now()
 
-			// Drain accumulated ticks to handle frame drops gracefully
-			drained := 0
-		drainLoop:
-			for {
-				select {
-				case <-ticker.C:
-					drained++
-				default:
-					break drainLoop
+			// time.Ticker only buffers one pending tick and silently drops the
+			// rest when the receiver falls behind, so count drops from elapsed
+			// wall-clock time against the target interval rather than draining
+			// the channel (which can never observe more than one extra tick).
+			if dropped := drops.observe(frameStart); dropped > 0 {
+				e.metrics.mu.Lock()
+				e.metrics.framesDropped += uint64(dropped)
+				e.metrics.mu.Unlock()
+
+				// Throttled: a machine too slow to keep up drops on every
+				// frame, so an unthrottled line here costs it the frame rate
+				// in log writes when it can least afford them.
+				// logPerformanceMetrics carries the totals every 5s.
+				if time.Since(lastDropLog) >= dropLogInterval {
+					log.Printf("[WARN] Frame skip: dropped %d frames (processing too slow for %d FPS)", dropped, lastFPS)
+					lastDropLog = time.Now()
 				}
 			}
-			if drained > 0 {
-				log.Printf("[WARN] Frame skip: dropped %d frames (processing too slow for %d FPS)", drained, lastFPS)
-				e.metrics.mu.Lock()
-				e.metrics.framesDropped += uint64(drained)
-				e.metrics.mu.Unlock()
+
+			// Applied before the error paths below, which continue: a settings
+			// change made while capture is failing must still take effect.
+			if currentFPS := int(e.fps.Load()); currentFPS != lastFPS {
+				interval = time.Second / time.Duration(currentFPS)
+				ticker.Reset(interval)
+				lastFPS = currentFPS
+				drops.setInterval(interval, frameStart)
 			}
 
 			// Capture phase
@@ -434,17 +460,59 @@ func (e *Engine) syncLoop(ctx context.Context) {
 				e.logPerformanceMetrics()
 			}
 
-			// Only reset ticker when FPS actually changes
-			e.mu.RLock()
-			currentFPS := e.fps
-			e.mu.RUnlock()
-
-			if currentFPS != lastFPS {
-				ticker.Reset(time.Second / time.Duration(currentFPS))
-				lastFPS = currentFPS
-			}
 		}
 	}
+}
+
+// stallGap is where a gap stops looking like slow processing and starts looking
+// like the clock jumping. A suspend/resume would otherwise count every interval
+// it slept through and pin the drop rate near 100% for the rest of the session,
+// since framesDropped never resets. Absolute rather than a multiple of the
+// interval: a multiple scales with the target rate, so the same real stall
+// would be counted at 10 FPS and discarded at 60.
+const stallGap = 2 * time.Second
+
+// dropCounter tracks the tick bookkeeping behind the frame-drop metric.
+type dropCounter struct {
+	interval time.Duration
+	lastTick time.Time
+	// Time that has elapsed but not yet added up to a whole interval. Without
+	// carrying it, a frame that consistently takes 1.9 intervals truncates to
+	// 1 and reports no drops at all, which is the mild overload the warning
+	// exists for.
+	carry time.Duration
+}
+
+// observe records a processed frame at now and returns the ticks missed since
+// the previous one.
+func (d *dropCounter) observe(now time.Time) int {
+	elapsed := now.Sub(d.lastTick)
+	d.lastTick = now
+
+	if d.interval <= 0 {
+		return 0
+	}
+	if elapsed >= stallGap {
+		d.carry = 0
+		return 0
+	}
+
+	total := d.carry + elapsed
+	ticks := int(total / d.interval)
+	d.carry = total % d.interval
+	if ticks <= 1 {
+		return 0
+	}
+	return ticks - 1
+}
+
+// setInterval adopts a new target interval. The span since the last frame was
+// measured against the old one, so it is rebased rather than carried over:
+// dividing it by a shorter interval would report drops that never happened.
+func (d *dropCounter) setInterval(interval time.Duration, now time.Time) {
+	d.interval = interval
+	d.lastTick = now
+	d.carry = 0
 }
 
 // activateEntertainmentArea activates the Entertainment Area on the bridge
@@ -524,6 +592,8 @@ func (e *Engine) updateMetrics(frameTime, captureTime, extractTime, streamTime t
 
 // logPerformanceMetrics logs current performance metrics
 func (e *Engine) logPerformanceMetrics() {
+	targetFPS := e.fps.Load()
+
 	e.metrics.mu.Lock()
 	defer e.metrics.mu.Unlock()
 
@@ -543,7 +613,6 @@ func (e *Engine) logPerformanceMetrics() {
 	p95 := e.metrics.calculatePercentile(95)
 	p99 := e.metrics.calculatePercentile(99)
 
-	targetFPS := e.fps
 	dropRate := float64(e.metrics.framesDropped) / float64(e.metrics.frameCount+e.metrics.framesDropped) * 100
 
 	log.Printf("[INFO] Performance Metrics (%.1fs elapsed, %d frames):", elapsed.Seconds(), e.metrics.frameCount)

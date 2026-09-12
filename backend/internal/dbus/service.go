@@ -764,8 +764,10 @@ func (s *Service) GetSyncSettings() (map[string]interface{}, *dbus.Error) {
 	}, nil
 }
 
-// SetSyncSettings updates Screen Sync configuration
-// Note: Changes require restarting sync for them to take effect
+// SetSyncSettings updates Screen Sync configuration.
+// FPS applies immediately, including to a running sync loop; subsampleWidth
+// takes effect on the next sync start. Monitor is persisted but not yet
+// honored: NewEngine always captures all monitors.
 func (s *Service) SetSyncSettings(fps int32, subsampleWidth int32, monitor string, sender dbus.Sender) (bool, *dbus.Error) {
 	// Access control: only service owner can modify settings
 	if err := s.checkAccess(sender); err != nil {
@@ -789,15 +791,37 @@ func (s *Service) SetSyncSettings(fps int32, subsampleWidth int32, monitor strin
 	}
 
 	s.mu.Lock()
+	prevFPS := s.config.Sync.FPS
+	prevSubsample := s.config.Sync.SubsampleWidth
+	prevMonitor := s.config.Sync.Monitor
 	s.config.Sync.FPS = int(fps)
 	s.config.Sync.SubsampleWidth = int(subsampleWidth)
 	s.config.Sync.Monitor = monitor
 	err := s.config.Save()
+	if err != nil {
+		// Roll back only the fields this method owns. Restoring the whole
+		// struct would clobber a restore token the sync engine may have
+		// written concurrently, and losing that brings the portal permission
+		// dialog back on every run.
+		s.config.Sync.FPS = prevFPS
+		s.config.Sync.SubsampleWidth = prevSubsample
+		s.config.Sync.Monitor = prevMonitor
+	}
+	engine := s.syncEngine
 	s.mu.Unlock()
 
 	if err != nil {
-		log.Printf("[ERROR] Failed to save sync settings: %v", err)
+		// Save writes the file before it chmods it, so a late failure can
+		// leave the new values on disk under the reverted in-memory ones.
+		log.Printf("[ERROR] Failed to save sync settings, reverted in memory (the file on disk may already hold the new values): %v", err)
 		return false, dbus.MakeFailedError(err)
+	}
+
+	if engine != nil {
+		if err := engine.SetFPS(int(fps)); err != nil {
+			log.Printf("[ERROR] Failed to apply FPS to sync engine: %v", err)
+			return false, dbus.MakeFailedError(err)
+		}
 	}
 
 	log.Printf("[INFO] Sync settings updated: FPS=%d, SubsampleWidth=%d, Monitor=%s", fps, subsampleWidth, monitor)

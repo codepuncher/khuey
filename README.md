@@ -337,7 +337,7 @@ channels:
       y: 1.0   # Bottom edge
 ```
 
-**Problem: "sync.fps must be between 1 and 60"**
+**Problem: "sync.fps must be between 10 and 60"**
 
 Update your config:
 ```yaml

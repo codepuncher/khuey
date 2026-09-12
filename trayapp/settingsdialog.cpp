@@ -84,13 +84,23 @@ void SettingsDialog::setupUI() {
 
     syncLayout->addWidget(subsampleGroup);
 
-    // Monitor selection
+    // Monitor selection. The backend persists this but never applies it: the
+    // sync engine always captures all monitors. Disabled rather than removed
+    // so the setting reappears here when the backend honours it.
     QGroupBox* monitorGroup = new QGroupBox("Monitor", syncTab);
-    QHBoxLayout* monitorLayout = new QHBoxLayout(monitorGroup);
-    monitorLayout->addWidget(new QLabel("Monitor:"));
+    QVBoxLayout* monitorLayout = new QVBoxLayout(monitorGroup);
+    QHBoxLayout* monitorRow = new QHBoxLayout();
+    monitorRow->addWidget(new QLabel("Monitor:"));
     monitorCombo = new QComboBox(monitorGroup);
-    monitorCombo->addItem("Default (Primary Monitor)", "");
-    monitorLayout->addWidget(monitorCombo, 1);
+    monitorCombo->addItem("All monitors", "");
+    monitorCombo->setEnabled(false);
+    monitorRow->addWidget(monitorCombo, 1);
+    monitorLayout->addLayout(monitorRow);
+
+    QLabel* monitorHint = new QLabel("Selecting a single monitor is not supported yet", monitorGroup);
+    monitorHint->setStyleSheet("QLabel { color: gray; font-size: 10pt; }");
+    monitorLayout->addWidget(monitorHint);
+
     syncLayout->addWidget(monitorGroup);
 
     // Gaming Mode checkbox
@@ -354,12 +364,16 @@ void SettingsDialog::loadSettings() {
             fpsSlider->setValue(currentFPS);
             subsampleSlider->setValue(currentSubsample);
 
-            // Set monitor if specified
+            // Surface a hand-set monitor as its own entry. The combo only
+            // offers "All monitors", so without this Apply would send an empty
+            // string back and quietly drop a value the user set in the config.
             if (!currentMonitor.isEmpty()) {
                 int index = monitorCombo->findData(currentMonitor);
-                if (index >= 0) {
-                    monitorCombo->setCurrentIndex(index);
+                if (index < 0) {
+                    monitorCombo->addItem(currentMonitor + " (not applied yet)", currentMonitor);
+                    index = monitorCombo->count() - 1;
                 }
+                monitorCombo->setCurrentIndex(index);
             }
         }
     }
@@ -514,7 +528,8 @@ void SettingsDialog::saveSettings() {
         this, "Settings Saved",
         "Settings saved successfully!\n\n"
         "Note: Restart the tray app for icon changes to take effect.\n"
-        "If Screen Sync is running, restart it for FPS/quality changes to take effect.");
+        "FPS applies immediately. If Screen Sync is running, restart it for\n"
+        "quality changes to take effect.");
 }
 
 bool SettingsDialog::validateSettings() {

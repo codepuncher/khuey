@@ -21,10 +21,17 @@ const (
 	// ConfigVersion is incremented when breaking changes are made to config format
 	ConfigVersion = 1
 
-	// FPS limits for screen sync
+	// FPS limits for screen sync. Must match capture.MinFPS/capture.MaxFPS:
+	// a config value that clears this check but fails capture's own bounds
+	// would make NewEngine fail at startup with a config the user was told
+	// was valid.
 	DefaultFPS = 30
-	MinFPS     = 1
+	MinFPS     = 10
 	MaxFPS     = 60
+
+	// The floor MinFPS used to carry. Only values at or above it are clamped
+	// on load; below it was never valid, so it stays an error.
+	legacyMinFPS = 1
 
 	// Subsample width limits for screen capture
 	DefaultSubsampleWidth = 64
@@ -235,6 +242,20 @@ func Load() (*Config, error) {
 
 	cfg.v = v
 
+	// An fps of 1-9 was accepted while the floor here was 1, so raising it to
+	// match capture's would turn a previously valid config into a Load error
+	// and, via log.Fatalf in main, a daemon that refuses to start. Clamp those
+	// legacy values instead; anything outside them still fails Validate below.
+	if cfg.Sync.FPS >= legacyMinFPS && cfg.Sync.FPS < MinFPS {
+		log.Printf("[WARN] sync.fps %d is below the minimum of %d, using %d", cfg.Sync.FPS, MinFPS, MinFPS)
+		log.Printf("  Update 'sync.fps' in %s to silence this", configFile)
+		cfg.Sync.FPS = MinFPS
+		// In memory only. Save is a full rewrite that strips comments and
+		// lowercases keys in a file openhue-cli also reads, and Load runs in
+		// read-only tools too, so correcting the value must not edit the
+		// user's file behind their back.
+	}
+
 	// Validate the loaded configuration
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("configuration validation failed: %w", err)
@@ -268,8 +289,10 @@ func (c *Config) Save() error {
 	c.v.Set("ui", c.UI)
 	c.v.Set("log_level", c.LogLevel)
 
-	// Explicitly save restore token (it's inside Sync but set at top level for openhue-cli compat)
-	c.v.Set("sync.restoreToken", c.Sync.RestoreToken)
+	// Do not Set("sync.<field>") individually. Viper stores a nested key as a
+	// map under "sync", which replaces the whole-struct Set above, and every
+	// field not named that way then silently falls back to the value already
+	// in the file.
 
 	// Validate required fields
 	if c.Bridge == "" {
