@@ -8,9 +8,16 @@ package capture
 #include <spa/param/video/type-info.h>
 #include <spa/debug/types.h>
 #include <spa/debug/format.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h>
+
+// Diagnostics below go to stderr, not stdout. systemd hands both fds to
+// journald, and since neither is a terminal libc fully buffers stdout while
+// stderr stays unbuffered: the one-shot warnings here would otherwise sit in
+// that buffer and never reach the journal. Go's log package also writes to
+// stderr, so the two stay in order.
 
 // One of the two frame slots in the double buffer below. Dimensions are
 // captured per-slot, at write time, rather than read from the mutable
@@ -86,12 +93,12 @@ static void on_stream_state_changed(void *data, enum pw_stream_state old,
 				    enum pw_stream_state state, const char *error)
 {
 	struct user_data *ud = data;
-	printf("[PipeWire] Stream state changed: %s -> %s\n",
-	       pw_stream_state_as_string(old),
-	       pw_stream_state_as_string(state));
+	fprintf(stderr, "[PipeWire] Stream state changed: %s -> %s\n",
+		pw_stream_state_as_string(old),
+		pw_stream_state_as_string(state));
 
 	if (state == PW_STREAM_STATE_ERROR) {
-		printf("[PipeWire] Stream error: %s\n", error);
+		fprintf(stderr, "[PipeWire] Stream error: %s\n", error);
 		pw_thread_loop_signal(ud->loop, false);
 	}
 }
@@ -106,7 +113,7 @@ static void on_stream_param_changed(void *data, uint32_t id, const struct spa_po
 	// Parse video format
 	struct spa_video_info_raw format;
 	if (spa_format_video_raw_parse(param, &format) < 0) {
-		printf("[PipeWire] Failed to parse video format\n");
+		fprintf(stderr, "[PipeWire] Failed to parse video format\n");
 		return;
 	}
 
@@ -115,9 +122,9 @@ static void on_stream_param_changed(void *data, uint32_t id, const struct spa_po
 	ud->frame_height = format.size.height;
 	ud->frame_format = format.format;
 
-	printf("[PipeWire] Video format: %dx%d, format=%s\n",
-	       format.size.width, format.size.height,
-	       spa_debug_type_find_name(spa_type_video_format, format.format));
+	fprintf(stderr, "[PipeWire] Video format: %dx%d, format=%s\n",
+		format.size.width, format.size.height,
+		spa_debug_type_find_name(spa_type_video_format, format.format));
 }
 
 static void warn_drop_once(struct user_data *ud, enum drop_reason reason,
@@ -127,8 +134,8 @@ static void warn_drop_once(struct user_data *ud, enum drop_reason reason,
 		return;
 	}
 	ud->warned_drop[reason] = 1;
-	printf("[PipeWire] Dropping frames: %s (stride %d, height %d)\n",
-	       drop_reason_text[reason], stride, height);
+	fprintf(stderr, "[PipeWire] Dropping frames: %s (stride %d, height %d)\n",
+		drop_reason_text[reason], stride, height);
 }
 
 static void on_stream_process(void *data)
@@ -300,7 +307,7 @@ struct user_data* pw_stream_connect_to_node(uint32_t node_id) {
 	// Create thread loop (for multi-threaded applications)
 	loop = pw_thread_loop_new("khuey-pipewire", NULL);
 	if (!loop) {
-		printf("[PipeWire] Failed to create thread loop\n");
+		fprintf(stderr, "[PipeWire] Failed to create thread loop\n");
 		return NULL;
 	}
 
@@ -329,7 +336,7 @@ struct user_data* pw_stream_connect_to_node(uint32_t node_id) {
 		ud);
 
 	if (!stream) {
-		printf("[PipeWire] Failed to create stream\n");
+		fprintf(stderr, "[PipeWire] Failed to create stream\n");
 		pw_thread_loop_unlock(loop);
 		free(ud);
 		pw_thread_loop_destroy(loop);
@@ -357,7 +364,7 @@ struct user_data* pw_stream_connect_to_node(uint32_t node_id) {
 			      PW_STREAM_FLAG_AUTOCONNECT |
 			      PW_STREAM_FLAG_MAP_BUFFERS,
 			      params, 1) < 0) {
-		printf("[PipeWire] Failed to connect stream to node %u\n", node_id);
+		fprintf(stderr, "[PipeWire] Failed to connect stream to node %u\n", node_id);
 		pw_stream_destroy(stream);
 		pw_thread_loop_unlock(loop);
 		free(ud);
@@ -368,7 +375,7 @@ struct user_data* pw_stream_connect_to_node(uint32_t node_id) {
 	// Unlock before starting the loop
 	pw_thread_loop_unlock(loop);
 
-	printf("[PipeWire] Stream connected to node %u\n", node_id);
+	fprintf(stderr, "[PipeWire] Stream connected to node %u\n", node_id);
 	return ud;
 }
 
