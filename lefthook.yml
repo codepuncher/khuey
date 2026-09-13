@@ -191,6 +191,7 @@ pre-push:
     go-build:
       run: |
         cd backend
+        export CGO_CFLAGS_ALLOW="-fno-strict-overflow"
         echo "Building backend..."
         go build -o hue-sync ./cmd/hue-sync
         

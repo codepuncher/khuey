@@ -39,7 +39,7 @@ jobs:
       
     - name: Run go vet
       working-directory: backend
-      run: go vet ./...
+      run: CGO_CFLAGS_ALLOW='-fno-strict-overflow' go vet ./...
       
     - name: Run go fmt
       working-directory: backend

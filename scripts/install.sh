@@ -136,10 +136,12 @@ print_section "Building backend..."
 cd "$PROJECT_ROOT/backend"
 
 if [ "$DRY_RUN" = true ]; then
-    echo "  Would run: go build -o hue-sync ./cmd/hue-sync"
+    echo "  Would run: CGO_CFLAGS_ALLOW='-fno-strict-overflow' go build -o hue-sync ./cmd/hue-sync"
     print_success "Backend build (dry-run)"
 else
-    if go build -o hue-sync ./cmd/hue-sync; then
+    # pkg-config for libpipewire emits -fno-strict-overflow, which cgo rejects
+    # unless it is allowlisted.
+    if CGO_CFLAGS_ALLOW='-fno-strict-overflow' go build -o hue-sync ./cmd/hue-sync; then
         print_success "Backend built: backend/hue-sync"
     else
         print_error "Backend build failed"

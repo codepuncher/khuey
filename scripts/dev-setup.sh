@@ -246,7 +246,7 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 if [ "$DRY_RUN" = false ]; then
     # Try backend build
     cd "$PROJECT_ROOT/backend"
-    if go build -o /tmp/hue-sync-test ./cmd/hue-sync > /dev/null 2>&1; then
+    if CGO_CFLAGS_ALLOW='-fno-strict-overflow' go build -o /tmp/hue-sync-test ./cmd/hue-sync > /dev/null; then
         print_success "Backend builds successfully"
         rm -f /tmp/hue-sync-test
     else
@@ -259,7 +259,7 @@ if [ "$DRY_RUN" = false ]; then
         rm -rf CMakeCache.txt CMakeFiles/
     fi
     
-    if cmake . > /dev/null 2>&1 && make > /dev/null 2>&1; then
+    if cmake . > /dev/null && make > /dev/null; then
         print_success "Tray app builds successfully"
     else
         print_error "Tray app build failed (check Qt6/KF6 dependencies)"
@@ -294,7 +294,7 @@ echo -e "${GREEN}║          Development Environment Ready!                    
 echo -e "${GREEN}╚════════════════════════════════════════════════════════════╝${NC}"
 echo ""
 echo "Next steps:"
-echo "  1. Build project:    cd backend && go build -o hue-sync ./cmd/hue-sync"
+echo "  1. Build project:    cd backend && CGO_CFLAGS_ALLOW='-fno-strict-overflow' go build -o hue-sync ./cmd/hue-sync"
 echo "  2. Run tests:        ./scripts/quick-test.sh"
 echo "  3. Install:          ./scripts/install.sh"
 echo "  4. Start coding!     Your editor should now have full support"
