@@ -1,6 +1,7 @@
 package sync
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -545,5 +546,49 @@ func TestDropCounterStallDoesNotLeakCarry(t *testing.T) {
 		if got := d.observe(now); got != 0 {
 			t.Fatalf("on-time frame %d after a stall reported %d drops, want 0", i, got)
 		}
+	}
+}
+
+func metricsFieldsAreZero(m *metricsData) map[string]bool {
+	v := reflect.ValueOf(m).Elem()
+	state := make(map[string]bool, v.NumField())
+	for i := 0; i < v.NumField(); i++ {
+		state[v.Type().Field(i).Name] = v.Field(i).IsZero()
+	}
+	return state
+}
+
+// TestMetricsResetClearsEveryAccumulator guards the reported averages: a second
+// sync session divides its own frame count into whatever the accumulators hold,
+// so any counter surviving a reset makes every Pipeline timing wrong.
+func TestMetricsResetClearsEveryAccumulator(t *testing.T) {
+	var e Engine
+	e.updateMetrics(12*time.Millisecond, 5*time.Millisecond, 3*time.Millisecond, 4*time.Millisecond)
+	e.metrics.framesDropped = 7
+	e.metrics.startTime = time.Now().Add(-time.Hour)
+	e.metrics.lastLogTime = time.Now().Add(-time.Hour)
+
+	for name, isZero := range metricsFieldsAreZero(&e.metrics.metricsData) {
+		if isZero {
+			t.Fatalf("%s is still zero before the reset, so the check below proves nothing about it; populate it above", name)
+		}
+	}
+
+	now := time.Now()
+	e.metrics.reset(now)
+
+	for name, isZero := range metricsFieldsAreZero(&e.metrics.metricsData) {
+		if name == "startTime" || name == "lastLogTime" {
+			continue
+		}
+		if !isZero {
+			t.Errorf("reset left %s non-zero", name)
+		}
+	}
+	if !e.metrics.startTime.Equal(now) {
+		t.Errorf("startTime = %v, want %v", e.metrics.startTime, now)
+	}
+	if !e.metrics.lastLogTime.Equal(now) {
+		t.Errorf("lastLogTime = %v, want %v", e.metrics.lastLogTime, now)
 	}
 }

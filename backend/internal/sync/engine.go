@@ -20,10 +20,10 @@ import (
 	"github.com/codepuncher/khuey/internal/entertainment"
 )
 
-// PerformanceMetrics tracks sync loop performance
-type PerformanceMetrics struct {
-	mu sync.RWMutex
-
+// metricsData holds every counter a sync session accumulates. It is kept apart
+// from the mutex so reset can clear the whole set in a single assignment, which
+// a counter added later cannot escape.
+type metricsData struct {
 	// Timing metrics
 	frameCount       uint64
 	startTime        time.Time
@@ -38,6 +38,19 @@ type PerformanceMetrics struct {
 
 	// Histogram buckets for frame times (in milliseconds)
 	frameTimes [100]int // 0-99ms buckets
+}
+
+// PerformanceMetrics tracks sync loop performance
+type PerformanceMetrics struct {
+	mu sync.RWMutex
+	metricsData
+}
+
+// reset clears the counters so a sync session reports only its own frames.
+func (m *PerformanceMetrics) reset(now time.Time) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.metricsData = metricsData{startTime: now, lastLogTime: now}
 }
 
 // dropLogInterval throttles the frame-skip warning; the periodic metrics line
@@ -345,13 +358,7 @@ func (e *Engine) SetFPS(fps int) error {
 func (e *Engine) syncLoop(ctx context.Context) {
 	lastFPS := int(e.fps.Load())
 
-	// Initialize performance metrics
-	e.metrics.mu.Lock()
-	e.metrics.startTime = time.Now()
-	e.metrics.lastLogTime = time.Now()
-	e.metrics.frameCount = 0
-	e.metrics.framesDropped = 0
-	e.metrics.mu.Unlock()
+	e.metrics.reset(time.Now())
 
 	interval := time.Second / time.Duration(lastFPS)
 	ticker := time.NewTicker(interval)
