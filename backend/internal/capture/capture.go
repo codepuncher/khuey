@@ -3,6 +3,7 @@ package capture
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"image"
 	"image/color"
@@ -77,6 +78,7 @@ type ScreenCapture struct {
 	useNativeCapture bool
 	frameReaderWg    sync.WaitGroup // Tracks frame reader goroutine lifecycle
 	consecutiveErrs  int            // Attempts in the current failure streak, reported when capture gives up
+	captureErr       error          // Why capture gave up; guarded by frameMutex, cleared by Start
 
 	// Screenshot-based capture
 	useScreenshot  bool
@@ -163,6 +165,12 @@ func detectScreenshotTool() string {
 
 // Start begins screen capture
 func (sc *ScreenCapture) Start() error {
+	// The field outlives the reader goroutine, so without this a session
+	// that gave up would poison every session after it.
+	sc.frameMutex.Lock()
+	sc.captureErr = nil
+	sc.frameMutex.Unlock()
+
 	// If using mock frames or screenshots, skip portal setup
 	if sc.useMockFrames || sc.useScreenshot {
 		// Mock/screenshot modes don't need portal setup
@@ -239,6 +247,24 @@ func (sc *ScreenCapture) Start() error {
 	return nil
 }
 
+// ErrCaptureStopped wraps the reason capture gave up. Once CaptureFrame
+// returns an error matching it, no further frame will arrive without a new
+// Start, so a caller that keeps polling is streaming a frozen image.
+var ErrCaptureStopped = errors.New("screen capture stopped")
+
+// failCapture records why the frame reader gave up. Without this the reader
+// goroutine can exit while CaptureFrame keeps handing back the last frame it
+// published, which leaves the caller streaming one still image with nothing
+// reported.
+func (sc *ScreenCapture) failCapture(cause error) {
+	sc.frameMutex.Lock()
+	defer sc.frameMutex.Unlock()
+
+	if sc.captureErr == nil {
+		sc.captureErr = fmt.Errorf("%w: %w", ErrCaptureStopped, cause)
+	}
+}
+
 // CaptureFrame captures a single frame
 func (sc *ScreenCapture) CaptureFrame() (*image.RGBA, error) {
 	if sc.useMockFrames {
@@ -252,6 +278,12 @@ func (sc *ScreenCapture) CaptureFrame() (*image.RGBA, error) {
 	// Return latest frame from Pipewire capture
 	sc.frameMutex.RLock()
 	defer sc.frameMutex.RUnlock()
+
+	// Checked before frameBuffer: the buffer outlives the reader goroutine,
+	// so a stale frame is exactly what is on offer once capture has failed.
+	if sc.captureErr != nil {
+		return nil, sc.captureErr
+	}
 
 	if sc.frameBuffer == nil {
 		return nil, fmt.Errorf("no frame available yet")
@@ -502,8 +534,29 @@ func (sc *ScreenCapture) nativeFrameReaderLoop() {
 	// configured FPS, so counting ticks would give 0.5s of grace at 60 and 3s
 	// at 10: raising the frame rate alone could stop capture before the
 	// compositor delivered its first buffer.
-	const captureGrace = time.Second
+	//
+	// Tripping it now ends the sync session rather than just the reader loop,
+	// so it has to outlast a cold compositor start on a loaded machine.
+	const captureGrace = 5 * time.Second
+
+	// The whole budget for getting a first frame, measured from here rather
+	// than from whenever the stream reached the streaming state. Both waits
+	// draw on it, including the generic one below, because a stream can bounce
+	// between the two states before any buffer arrives and timing each stretch
+	// on its own lets them add up. No frame means the engine has nothing to
+	// send, and a bridge left with no packets long enough drops out of
+	// streaming mode, which would leave the lights unresponsive for the rest
+	// of a session that still reports itself live.
+	//
+	// Rests on a frame never returning the loop to this state: ready_idx is
+	// set to -1 once at allocation and never again, so ErrAwaitingFirstFrame
+	// cannot reappear mid-session. Reset it on renegotiation and this deadline
+	// fires immediately on any session older than the grace.
+	const firstFrameGrace = 6 * time.Second
+	startedAt := time.Now()
+
 	var firstErrAt time.Time
+	var haveFrame bool
 
 	// The field outlives this loop, so a previous session's streak would be
 	// added to the attempt count the breaker reports.
@@ -523,15 +576,72 @@ func (sc *ScreenCapture) nativeFrameReaderLoop() {
 			// from the shared image buffer pool (see convertToRGBA), so it
 			// never touches whatever sc.frameBuffer currently points to.
 			frame, err := sc.nativeCapture.GetFrame()
+
+			// The compositor publishes on damage, so a still screen produces
+			// no frames at all. Holding the last one is the correct output
+			// here, and arming the breaker would kill a healthy session.
+			// The streak clears because a frame is there to be read: leaving
+			// it armed lets an idle spell join two unrelated errors into one
+			// run long enough to trip the breaker.
+			if errors.Is(err, ErrNoNewFrame) {
+				sc.consecutiveErrs = 0
+				firstErrAt = time.Time{}
+				continue
+			}
+
+			// The stream is up and simply has not sent anything yet, which on
+			// a still screen is normal. Bounded all the same, so a producer
+			// that connects and never delivers is still reported.
+			if errors.Is(err, ErrAwaitingFirstFrame) {
+				sc.consecutiveErrs = 0
+				firstErrAt = time.Time{}
+				now := time.Now()
+				if captureBreakerTripped(startedAt, now, firstFrameGrace) {
+					elapsed := now.Sub(startedAt).Round(time.Millisecond)
+					log.Printf("[ERROR] Stream up but no first frame after %v, stopping capture", elapsed)
+					sc.failCapture(fmt.Errorf("stream delivered no frame in %v", elapsed))
+					if sc.cancel != nil {
+						sc.cancel()
+					}
+					return
+				}
+				continue
+			}
+
+			// A failed stream never recovers, so there is nothing to wait out.
+			if errors.Is(err, ErrStreamFailed) {
+				log.Printf("[ERROR] Stopping capture: %v", err)
+				sc.failCapture(err)
+				if sc.cancel != nil {
+					sc.cancel()
+				}
+				return
+			}
+
 			if err != nil {
 				sc.consecutiveErrs++
 				now := time.Now()
 				if firstErrAt.IsZero() {
 					firstErrAt = now
 				}
+				// Before the first frame this shares the budget above. Its own
+				// clock restarts every time the stream drops back out of the
+				// streaming state, so on a stream that bounces it would never
+				// run out while the total dead air kept growing.
+				if !haveFrame && captureBreakerTripped(startedAt, now, firstFrameGrace) {
+					elapsed := now.Sub(startedAt).Round(time.Millisecond)
+					log.Printf("[ERROR] No first frame after %v, stopping capture", elapsed)
+					sc.failCapture(fmt.Errorf("stream delivered no frame in %v", elapsed))
+					if sc.cancel != nil {
+						sc.cancel()
+					}
+					return
+				}
 				if captureBreakerTripped(firstErrAt, now, captureGrace) {
+					elapsed := now.Sub(firstErrAt).Round(time.Millisecond)
 					log.Printf("[ERROR] Frame capture failing for %v (%d attempts), stopping capture (possible permission denial or PipeWire issue)",
-						now.Sub(firstErrAt).Round(time.Millisecond), sc.consecutiveErrs)
+						elapsed, sc.consecutiveErrs)
+					sc.failCapture(fmt.Errorf("no frame for %v (%d attempts): %w", elapsed, sc.consecutiveErrs, err))
 					if sc.cancel != nil {
 						sc.cancel() // Stop the capture to prevent wasting CPU
 					}
@@ -544,6 +654,7 @@ func (sc *ScreenCapture) nativeFrameReaderLoop() {
 			// Frame captured successfully - reset the failure streak
 			sc.consecutiveErrs = 0
 			firstErrAt = time.Time{}
+			haveFrame = true
 
 			sc.publishFrame(frame)
 		}

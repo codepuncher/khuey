@@ -77,13 +77,29 @@ struct user_data {
 	int ready_idx; // slot most recently completed by on_stream_process, or
 	               // -1 if no frame has been produced yet
 
+	// Bumped every time on_stream_process publishes a slot. Go compares it
+	// against the value from its previous poll to tell "the compositor has
+	// sent nothing since" from "here is a new frame". Without it a stalled
+	// stream looks identical to a healthy one, because pw_get_frame keeps
+	// handing back the last slot written.
+	uint64_t frame_seq;
+
+	// Set from on_stream_state_changed once the stream reaches a state it
+	// cannot come back from, so pw_get_frame reports the failure rather
+	// than serving the last good slot for the rest of the session.
+	int stream_failed;
+
+	// Whether the stream is currently in PW_STREAM_STATE_STREAMING. A
+	// healthy screencast stays streaming even while the screen is static
+	// and no buffers are produced, so leaving that state is what separates
+	// a dead producer from an idle one.
+	int streaming;
+
 	int frame_width;
 	int frame_height;
 	uint32_t frame_format;
 	int loop_started; // pw_start_loop succeeded; gates pw_stop_loop
 	int warned_drop[DROP_REASON_COUNT];
-	int process_count; // Debug counter
-
 	// For Go callbacks
 	void *go_context;
 };
@@ -97,8 +113,11 @@ static void on_stream_state_changed(void *data, enum pw_stream_state old,
 		pw_stream_state_as_string(old),
 		pw_stream_state_as_string(state));
 
+	ud->streaming = (state == PW_STREAM_STATE_STREAMING);
+
 	if (state == PW_STREAM_STATE_ERROR) {
 		fprintf(stderr, "[PipeWire] Stream error: %s\n", error);
+		ud->stream_failed = 1;
 		pw_thread_loop_signal(ud->loop, false);
 	}
 }
@@ -143,8 +162,6 @@ static void on_stream_process(void *data)
 	struct user_data *ud = data;
 	struct pw_buffer *b;
 	struct spa_buffer *buf;
-
-	ud->process_count++;
 
 	// Dequeue buffer
 	b = pw_stream_dequeue_buffer(ud->stream);
@@ -279,6 +296,7 @@ static void on_stream_process(void *data)
 		fb->height = height;
 		fb->format = ud->frame_format;
 		ud->ready_idx = back_idx;
+		ud->frame_seq++;
 	}
 
 	// Return buffer to PipeWire
@@ -421,15 +439,28 @@ void pw_cleanup(struct user_data *ud) {
 	pw_deinit();
 }
 
-// Get frame data (returns 0 if no frame ready, 1 if frame available)
+// Get frame data. Returns 1 with *seq set when a slot is available, 0 when the
+// stream has not produced one yet, and -1 once the stream has failed.
+// *streaming is set on both of the first two, so a caller waiting for the
+// first frame can tell a stream that is up from one that never came up. A
+// caller that sees the same *seq twice has been handed the same pixels twice.
 int pw_get_frame(struct user_data *ud, uint8_t **data, int *width, int *height,
-                 int *stride, uint32_t *format) {
+                 int *stride, uint32_t *format, uint64_t *seq, int *streaming) {
 	if (ud == NULL) {
 		return 0;
 	}
 
 	// Lock the thread loop for thread-safe access
 	pw_thread_loop_lock(ud->loop);
+
+	if (ud->stream_failed) {
+		pw_thread_loop_unlock(ud->loop);
+		return -1;
+	}
+
+	// Set before the early return as well: the caller needs to tell a stream
+	// that is up and has simply sent nothing yet from one that never came up.
+	*streaming = ud->streaming;
 
 	if (ud->ready_idx < 0) {
 		pw_thread_loop_unlock(ud->loop);
@@ -454,6 +485,7 @@ int pw_get_frame(struct user_data *ud, uint8_t **data, int *width, int *height,
 	*height = fb->height;
 	*stride = fb->stride;
 	*format = fb->format;
+	*seq = ud->frame_seq;
 
 	pw_thread_loop_unlock(ud->loop);
 
@@ -462,17 +494,107 @@ int pw_get_frame(struct user_data *ud, uint8_t **data, int *width, int *height,
 */
 import "C"
 import (
+	"errors"
 	"fmt"
 	"image"
 	"sync"
 	"sync/atomic"
+	"time"
 	"unsafe"
 )
+
+// ErrNoNewFrame reports that the stream has published nothing since the
+// previous poll. A screen with no damage produces no frames, so this is the
+// normal idle case rather than a failure.
+var ErrNoNewFrame = errors.New("no new frame since last poll")
+
+// ErrStreamFailed reports that the PipeWire stream has stopped producing for
+// good: it either errored, or left the streaming state and never came back.
+// Revoking a screen share shows up as the second of these.
+var ErrStreamFailed = errors.New("pipewire stream failed")
+
+// ErrAwaitingFirstFrame reports that the stream is up but the compositor has
+// not sent its first buffer. Distinct from a stream that never connected,
+// because a screen with no damage can take a while to produce one.
+var ErrAwaitingFirstFrame = errors.New("awaiting the first frame")
+
+// streamStallDeadline is how long a stream may sit outside the streaming state
+// before it counts as dead. Crossing it now ends the sync session with no
+// retry, so it is set well past the renegotiation it has to tolerate: a
+// resolution change clears it in under a second, but a monitor hotplug or a
+// display reconfiguration on a loaded machine is the case that matters. The
+// cost of the margin is only that the lights hold their last colour for that
+// much longer before sync gives up.
+const streamStallDeadline = 5 * time.Second
+
+// streamStalled reports whether a stream producing no new frames counts as
+// dead rather than idle. Frames only arrive on damage, so a static screen
+// produces none while perfectly healthy; what separates the two is that a
+// healthy stream stays in the streaming state.
+//
+// The deadline runs from the moment the stream left that state, not from the
+// last frame: on a still screen the last frame is already arbitrarily old, so
+// measuring from it would give a renegotiation no grace at all.
+func streamStalled(leftStreamingAt, now time.Time) bool {
+	if leftStreamingAt.IsZero() {
+		return false
+	}
+	return now.Sub(leftStreamingAt) >= streamStallDeadline
+}
+
+// streamHealth tracks whether a stream that is producing no frames has also
+// left the streaming state, which is the only thing separating a dead producer
+// from a screen with nothing to send.
+type streamHealth struct {
+	leftStreamingAt time.Time
+}
+
+// observe folds one poll into the fault state.
+func (h *streamHealth) observe(streaming bool, now time.Time) {
+	h.leftStreamingAt = faultSince(streaming, h.leftStreamingAt, now)
+}
+
+// staleVerdict decides what being handed the same frame again means. A screen
+// with nothing to send produces no frames while perfectly healthy, so only a
+// stream that has also left the streaming state counts as dead.
+func (h *streamHealth) staleVerdict(now time.Time) error {
+	if streamStalled(h.leftStreamingAt, now) {
+		return fmt.Errorf("%w: no frame in the %v since the stream stopped streaming",
+			ErrStreamFailed, now.Sub(h.leftStreamingAt).Round(time.Millisecond))
+	}
+	return ErrNoNewFrame
+}
+
+// faultSince tracks how long a fault has held: the zero time while the stream
+// is healthy in that respect, otherwise the first time it was not.
+//
+// Returning to the streaming state clears the clock even though no frame has
+// arrived yet. That is deliberate: a renegotiation on a still screen produces
+// no damage and so no frame, and requiring one to certify recovery would kill
+// exactly that healthy session. The cost is that a producer flapping in and
+// out of streaming faster than the deadline goes unnoticed.
+func faultSince(healthy bool, since, now time.Time) time.Time {
+	if healthy {
+		return time.Time{}
+	}
+	if since.IsZero() {
+		return now
+	}
+	return since
+}
 
 // NativePipeWireCapture handles native PipeWire capture via CGo
 type NativePipeWireCapture struct {
 	userData *C.struct_user_data
 	running  atomic.Bool
+
+	// Sequence of the last frame handed to the caller, compared against the
+	// stream's current sequence to spot a slot that has already been served.
+	// Guarded by shutdownMutex along with every other GetFrame access.
+	lastSeq uint64
+
+	// Guarded by shutdownMutex along with every other GetFrame access.
+	health streamHealth
 
 	// shutdownMutex closes the teardown TOCTOU: Stop takes this lock before
 	// touching userData, so it can never free the C-side state out from
@@ -543,14 +665,40 @@ func (npc *NativePipeWireCapture) GetFrame() (*image.RGBA, error) {
 	var data *C.uint8_t
 	var width, height, stride C.int
 	var format C.uint32_t
+	var seq C.uint64_t
+	var streaming C.int
 
-	result := C.pw_get_frame(npc.userData, &data, &width, &height, &stride, &format)
+	result := C.pw_get_frame(npc.userData, &data, &width, &height, &stride, &format, &seq, &streaming)
+	if result < 0 {
+		return nil, ErrStreamFailed
+	}
+
+	now := time.Now()
+	npc.health.observe(streaming != 0, now)
+
 	if result == 0 {
+		if streaming != 0 {
+			return nil, ErrAwaitingFirstFrame
+		}
 		return nil, fmt.Errorf("no frame available yet")
 	}
 
-	// Convert C data to Go image
-	return npc.convertToRGBA(data, int(width), int(height), int(stride), uint32(format))
+	// Converting the same pixels again would cost a full frame's work and
+	// publish a buffer identical to the one already installed.
+	if uint64(seq) == npc.lastSeq {
+		return nil, npc.health.staleVerdict(now)
+	}
+
+	// Recorded as consumed only once it converts. A slot that never converts
+	// has not produced a frame, and counting it as one would clear the very
+	// clocks that are meant to notice capture has stopped working.
+	frame, err := npc.convertToRGBA(data, int(width), int(height), int(stride), uint32(format))
+	if err != nil {
+		return nil, err
+	}
+
+	npc.lastSeq = uint64(seq)
+	return frame, nil
 }
 
 // Format constants from spa/param/video/format.h

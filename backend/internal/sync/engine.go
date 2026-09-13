@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -57,6 +58,10 @@ func (m *PerformanceMetrics) reset(now time.Time) {
 // carries the totals.
 const dropLogInterval = 5 * time.Second
 
+// captureErrLogInterval throttles the capture-error warning, which otherwise
+// repeats every tick for as long as capture is down.
+const captureErrLogInterval = 5 * time.Second
+
 // Sentinel errors
 var (
 	ErrAlreadyRunning = fmt.Errorf("sync already running")
@@ -72,6 +77,12 @@ type Engine struct {
 	mu      sync.RWMutex
 	running bool
 	cancel  context.CancelFunc
+
+	// Bumped per session so a sync loop winding down can only stop the
+	// session it belongs to, never one started while it was stopping. Read
+	// and written under mu throughout, which is what lets a retiring loop
+	// check it and read the metrics without a Start splitting the two.
+	generation uint64
 
 	// Atomic so a settings change never blocks on e.mu, which Start holds
 	// across the portal dialog and the DTLS connect.
@@ -292,9 +303,17 @@ func (e *Engine) Start(ctx context.Context) error {
 	syncCtx, cancel := context.WithCancel(ctx)
 	e.cancel = cancel
 	e.running = true
+	e.generation++
+	gen := e.generation
+
+	// Reset here, under e.mu and next to the generation bump, rather than in
+	// the loop below. A retiring loop checks that generation before reading
+	// these counters, and a reset that happened outside the lock could land
+	// between its check and its read.
+	e.metrics.reset(time.Now())
 
 	// Start sync loop in goroutine
-	go e.syncLoop(syncCtx)
+	go e.syncLoop(syncCtx, gen)
 
 	log.Printf("Screen sync started at %d FPS", e.fps.Load())
 	return nil
@@ -305,6 +324,42 @@ func (e *Engine) Stop() error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
+	return e.stopLocked()
+}
+
+// logFinalMetricsIfOwned reports a session's totals, and only its own: Stop
+// does not wait for the loop, so a new Start can have bumped the generation
+// and reset the counters by the time a retiring loop reaches this. Held under
+// e.mu, which Start also holds across its reset, so nothing can overtake the
+// check between testing the generation and reading the counters.
+//
+// Deliberately not gated on e.running, which Stop clears before the loop
+// wakes: ownership of the metrics follows the generation, not the flag.
+func (e *Engine) logFinalMetricsIfOwned(gen uint64) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	if e.generation != gen {
+		return
+	}
+	e.logFinalMetrics()
+}
+
+// stopSession stops sync only while gen is still the running session. A sync
+// loop that has decided to give up can be waiting on e.mu long enough for the
+// user to stop and start again, and it must not tear down the session that
+// replaced it.
+func (e *Engine) stopSession(gen uint64) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if e.generation != gen {
+		return ErrNotRunning
+	}
+	return e.stopLocked()
+}
+
+func (e *Engine) stopLocked() error {
 	if !e.running {
 		return ErrNotRunning
 	}
@@ -355,27 +410,28 @@ func (e *Engine) SetFPS(fps int) error {
 }
 
 // syncLoop is the main synchronization loop
-func (e *Engine) syncLoop(ctx context.Context) {
+func (e *Engine) syncLoop(ctx context.Context, gen uint64) {
 	lastFPS := int(e.fps.Load())
-
-	e.metrics.reset(time.Now())
 
 	interval := time.Second / time.Duration(lastFPS)
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	drops := &dropCounter{interval: interval, lastTick: time.Now()}
-	var lastDropLog time.Time
+	var lastDropLog, lastCaptureErrLog time.Time
 
 	extractor, err := color.NewExtractor(e.config.Sync.SubsampleWidth, 2.2)
 	if err != nil {
-		log.Printf("[ERROR] Failed to create extractor: %v", err)
+		log.Printf("[ERROR] Failed to create extractor, ending sync: %v", err)
+		if stopErr := e.stopSession(gen); stopErr != nil && !errors.Is(stopErr, ErrNotRunning) {
+			log.Printf("[ERROR] Failed to stop sync after extractor failure: %v", stopErr)
+		}
 		return
 	}
 
 	for {
 		select {
 		case <-ctx.Done():
-			e.logFinalMetrics()
+			e.logFinalMetricsIfOwned(gen)
 			return
 		case <-ticker.C:
 			frameStart := time.Now()
@@ -414,7 +470,23 @@ func (e *Engine) syncLoop(ctx context.Context) {
 			captureTime := time.Since(captureStart)
 
 			if err != nil {
-				log.Printf("[WARN] Capture error: %v", err)
+				// Capture is over, so every later tick would stream the same
+				// frozen frame while IsRunning kept reporting a live session.
+				if errors.Is(err, capture.ErrCaptureStopped) {
+					log.Printf("[ERROR] Screen capture stopped, ending sync: %v", err)
+					e.logFinalMetricsIfOwned(gen)
+					if stopErr := e.stopSession(gen); stopErr != nil && !errors.Is(stopErr, ErrNotRunning) {
+						log.Printf("[ERROR] Failed to stop sync after capture failure: %v", stopErr)
+					}
+					return
+				}
+				// Throttled: this fires on every tick while capture is down,
+				// which at 60 FPS buries the journal before the reader loop's
+				// own deadline is even reached.
+				if time.Since(lastCaptureErrLog) >= captureErrLogInterval {
+					log.Printf("[WARN] Capture error: %v", err)
+					lastCaptureErrLog = time.Now()
+				}
 				continue
 			}
 
