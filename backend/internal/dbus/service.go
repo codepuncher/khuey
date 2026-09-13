@@ -2,6 +2,7 @@ package dbus
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -1116,7 +1117,9 @@ func (s *Service) onGamingStateChanged(isGaming bool) {
 		}
 	} else if shouldStop {
 		log.Println("[INFO] Gaming stopped - stopping screen sync")
-		if err := engine.Stop(); err != nil {
+		// Not an error: capture can end the session on its own, so by the
+		// time gaming stops there may be nothing left to stop.
+		if err := engine.Stop(); err != nil && !errors.Is(err, syncengine.ErrNotRunning) {
 			log.Printf("warn: failed to stop sync engine: %v", err)
 		}
 		log.Println("[INFO] Screen sync disabled")

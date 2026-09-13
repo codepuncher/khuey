@@ -1,6 +1,7 @@
 package sync
 
 import (
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -590,5 +591,31 @@ func TestMetricsResetClearsEveryAccumulator(t *testing.T) {
 	}
 	if !e.metrics.lastLogTime.Equal(now) {
 		t.Errorf("lastLogTime = %v, want %v", e.metrics.lastLogTime, now)
+	}
+}
+
+// TestStopSessionOnlyStopsItsOwnSession covers the race where a sync loop that
+// has given up sits waiting on e.mu long enough for the user to stop and start
+// again. Stopping blind would tear down the session that replaced it.
+func TestStopSessionOnlyStopsItsOwnSession(t *testing.T) {
+	e := newTestEngine(t, testEngineConfig(30))
+
+	e.mu.Lock()
+	e.running = true
+	e.generation = 2
+	e.mu.Unlock()
+
+	if err := e.stopSession(1); !errors.Is(err, ErrNotRunning) {
+		t.Fatalf("stopSession(1) = %v, want ErrNotRunning", err)
+	}
+	if !e.IsRunning() {
+		t.Fatal("a superseded loop stopped the session that replaced it")
+	}
+
+	if err := e.stopSession(2); err != nil {
+		t.Fatalf("stopSession(2) = %v, want nil", err)
+	}
+	if e.IsRunning() {
+		t.Error("a loop failed to stop its own session")
 	}
 }

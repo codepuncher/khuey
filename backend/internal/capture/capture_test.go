@@ -1,8 +1,10 @@
 package capture
 
 import (
+	"errors"
 	"fmt"
 	"image"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -476,5 +478,212 @@ func TestCaptureBreakerGraceIsIndependentOfFPS(t *testing.T) {
 				t.Errorf("tripped after %d polls at %d FPS, want %d or %d", polls, fps, fps, fps+1)
 			}
 		})
+	}
+}
+
+// TestCaptureFrameReportsFailureInsteadOfStaleFrame covers the case where the
+// reader goroutine gives up: the last published frame is still sitting in
+// frameBuffer, and handing it back would leave the caller streaming one still
+// image with nothing reported.
+func TestCaptureFrameReportsFailureInsteadOfStaleFrame(t *testing.T) {
+	sc := &ScreenCapture{}
+	sc.publishFrame(GetImageBuffer(image.Rect(0, 0, 4, 4)))
+
+	frame, err := sc.CaptureFrame()
+	if err != nil {
+		t.Fatalf("CaptureFrame before the failure: %v", err)
+	}
+	PutImageBuffer(frame)
+
+	sc.failCapture(errors.New("portal denied"))
+
+	frame, err = sc.CaptureFrame()
+	if frame != nil {
+		t.Error("CaptureFrame handed back a frame after capture failed")
+	}
+	if !errors.Is(err, ErrCaptureStopped) {
+		t.Fatalf("err = %v, want it to match ErrCaptureStopped", err)
+	}
+	if !strings.Contains(err.Error(), "portal denied") {
+		t.Errorf("err = %v, want it to name the cause", err)
+	}
+}
+
+// TestFailCaptureKeepsFirstCause makes sure the reason capture gave up is the
+// original one, not whatever error the loop happened to see last.
+func TestFailCaptureKeepsFirstCause(t *testing.T) {
+	sc := &ScreenCapture{}
+	sc.failCapture(errors.New("portal denied"))
+	sc.failCapture(errors.New("something later"))
+
+	_, err := sc.CaptureFrame()
+	if !strings.Contains(err.Error(), "portal denied") {
+		t.Errorf("err = %v, want the first cause", err)
+	}
+}
+
+// TestStartClearsPreviousFailure guards against a session that gave up
+// poisoning every session after it, the way consecutiveErrs once did.
+func TestStartClearsPreviousFailure(t *testing.T) {
+	sc := &ScreenCapture{useMockFrames: true}
+	sc.failCapture(errors.New("portal denied"))
+
+	if err := sc.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	sc.frameMutex.RLock()
+	got := sc.captureErr
+	sc.frameMutex.RUnlock()
+
+	if got != nil {
+		t.Errorf("captureErr = %v after Start, want nil", got)
+	}
+}
+
+// TestStreamStalled covers the distinction the capture loop depends on: a
+// static screen produces no frames while perfectly healthy, so only a stream
+// that has left the streaming state long enough counts as dead.
+func TestStreamStalled(t *testing.T) {
+	now := time.Now()
+
+	tests := []struct {
+		name            string
+		leftStreamingAt time.Time
+		want            bool
+	}{
+		{"still streaming", time.Time{}, false},
+		{"just left the streaming state", now, false},
+		{"gone, still inside the deadline", now.Add(-streamStallDeadline + time.Millisecond), false},
+		{"gone, past the deadline", now.Add(-streamStallDeadline), true},
+		{"gone for an hour", now.Add(-time.Hour), true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := streamStalled(tt.leftStreamingAt, now); got != tt.want {
+				t.Errorf("streamStalled(%v) = %v, want %v", tt.leftStreamingAt, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestFaultSinceClearsOnRecovery covers the clearing half of the fault clock:
+// a stream that comes back has to start from a clean slate, or a later fault
+// inherits a deadline that has already expired.
+func TestFaultSinceClearsOnRecovery(t *testing.T) {
+	start := time.Now()
+
+	since := faultSince(false, time.Time{}, start)
+	if !since.Equal(start) {
+		t.Fatalf("faultSince stamped %v, want %v", since, start)
+	}
+
+	// A fault that persists keeps its original timestamp.
+	if got := faultSince(false, since, start.Add(time.Minute)); !got.Equal(start) {
+		t.Errorf("a continuing fault moved its clock to %v, want %v", got, start)
+	}
+
+	if got := faultSince(true, since, start.Add(time.Minute)); !got.IsZero() {
+		t.Errorf("recovery left the clock at %v, want it cleared", got)
+	}
+}
+
+// TestStaleFrameVerdict covers what the same frame coming back can mean. A
+// screen with nothing to send produces no frames while perfectly healthy, so
+// only a stream that has also left the streaming state is a failure.
+func TestStaleFrameVerdict(t *testing.T) {
+	now := time.Now()
+
+	tests := []struct {
+		name   string
+		health streamHealth
+		want   error
+	}{
+		{"idle screen", streamHealth{}, ErrNoNewFrame},
+		{"paused briefly to renegotiate", streamHealth{leftStreamingAt: now.Add(-time.Millisecond)}, ErrNoNewFrame},
+		{"stopped streaming", streamHealth{leftStreamingAt: now.Add(-streamStallDeadline)}, ErrStreamFailed},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.health.staleVerdict(now)
+			if !errors.Is(err, tt.want) {
+				t.Fatalf("staleVerdict = %v, want it to match %v", err, tt.want)
+			}
+		})
+	}
+}
+
+// TestStreamHealthIdleScreenStaysHealthy drives the poll sequence a still
+// screen produces: the stream stays up and the same frame comes back every
+// time. That must never be read as a failure, however long it lasts.
+func TestStreamHealthIdleScreenStaysHealthy(t *testing.T) {
+	start := time.Now()
+	var h streamHealth
+
+	for i := 1; i <= 600; i++ {
+		now := start.Add(time.Duration(i) * time.Second)
+		h.observe(true, now)
+		if err := h.staleVerdict(now); !errors.Is(err, ErrNoNewFrame) {
+			t.Fatalf("after %ds idle: staleVerdict = %v, want ErrNoNewFrame", i, err)
+		}
+	}
+}
+
+// TestStreamHealthStoppedStreamFails drives what a revoked screen share looks
+// like: the stream leaves the streaming state while the producer is already
+// quiet, so nothing but that state change separates it from an idle screen.
+// The grace period has to start there too, not at the last frame, or a
+// renegotiation after a still screen dies on its first poll.
+func TestStreamHealthStoppedStreamFails(t *testing.T) {
+	start := time.Now()
+	var h streamHealth
+
+	for i := 1; i <= 10; i++ {
+		now := start.Add(time.Duration(i) * time.Second)
+		h.observe(true, now)
+		if err := h.staleVerdict(now); !errors.Is(err, ErrNoNewFrame) {
+			t.Fatalf("idle poll %d: staleVerdict = %v, want ErrNoNewFrame", i, err)
+		}
+	}
+
+	stop := start.Add(11 * time.Second)
+	h.observe(false, stop)
+	if err := h.staleVerdict(stop); !errors.Is(err, ErrNoNewFrame) {
+		t.Fatalf("the instant the stream stopped: %v, want its full grace", err)
+	}
+
+	late := stop.Add(streamStallDeadline)
+	h.observe(false, late)
+	err := h.staleVerdict(late)
+	if !errors.Is(err, ErrStreamFailed) {
+		t.Fatalf("staleVerdict = %v, want ErrStreamFailed", err)
+	}
+	if !strings.Contains(err.Error(), "stopped streaming") {
+		t.Errorf("err = %v, want it to name the stream state", err)
+	}
+}
+
+// TestStreamHealthRenegotiationSurvivesAnIdleScreen is the false positive this
+// has to avoid. A resolution change pauses the stream, and if the screen is
+// still afterwards no frame follows to certify recovery, so returning to the
+// streaming state has to be enough on its own.
+func TestStreamHealthRenegotiationSurvivesAnIdleScreen(t *testing.T) {
+	start := time.Now()
+	var h streamHealth
+
+	h.observe(true, start)
+
+	pause := start.Add(time.Hour)
+	h.observe(false, pause)
+	h.observe(true, pause.Add(300*time.Millisecond))
+
+	for i := 1; i <= 600; i++ {
+		now := pause.Add(time.Duration(i) * time.Second)
+		h.observe(true, now)
+		if err := h.staleVerdict(now); !errors.Is(err, ErrNoNewFrame) {
+			t.Fatalf("%ds after the renegotiation: staleVerdict = %v, want ErrNoNewFrame", i, err)
+		}
 	}
 }
