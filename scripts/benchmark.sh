@@ -4,6 +4,11 @@
 
 set -e
 
+# pkg-config for libpipewire emits -fno-strict-overflow, which cgo rejects
+# unless it is allowlisted. Needed by any go command that reaches
+# internal/capture.
+export CGO_CFLAGS_ALLOW='-fno-strict-overflow'
+
 # Colors for output
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'

@@ -4,6 +4,11 @@
 
 set -e
 
+# pkg-config for libpipewire emits -fno-strict-overflow, which cgo rejects
+# unless it is allowlisted. Needed by any go command that reaches
+# internal/capture.
+export CGO_CFLAGS_ALLOW='-fno-strict-overflow'
+
 # Colors for output
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
@@ -122,8 +127,6 @@ EOF
 
 # Run concurrent config load test
 START_TIME=$(date +%s)
-SUCCESS_COUNT=0
-FAIL_COUNT=0
 
 echo "Running $CONCURRENCY concurrent config loads for $DURATION..."
 timeout "$DURATION" bash -c "

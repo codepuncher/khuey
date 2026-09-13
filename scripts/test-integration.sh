@@ -16,7 +16,7 @@ echo ""
 # Build backend
 echo "Building backend..."
 cd backend
-go build -o hue-sync ./cmd/hue-sync || { echo "❌ Build failed"; exit 1; }
+CGO_CFLAGS_ALLOW='-fno-strict-overflow' go build -o hue-sync ./cmd/hue-sync || { echo "❌ Build failed"; exit 1; }
 cd ..
 echo "✓ Backend built"
 echo ""

@@ -98,7 +98,7 @@ if [ "$RUN_BUILD" = true ]; then
     print_section "Building backend..."
     cd "$PROJECT_ROOT/backend"
     
-    if go build -o hue-sync ./cmd/hue-sync; then
+    if CGO_CFLAGS_ALLOW='-fno-strict-overflow' go build -o hue-sync ./cmd/hue-sync; then
         print_success "Backend built successfully"
     else
         print_error "Backend build failed"
@@ -112,7 +112,7 @@ if [ "$RUN_TESTS" = true ]; then
     print_section "Running backend tests..."
     cd "$PROJECT_ROOT/backend"
     
-    if go test ./...; then
+    if CGO_CFLAGS_ALLOW='-fno-strict-overflow' go test ./...; then
         print_success "All backend tests passed"
     else
         print_error "Some backend tests failed"
@@ -127,7 +127,7 @@ if [ "$RUN_LINT" = true ]; then
     cd "$PROJECT_ROOT/backend"
     
     # go vet
-    if go vet ./...; then
+    if CGO_CFLAGS_ALLOW='-fno-strict-overflow' go vet ./...; then
         print_success "go vet: clean"
     else
         print_error "go vet: issues found"
