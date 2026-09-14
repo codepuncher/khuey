@@ -324,6 +324,53 @@ func TestCalculateMeanColorWithStride(t *testing.T) {
 	}
 }
 
+// opaqueImage hides the concrete image type, forcing the generic At path.
+type opaqueImage struct{ image.Image }
+
+// TestCalculateMeanColorWithStride_RGBAMatchesAt checks the direct Pix path
+// against the At path on the same pixels.
+func TestCalculateMeanColorWithStride_RGBAMatchesAt(t *testing.T) {
+	ext, _ := NewExtractor(64, 1.0)
+
+	full := image.NewRGBA(image.Rect(0, 0, 97, 61))
+	for i := range full.Pix {
+		full.Pix[i] = uint8(i*31 + i/7)
+	}
+	sub := full.SubImage(image.Rect(10, 8, 70, 50)).(*image.RGBA)
+
+	tests := []struct {
+		name           string
+		img            *image.RGBA
+		x1, y1, x2, y2 int
+		stride         int
+	}{
+		{name: "Whole image", img: full, x2: 97, y2: 61, stride: 1},
+		{name: "Stride not dividing the size", img: full, x2: 97, y2: 61, stride: 5},
+		{name: "Interior region", img: full, x1: 13, y1: 7, x2: 90, y2: 55, stride: 3},
+		{name: "Last pixel", img: full, x1: 96, y1: 60, x2: 97, y2: 61, stride: 1},
+		{name: "Inside an offset sub-image", img: sub, x1: 20, y1: 15, x2: 60, y2: 45, stride: 4},
+		{name: "Partly outside an offset sub-image", img: sub, x2: 40, y2: 30, stride: 2},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r, g, b := ext.calculateMeanColorWithStride(tt.img, tt.x1, tt.y1, tt.x2, tt.y2, tt.stride)
+			wantR, wantG, wantB := ext.calculateMeanColorWithStride(opaqueImage{tt.img}, tt.x1, tt.y1, tt.x2, tt.y2, tt.stride)
+
+			if r != wantR || g != wantG || b != wantB {
+				t.Errorf("got (%d, %d, %d), At path gives (%d, %d, %d)", r, g, b, wantR, wantG, wantB)
+			}
+		})
+	}
+
+	allocs := testing.AllocsPerRun(10, func() {
+		ext.calculateMeanColorWithStride(full, 0, 0, 97, 61, 1)
+	})
+	if allocs != 0 {
+		t.Errorf("RGBA path allocated %v times per call, want 0", allocs)
+	}
+}
+
 // TestApplyGamma tests gamma correction
 func TestApplyGamma(t *testing.T) {
 	tests := []struct {
