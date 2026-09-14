@@ -1,6 +1,7 @@
 package sync
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -741,5 +742,94 @@ func TestRestoreTokenSharesTheConfigLock(t *testing.T) {
 	})
 	if want := fmt.Sprintf("token-%d", rounds-1); token != want {
 		t.Errorf("RestoreToken = %q, want %q", token, want)
+	}
+}
+
+// newLoopTestEngine builds an Engine whose sync loop can run without a session
+// bus: the capturer never started, so every frame is an ordinary capture error,
+// and the client never connected, so closing it is a no-op.
+func newLoopTestEngine(t *testing.T, cfg *config.Config) *Engine {
+	t.Helper()
+
+	client, err := entertainment.NewClient(entertainment.Config{
+		BridgeIP:        cfg.Bridge,
+		Username:        cfg.Key,
+		ClientKey:       cfg.ClientKey,
+		EntertainmentID: cfg.EntertainmentConfigurationID,
+		ChannelCount:    len(cfg.Channels),
+	})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+
+	e := &Engine{config: cfg, capturer: &capture.ScreenCapture{}, client: client}
+	e.fps.Store(int64(cfg.Sync.FPS))
+	return e
+}
+
+// TestStopWaitsForTheSyncLoop covers a Stop returning while the loop is still
+// running. The next session reuses the capturer and client, so a loop left
+// running past Stop carries on into that session.
+func TestStopWaitsForTheSyncLoop(t *testing.T) {
+	cfg := testEngineConfig(config.DefaultFPS)
+	e := newLoopTestEngine(t, cfg)
+
+	// The loop reads the config on entry, so holding it keeps the loop from
+	// getting as far as its first tick.
+	held := make(chan struct{})
+	release := make(chan struct{})
+	go cfg.View(func(*config.Config) {
+		close(held)
+		<-release
+	})
+	<-held
+
+	e.mu.Lock()
+	e.launchLoopLocked(context.Background())
+	e.mu.Unlock()
+
+	stopped := make(chan error, 1)
+	go func() { stopped <- e.Stop() }()
+
+	select {
+	case err := <-stopped:
+		close(release)
+		t.Fatalf("Stop returned (%v) while the sync loop was still running", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(release)
+	if err := <-stopped; err != nil {
+		t.Fatalf("Stop = %v", err)
+	}
+}
+
+// TestFailingSyncLoopEndsItsSession covers a loop that gives up. It ends its
+// session through the same stop that waits for the loop, so it has to count
+// itself finished first or wait on itself forever.
+func TestFailingSyncLoopEndsItsSession(t *testing.T) {
+	cfg := testEngineConfig(config.DefaultFPS)
+	cfg.Sync.SubsampleWidth = color.MinSubsampleWidth - 1
+	e := newLoopTestEngine(t, cfg)
+
+	e.mu.Lock()
+	e.launchLoopLocked(context.Background())
+	e.mu.Unlock()
+
+	ended := make(chan error, 1)
+	go func() {
+		for e.IsRunning() {
+			time.Sleep(time.Millisecond)
+		}
+		ended <- e.LastFailure()
+	}()
+
+	select {
+	case err := <-ended:
+		if err == nil {
+			t.Error("the session ended without recording why")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("a sync loop that gave up never ended its session")
 	}
 }

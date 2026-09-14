@@ -900,9 +900,9 @@ main() goroutine
    - `sync.Engine.mu` - Protects engine state
    - `gaming.Detector.mu` - Protects gaming state
 
-2. **Channels**
-   - `sync.Engine.stopChan` - Stop signal (unbuffered)
-   - `gaming.Detector.detectionChans` - Detection results (buffered, size 10)
+2. **Channels and wait groups**
+   - `gaming.Detector.stopChan` - Stop signal for the current monitor loop, made by `Start` and closed by `Stop` under `Detector.mu`
+   - `sync.Engine.syncLoopWg` - Lets a stop wait for the sync loop to exit before tearing down the capturer and client the next session reuses
 
 3. **Context**
    - `context.Context` passed to long-running operations
@@ -929,56 +929,70 @@ func (s *Service) SetGroupedLight(id string, sender dbus.Sender) (bool, *dbus.Er
 
 **Sync Engine Concurrency:**
 ```go
-// Single goroutine for sync loop (no contention)
-// Uses channels for stop signal
+// One sync loop per session, stopped by cancelling its context. A stop waits
+// for the loop to exit before tearing down the capturer and client, which the
+// next session reuses.
 
-func (e *Engine) Start(ctx context.Context) error {
-    e.mu.Lock()
-    if e.running {
-        e.mu.Unlock()
-        return errors.New("already running")
-    }
+func (e *Engine) launchLoopLocked(ctx context.Context) uint64 {
+    syncCtx, cancel := context.WithCancel(ctx)
+    e.cancel = cancel
     e.running = true
-    e.stopChan = make(chan struct{})
-    e.mu.Unlock()
+    e.generation++
+    // ...
+    e.syncLoopWg.Add(1)
+    go e.syncLoop(syncCtx, e.generation)
+    return e.generation
+}
 
-    go e.syncLoop(ctx)
+func (e *Engine) stopLocked() error {
+    if !e.running {
+        return ErrNotRunning
+    }
+    e.cancel()
+    e.syncLoopWg.Wait()
+    e.logFinalMetrics()
+    e.capturer.Stop()
+    // ... close the Entertainment API client
+    e.running = false
     return nil
 }
 
-func (e *Engine) Stop() error {
-    e.mu.Lock()
-    if !e.running {
-        e.mu.Unlock()
-        return errors.New("not running")
+// A loop that gives up marks itself done before ending its session, since
+// endSession stops the session and so waits for this loop.
+func (e *Engine) syncLoop(ctx context.Context, gen uint64) {
+    err := e.streamFrames(ctx)
+    e.syncLoopWg.Done()
+    if err != nil {
+        e.endSession(gen, err)
     }
-    close(e.stopChan) // Signal stop
-    e.running = false
-    e.mu.Unlock()
-    return nil
 }
 ```
 
 **Gaming Detector Concurrency:**
 ```go
-// Multiple detection goroutines feed into aggregator
-// Buffered channels prevent blocking
+// One polling goroutine per run. Each run gets its own stop channel, closed
+// under the lock, so a Start landing inside a Stop can't have its new
+// channel closed by that Stop.
 
 func (d *Detector) Start() {
-    // Buffered channels (size 10) prevent detection blocking
-    d.detectionChans = []chan bool{
-        make(chan bool, 10), // systemd-inhibit
-        make(chan bool, 10), // power profile
-        make(chan bool, 10), // Steam AppId
+    d.mu.Lock()
+    defer d.mu.Unlock()
+    if d.isRunning {
+        return
     }
+    d.stopChan = make(chan struct{})
+    d.isRunning = true
+    go d.monitorLoop(d.stopChan)
+}
 
-    // Launch detection goroutines
-    go d.systemdInhibitDetector(d.detectionChans[0])
-    go d.powerProfileDetector(d.detectionChans[1])
-    go d.steamAppIdDetector(d.detectionChans[2])
-
-    // Aggregate results
-    go d.aggregateDetections()
+func (d *Detector) Stop() {
+    d.mu.Lock()
+    defer d.mu.Unlock()
+    if !d.isRunning {
+        return
+    }
+    d.isRunning = false
+    close(d.stopChan)
 }
 ```
 

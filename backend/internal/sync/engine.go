@@ -79,10 +79,13 @@ type Engine struct {
 	cancel  context.CancelFunc
 
 	// Bumped per session so a sync loop winding down can only stop the
-	// session it belongs to, never one started while it was stopping. Read
-	// and written under mu throughout, which is what lets a retiring loop
-	// check it and read the metrics without a Start splitting the two.
+	// session it belongs to, never one started while it was stopping.
 	generation uint64
+
+	// The next session reuses the capturer and client, so a stop waits for
+	// the loop to leave them before tearing them down. Added to and waited on
+	// under mu only, which keeps an Add from racing a Wait.
+	syncLoopWg sync.WaitGroup
 
 	// Why the last session ended or failed to start, or nil if it was stopped
 	// deliberately. A caller that restarts sync needs the two apart: undoing
@@ -322,25 +325,24 @@ func (e *Engine) StartSession(ctx context.Context) (uint64, error) {
 		return 0, e.lastFailure
 	}
 
-	// Create child context for cancellation (proper context propagation)
+	gen := e.launchLoopLocked(ctx)
+	log.Printf("Screen sync started at %d FPS", e.fps.Load())
+	return gen, nil
+}
+
+// launchLoopLocked marks a new session running and starts its sync loop.
+// Called with e.mu held.
+func (e *Engine) launchLoopLocked(ctx context.Context) uint64 {
 	syncCtx, cancel := context.WithCancel(ctx)
 	e.cancel = cancel
 	e.running = true
 	e.generation++
-	gen := e.generation
 	e.lastFailure = nil
-
-	// Reset here, under e.mu and next to the generation bump, rather than in
-	// the loop below. A retiring loop checks that generation before reading
-	// these counters, and a reset that happened outside the lock could land
-	// between its check and its read.
 	e.metrics.reset(time.Now())
 
-	// Start sync loop in goroutine
-	go e.syncLoop(syncCtx, gen)
-
-	log.Printf("Screen sync started at %d FPS", e.fps.Load())
-	return gen, nil
+	e.syncLoopWg.Add(1)
+	go e.syncLoop(syncCtx, e.generation)
+	return e.generation
 }
 
 // Stop halts screen synchronization
@@ -399,24 +401,6 @@ func (e *Engine) endSession(gen uint64, cause error) {
 	}
 }
 
-// logFinalMetricsIfOwned reports a session's totals, and only its own: Stop
-// does not wait for the loop, so a new Start can have bumped the generation
-// and reset the counters by the time a retiring loop reaches this. Held under
-// e.mu, which Start also holds across its reset, so nothing can overtake the
-// check between testing the generation and reading the counters.
-//
-// Deliberately not gated on e.running, which Stop clears before the loop
-// wakes: ownership of the metrics follows the generation, not the flag.
-func (e *Engine) logFinalMetricsIfOwned(gen uint64) {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-
-	if e.generation != gen {
-		return
-	}
-	e.logFinalMetrics()
-}
-
 func (e *Engine) stopLocked() error {
 	if !e.running {
 		return ErrNotRunning
@@ -426,6 +410,8 @@ func (e *Engine) stopLocked() error {
 	if e.cancel != nil {
 		e.cancel()
 	}
+	e.syncLoopWg.Wait()
+	e.logFinalMetrics()
 
 	// Stop screen capture
 	e.capturer.Stop()
@@ -467,8 +453,19 @@ func (e *Engine) SetFPS(fps int) error {
 	return nil
 }
 
-// syncLoop is the main synchronization loop
+// syncLoop runs a session's frames and ends the session if they give up.
 func (e *Engine) syncLoop(ctx context.Context, gen uint64) {
+	err := e.streamFrames(ctx)
+	// Before endSession, whose stop waits for this very loop.
+	e.syncLoopWg.Done()
+	if err != nil {
+		e.endSession(gen, err)
+	}
+}
+
+// streamFrames captures, extracts and streams one frame per tick until ctx is
+// cancelled, which returns nil, or capture stops for good, which returns why.
+func (e *Engine) streamFrames(ctx context.Context) error {
 	lastFPS := int(e.fps.Load())
 
 	interval := time.Second / time.Duration(lastFPS)
@@ -492,15 +489,13 @@ func (e *Engine) syncLoop(ctx context.Context, gen uint64) {
 	extractor, err := color.NewExtractor(subsampleWidth, 2.2)
 	if err != nil {
 		log.Printf("[ERROR] Failed to create extractor, ending sync: %v", err)
-		e.endSession(gen, err)
-		return
+		return err
 	}
 
 	for {
 		select {
 		case <-ctx.Done():
-			e.logFinalMetricsIfOwned(gen)
-			return
+			return nil
 		case <-ticker.C:
 			frameStart := time.Now()
 
@@ -542,9 +537,7 @@ func (e *Engine) syncLoop(ctx context.Context, gen uint64) {
 				// frozen frame while IsRunning kept reporting a live session.
 				if errors.Is(err, capture.ErrCaptureStopped) {
 					log.Printf("[ERROR] Screen capture stopped, ending sync: %v", err)
-					e.logFinalMetricsIfOwned(gen)
-					e.endSession(gen, err)
-					return
+					return err
 				}
 				// Throttled: this fires on every tick while capture is down,
 				// which at 60 FPS buries the journal before the reader loop's
