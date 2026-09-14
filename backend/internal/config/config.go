@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sync"
 
+	"github.com/codepuncher/khuey/internal/color"
 	"github.com/spf13/viper"
 )
 
@@ -33,10 +34,7 @@ const (
 	// on load; below it was never valid, so it stays an error.
 	legacyMinFPS = 1
 
-	// Subsample width limits for screen capture
 	DefaultSubsampleWidth = 64
-	MinSubsampleWidth     = 16
-	MaxSubsampleWidth     = 256
 )
 
 // Config represents the application configuration.
@@ -380,10 +378,10 @@ func (c *Config) Validate() error {
 			"  → Recommended: 20-30 for balanced performance", MinFPS, MaxFPS, c.Sync.FPS)
 	}
 
-	if c.Sync.SubsampleWidth < MinSubsampleWidth || c.Sync.SubsampleWidth > MaxSubsampleWidth {
+	if c.Sync.SubsampleWidth < color.MinSubsampleWidth || c.Sync.SubsampleWidth > color.MaxSubsampleWidth {
 		return fmt.Errorf("sync.subsampleWidth must be between %d and %d (got %d)\n"+
 			"  → Update 'sync.subsampleWidth' in config.yaml\n"+
-			"  → Recommended: %d for good balance", MinSubsampleWidth, MaxSubsampleWidth, c.Sync.SubsampleWidth, DefaultSubsampleWidth)
+			"  → Recommended: %d for good balance", color.MinSubsampleWidth, color.MaxSubsampleWidth, c.Sync.SubsampleWidth, DefaultSubsampleWidth)
 	}
 
 	// Validate channels if configured

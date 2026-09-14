@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/codepuncher/khuey/internal/capture"
+	"github.com/codepuncher/khuey/internal/color"
 	"github.com/codepuncher/khuey/internal/common"
 	"github.com/codepuncher/khuey/internal/config"
 	"github.com/codepuncher/khuey/internal/gaming"
@@ -801,8 +802,8 @@ func (s *Service) SetSyncSettings(fps int32, subsampleWidth int32, monitor strin
 	}
 
 	// Validate subsample width
-	if subsampleWidth < config.MinSubsampleWidth || subsampleWidth > config.MaxSubsampleWidth {
-		return false, dbus.MakeFailedError(fmt.Errorf("subsample width must be between %d and %d (got %d)", config.MinSubsampleWidth, config.MaxSubsampleWidth, subsampleWidth))
+	if subsampleWidth < color.MinSubsampleWidth || subsampleWidth > color.MaxSubsampleWidth {
+		return false, dbus.MakeFailedError(fmt.Errorf("subsample width must be between %d and %d (got %d)", color.MinSubsampleWidth, color.MaxSubsampleWidth, subsampleWidth))
 	}
 
 	var prev config.SyncConfig

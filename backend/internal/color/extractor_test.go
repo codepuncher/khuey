@@ -272,71 +272,8 @@ func TestExtractColors_EdgeCases(t *testing.T) {
 	}
 }
 
-// TestSubsampleImage tests image subsampling
-func TestSubsampleImage(t *testing.T) {
-	tests := []struct {
-		name           string
-		subsampleWidth int
-		origWidth      int
-		origHeight     int
-	}{
-		{
-			name:           "Downsample large image",
-			subsampleWidth: 64,
-			origWidth:      1920,
-			origHeight:     1080,
-		},
-		{
-			name:           "Already small image (no change)",
-			subsampleWidth: 64,
-			origWidth:      50,
-			origHeight:     50,
-		},
-		{
-			name:           "Exact match",
-			subsampleWidth: 64,
-			origWidth:      64,
-			origHeight:     64,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ext, err := NewExtractor(tt.subsampleWidth, 2.2)
-			if err != nil {
-				t.Fatalf("Failed to create extractor: %v", err)
-			}
-
-			img := createSolidColorImage(tt.origWidth, tt.origHeight, color.RGBA{R: 255, G: 0, B: 0, A: 255})
-			subsampled := ext.subsampleImage(img)
-
-			bounds := subsampled.Bounds()
-			newWidth := bounds.Dx()
-			newHeight := bounds.Dy()
-
-			// If original is smaller or equal, should not change
-			if tt.origWidth <= tt.subsampleWidth {
-				if newWidth != tt.origWidth || newHeight != tt.origHeight {
-					t.Errorf("Expected size %dx%d (no change), got %dx%d", tt.origWidth, tt.origHeight, newWidth, newHeight)
-				}
-			} else {
-				// Should be downsampled to target width
-				if newWidth != tt.subsampleWidth {
-					t.Errorf("Expected width %d, got %d", tt.subsampleWidth, newWidth)
-				}
-
-				// Check aspect ratio is maintained (within rounding)
-				expectedHeight := int(float64(tt.subsampleWidth) * float64(tt.origHeight) / float64(tt.origWidth))
-				if abs(newHeight-expectedHeight) > 1 {
-					t.Errorf("Expected height ~%d, got %d (aspect ratio not maintained)", expectedHeight, newHeight)
-				}
-			}
-		})
-	}
-}
-
-// TestCalculateMeanColor tests the mean color calculation
-func TestCalculateMeanColor(t *testing.T) {
+// TestCalculateMeanColorWithStride tests the mean color calculation
+func TestCalculateMeanColorWithStride(t *testing.T) {
 	ext, _ := NewExtractor(64, 1.0)
 
 	tests := []struct {
@@ -371,7 +308,8 @@ func TestCalculateMeanColor(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r, g, b := ext.calculateMeanColor(tt.img)
+			bounds := tt.img.Bounds()
+			r, g, b := ext.calculateMeanColorWithStride(tt.img, bounds.Min.X, bounds.Min.Y, bounds.Max.X, bounds.Max.Y, 1)
 
 			if !colorClose(r, tt.expectedR, 2) {
 				t.Errorf("Expected R ~%d, got %d", tt.expectedR, r)
@@ -498,11 +436,4 @@ func colorClose(a, b, tolerance uint8) bool {
 		diff = -diff
 	}
 	return diff <= int(tolerance)
-}
-
-func abs(a int) int {
-	if a < 0 {
-		return -a
-	}
-	return a
 }
