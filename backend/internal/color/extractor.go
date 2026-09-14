@@ -119,6 +119,13 @@ func (e *Extractor) extractZoneColor(img image.Image, zone Zone) (ZoneColor, err
 // calculateMeanColorWithStride computes average RGB using stride sampling
 // OPTIMIZED: Sample every Nth pixel instead of all pixels for speed
 func (e *Extractor) calculateMeanColorWithStride(img image.Image, x1, y1, x2, y2, stride int) (uint8, uint8, uint8) {
+	// At boxes a color.Color per sample. The sampling coordinates are 0-based,
+	// so an image whose bounds don't cover the region keeps the At path, which
+	// reads those samples as zero.
+	if rgba, ok := img.(*image.RGBA); ok && image.Rect(x1, y1, x2, y2).In(rgba.Rect) {
+		return meanRGBAWithStride(rgba, x1, y1, x2, y2, stride)
+	}
+
 	var rSum, gSum, bSum uint64
 	var count uint64
 
@@ -131,6 +138,29 @@ func (e *Extractor) calculateMeanColorWithStride(img image.Image, x1, y1, x2, y2
 			gSum += uint64(g >> 8)
 			bSum += uint64(b >> 8)
 			count++
+		}
+	}
+
+	if count == 0 {
+		return 0, 0, 0
+	}
+
+	return uint8(rSum / count), uint8(gSum / count), uint8(bSum / count)
+}
+
+// meanRGBAWithStride is calculateMeanColorWithStride reading Pix directly.
+func meanRGBAWithStride(img *image.RGBA, x1, y1, x2, y2, stride int) (uint8, uint8, uint8) {
+	var rSum, gSum, bSum uint64
+	var count uint64
+
+	for y := y1; y < y2; y += stride {
+		i := img.PixOffset(x1, y)
+		for x := x1; x < x2; x += stride {
+			rSum += uint64(img.Pix[i])
+			gSum += uint64(img.Pix[i+1])
+			bSum += uint64(img.Pix[i+2])
+			count++
+			i += stride * 4
 		}
 	}
 
