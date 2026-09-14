@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"image"
 	"math"
-
-	"github.com/disintegration/imaging"
 )
 
 // Constants for color extraction
@@ -76,24 +74,6 @@ func (e *Extractor) ExtractColors(img image.Image, zones []Zone) ([]ZoneColor, e
 	return colors, nil
 }
 
-// subsampleImage rescales image to target width while maintaining aspect ratio
-func (e *Extractor) subsampleImage(img image.Image) image.Image {
-	bounds := img.Bounds()
-	origWidth := bounds.Dx()
-
-	// If image is already smaller, don't upscale
-	if origWidth <= e.subsampleWidth {
-		return img
-	}
-
-	// Calculate height maintaining aspect ratio
-	aspect := float64(bounds.Dy()) / float64(origWidth)
-	newHeight := int(float64(e.subsampleWidth) * aspect)
-
-	// Use Lanczos resampling (similar to INTER_AREA for downscaling)
-	return imaging.Resize(img, e.subsampleWidth, newHeight, imaging.Lanczos)
-}
-
 // extractZoneColor extracts the mean color from a zone using stride sampling
 // OPTIMIZED: Sample pixels with stride instead of processing every pixel
 func (e *Extractor) extractZoneColor(img image.Image, zone Zone) (ZoneColor, error) {
@@ -145,30 +125,6 @@ func (e *Extractor) calculateMeanColorWithStride(img image.Image, x1, y1, x2, y2
 	// Sample pixels with stride
 	for y := y1; y < y2; y += stride {
 		for x := x1; x < x2; x += stride {
-			r, g, b, _ := img.At(x, y).RGBA()
-			// RGBA returns values 0-65535, convert to 0-255
-			rSum += uint64(r >> 8)
-			gSum += uint64(g >> 8)
-			bSum += uint64(b >> 8)
-			count++
-		}
-	}
-
-	if count == 0 {
-		return 0, 0, 0
-	}
-
-	return uint8(rSum / count), uint8(gSum / count), uint8(bSum / count)
-}
-
-// calculateMeanColor computes the average RGB color of an image (legacy - kept for tests)
-func (e *Extractor) calculateMeanColor(img image.Image) (uint8, uint8, uint8) {
-	bounds := img.Bounds()
-	var rSum, gSum, bSum uint64
-	var count uint64
-
-	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
-		for x := bounds.Min.X; x < bounds.Max.X; x++ {
 			r, g, b, _ := img.At(x, y).RGBA()
 			// RGBA returns values 0-65535, convert to 0-255
 			rSum += uint64(r >> 8)
