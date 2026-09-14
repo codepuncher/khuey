@@ -3,7 +3,10 @@ package dbus
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -147,6 +150,68 @@ func TestIsGamingModeActive(t *testing.T) {
 				t.Errorf("IsGamingModeActive() = %v, want %v", result, tt.wantResult)
 			}
 		})
+	}
+}
+
+// TestIsGamingModeActiveReleasesTheLock holds a detection check open and takes
+// mu while it runs. The tray asks on every refresh, and a check execs
+// subprocesses, so holding mu through one stalls every gaming state change.
+func TestIsGamingModeActiveReleasesTheLock(t *testing.T) {
+	dir := t.TempDir()
+	started := filepath.Join(dir, "started")
+	release := filepath.Join(dir, "release")
+	if err := syscall.Mkfifo(release, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fake := "#!/bin/sh\n: > '" + started + "'\nread _ < '" + release + "'\necho game-performance\n"
+	if err := os.WriteFile(filepath.Join(dir, "systemd-inhibit"), []byte(fake), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+
+	detector, err := gaming.NewDetector(gaming.Config{UseSystemdInhibit: true}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Service{gamingDetector: detector}
+
+	result := make(chan bool, 1)
+	go func() {
+		active, _ := s.IsGamingModeActive()
+		result <- active
+	}()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, err := os.Stat(started); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the detection check never ran")
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	locked := s.mu.TryLock()
+	if locked {
+		s.mu.Unlock()
+	}
+	// Opening the fifo waits for the check to open its end, so this lets it
+	// finish rather than leaving it blocked after the test.
+	if err := os.WriteFile(release, []byte("\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if !locked {
+		t.Error("mu was held while the detection check ran")
+	}
+	select {
+	case active := <-result:
+		if !active {
+			t.Error("IsGamingModeActive = false, want the check's result, true")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("IsGamingModeActive did not return")
 	}
 }
 

@@ -1021,13 +1021,11 @@ func (s *Service) IsGamingModeEnabled() (bool, *dbus.Error) {
 // IsGamingModeActive returns whether gaming mode is currently detecting gaming activity
 func (s *Service) IsGamingModeActive() (bool, *dbus.Error) {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
+	detector := s.gamingDetector
+	s.mu.RUnlock()
 
-	if s.gamingDetector == nil {
-		return false, nil
-	}
-
-	return s.gamingDetector.IsGaming(), nil
+	// Detection execs subprocesses, and every gaming state change waits on mu.
+	return detector.IsGaming(), nil
 }
 
 // InitGamingMode initializes the gaming detector if enabled in config
