@@ -1,7 +1,6 @@
 package entertainment
 
 import (
-	"context"
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
@@ -35,19 +34,16 @@ type Client struct {
 	channelCount int
 
 	mu        sync.RWMutex
-	ctx       context.Context
-	cancel    context.CancelFunc
 	connected bool
 }
 
 // Config holds Entertainment API configuration
 type Config struct {
-	BridgeIP        string          // Bridge IP address
-	Username        string          // Hue username
-	ClientKey       string          // Client key for DTLS PSK
-	EntertainmentID string          // Entertainment Configuration ID
-	ChannelCount    int             // Number of channels (lights)
-	Context         context.Context // Parent context for cancellation (optional, defaults to Background)
+	BridgeIP        string // Bridge IP address
+	Username        string // Hue username
+	ClientKey       string // Client key for DTLS PSK
+	EntertainmentID string // Entertainment Configuration ID
+	ChannelCount    int    // Number of channels (lights)
 }
 
 // ChannelColor represents RGB color for a channel
@@ -76,13 +72,6 @@ func NewClient(cfg Config) (*Client, error) {
 		return nil, fmt.Errorf("channel count must be positive")
 	}
 
-	// Use provided context or default to Background
-	parentCtx := cfg.Context
-	if parentCtx == nil {
-		parentCtx = context.Background()
-	}
-	ctx, cancel := context.WithCancel(parentCtx)
-
 	return &Client{
 		bridgeIP:        cfg.BridgeIP,
 		username:        cfg.Username,
@@ -90,8 +79,6 @@ func NewClient(cfg Config) (*Client, error) {
 		entertainmentID: cfg.EntertainmentID,
 		channelCount:    cfg.ChannelCount,
 		sequenceID:      0,
-		ctx:             ctx,
-		cancel:          cancel,
 	}, nil
 }
 
@@ -224,7 +211,6 @@ func (c *Client) Close() error {
 		return nil
 	}
 
-	c.cancel()
 	c.connected = false
 
 	if c.conn != nil {
