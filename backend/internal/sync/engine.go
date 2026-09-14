@@ -477,7 +477,19 @@ func (e *Engine) syncLoop(ctx context.Context, gen uint64) {
 	drops := &dropCounter{interval: interval, lastTick: time.Now()}
 	var lastDropLog, lastCaptureErrLog time.Time
 
-	extractor, err := color.NewExtractor(e.config.Sync.SubsampleWidth, 2.2)
+	// Copied once per session rather than read per frame, where View would
+	// wait out every Save's disk write.
+	var subsampleWidth int
+	var channelIDs []int
+	e.config.View(func(c *config.Config) {
+		subsampleWidth = c.Sync.SubsampleWidth
+		channelIDs = make([]int, len(c.Channels))
+		for i, ch := range c.Channels {
+			channelIDs[i] = int(ch.ID)
+		}
+	})
+
+	extractor, err := color.NewExtractor(subsampleWidth, 2.2)
 	if err != nil {
 		log.Printf("[ERROR] Failed to create extractor, ending sync: %v", err)
 		e.endSession(gen, err)
@@ -561,8 +573,8 @@ func (e *Engine) syncLoop(ctx context.Context, gen uint64) {
 			channelColors := make([]entertainment.ChannelColor, len(zoneColors))
 			for i, zc := range zoneColors {
 				channelID := 0
-				if i < len(e.config.Channels) {
-					channelID = int(e.config.Channels[i].ID)
+				if i < len(channelIDs) {
+					channelID = channelIDs[i]
 				}
 
 				channelColors[i] = entertainment.ChannelColor{
@@ -650,8 +662,12 @@ func (d *dropCounter) setInterval(interval time.Duration, now time.Time) {
 
 // activateEntertainmentArea activates the Entertainment Area on the bridge
 func (e *Engine) activateEntertainmentArea() error {
-	url := fmt.Sprintf("https://%s/clip/v2/resource/entertainment_configuration/%s",
-		e.config.Bridge, e.config.EntertainmentConfigurationID)
+	var url, appKey string
+	e.config.View(func(c *config.Config) {
+		url = fmt.Sprintf("https://%s/clip/v2/resource/entertainment_configuration/%s",
+			c.Bridge, c.EntertainmentConfigurationID)
+		appKey = c.Key
+	})
 
 	// Create request body
 	body := []byte(`{"action":"start"}`)
@@ -661,7 +677,7 @@ func (e *Engine) activateEntertainmentArea() error {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
 
-	req.Header.Set("hue-application-key", e.config.Key)
+	req.Header.Set("hue-application-key", appKey)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := e.httpClient.Do(req)
@@ -693,11 +709,10 @@ func (e *Engine) activateEntertainmentArea() error {
 // updateRestoreToken saves a new restore token to config
 // Called automatically when a new token is received from the portal
 func (e *Engine) updateRestoreToken(newToken string) {
-	e.mu.Lock()
-	e.config.Sync.RestoreToken = newToken
-	e.mu.Unlock()
-
-	if err := e.config.Save(); err != nil {
+	err := e.config.Update(func(c *config.Config) {
+		c.Sync.RestoreToken = newToken
+	}, nil)
+	if err != nil {
 		log.Printf("[WARN] Failed to save restore token: %v", err)
 	} else {
 		log.Printf("[INFO] Screen share permission saved (no dialog next time)")
