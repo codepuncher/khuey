@@ -2,8 +2,12 @@ package sync
 
 import (
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -694,5 +698,48 @@ func TestStopSessionOnlyStopsItsOwnSession(t *testing.T) {
 	}
 	if e.IsRunning() {
 		t.Error("StopSession failed to stop its own session")
+	}
+}
+
+// TestRestoreTokenSharesTheConfigLock covers the portal handing over a restore
+// token while a settings change is being saved. Only meaningful under -race.
+func TestRestoreTokenSharesTheConfigLock(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	if err := os.MkdirAll(filepath.Join(dir, "openhue"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := testEngineConfig(config.DefaultFPS)
+	e := &Engine{config: cfg}
+
+	const rounds = 50
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < rounds; i++ {
+			e.updateRestoreToken(fmt.Sprintf("token-%d", i))
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < rounds; i++ {
+			err := cfg.Update(func(c *config.Config) {
+				c.Sync.FPS = config.MinFPS + i%10
+			}, nil)
+			if err != nil {
+				t.Errorf("Update: %v", err)
+			}
+		}
+	}()
+	wg.Wait()
+
+	var token string
+	cfg.View(func(c *config.Config) {
+		token = c.Sync.RestoreToken
+	})
+	if want := fmt.Sprintf("token-%d", rounds-1); token != want {
+		t.Errorf("RestoreToken = %q, want %q", token, want)
 	}
 }

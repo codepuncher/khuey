@@ -39,7 +39,11 @@ const (
 	MaxSubsampleWidth     = 256
 )
 
-// Config represents the application configuration
+// Config represents the application configuration.
+//
+// Once a Config is shared between goroutines, read it only through View and
+// change it only through Update. Both take mu, as Save does, so a write can
+// neither race a read nor reach the file half-applied.
 type Config struct {
 	// Config version for migration tracking
 	Version int `mapstructure:"version"`
@@ -72,7 +76,6 @@ type Config struct {
 	// Logging
 	LogLevel string `mapstructure:"log_level"`
 
-	// Mutex to protect concurrent access to config
 	mu sync.Mutex
 
 	// Non-global viper instance for thread safety
@@ -264,11 +267,37 @@ func Load() (*Config, error) {
 	return cfg, nil
 }
 
+// View calls read with the config locked against every Update and Save.
+func (c *Config) View(read func(*Config)) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	read(c)
+}
+
+// Update applies change and saves the result under one lock, so no other
+// writer's change can land between the two and be saved as part of this one.
+// If the save fails, revert runs under the same lock to undo change; a nil
+// revert leaves the change in memory.
+func (c *Config) Update(change, revert func(*Config)) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	change(c)
+	err := c.saveLocked()
+	if err != nil && revert != nil {
+		revert(c)
+	}
+	return err
+}
+
 // Save writes the configuration to ~/.openhue/config.yaml
 func (c *Config) Save() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	return c.saveLocked()
+}
 
+func (c *Config) saveLocked() error {
 	if c.v == nil {
 		c.v = viper.New()
 		c.v.SetConfigFile(getConfigFile())

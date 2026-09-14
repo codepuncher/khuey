@@ -37,7 +37,7 @@ type Service struct {
 	// Only ever set while gamingModeActive is true, and cleared whenever that
 	// goes false, all under mu, so a supervisor never outlives its game.
 	stopGamingSupervisor context.CancelCauseFunc
-	mu                   sync.RWMutex // Protects config access from concurrent DBus calls
+	mu                   sync.RWMutex // Guards the gaming state; config has its own lock
 	ownerUID             uint32       // UID of the service owner for access control
 	// callerUID resolves a DBus sender to its UID. Set to getCallerUID by
 	// NewService; a nil value (e.g. a directly-constructed Service in tests)
@@ -158,9 +158,10 @@ func (s *Service) getGroupedLightID() (string, error) {
 		return "", fmt.Errorf("hue client not initialized")
 	}
 
-	s.mu.RLock()
-	groupedLightID := s.config.GroupedLightID
-	s.mu.RUnlock()
+	var groupedLightID string
+	s.config.View(func(c *config.Config) {
+		groupedLightID = c.GroupedLightID
+	})
 
 	if groupedLightID == "" {
 		return "", fmt.Errorf("no grouped light configured")
@@ -374,7 +375,11 @@ func (s *Service) introspectionMethods() []introspect.Method {
 
 // GetStatus returns the current status
 func (s *Service) GetStatus() (string, *dbus.Error) {
-	if !s.config.IsConfigured() {
+	var configured bool
+	s.config.View(func(c *config.Config) {
+		configured = c.IsConfigured()
+	})
+	if !configured {
 		return "Not configured", nil
 	}
 	return "Ready", nil
@@ -451,10 +456,9 @@ func (s *Service) ActivateScene(displayName string, sender dbus.Sender) (string,
 	// Auto-update GroupedLightID to match the scene's room so that
 	// brightness/power controls target the same lights as the scene.
 	if scene.GroupedLightID != "" {
-		s.mu.Lock()
-		s.config.GroupedLightID = scene.GroupedLightID
-		saveErr := s.config.Save()
-		s.mu.Unlock()
+		saveErr := s.config.Update(func(c *config.Config) {
+			c.GroupedLightID = scene.GroupedLightID
+		}, nil)
 		if saveErr != nil {
 			log.Printf("[WARN] Failed to save config after scene activation: %v", saveErr)
 		}
@@ -469,9 +473,10 @@ func (s *Service) ActivateScene(displayName string, sender dbus.Sender) (string,
 // GroupedLightID untouched so it doesn't silently override a room the user
 // separately picked for brightness/power control.
 func (s *Service) ActivateStartupScene() error {
-	s.mu.RLock()
-	displayName := s.config.StartupScene
-	s.mu.RUnlock()
+	var displayName string
+	s.config.View(func(c *config.Config) {
+		displayName = c.StartupScene
+	})
 
 	if displayName == "" {
 		return nil
@@ -682,10 +687,9 @@ func (s *Service) SetGroupedLight(groupedLightID string, sender dbus.Sender) (bo
 		return false, dbus.MakeFailedError(fmt.Errorf("grouped light ID cannot be empty"))
 	}
 
-	s.mu.Lock()
-	s.config.GroupedLightID = groupedLightID
-	err := s.config.Save()
-	s.mu.Unlock()
+	err := s.config.Update(func(c *config.Config) {
+		c.GroupedLightID = groupedLightID
+	}, nil)
 
 	if err != nil {
 		log.Printf("[ERROR] Failed to save config: %v", err)
@@ -705,10 +709,14 @@ func (s *Service) GetConnectionStatus(sender dbus.Sender) (map[string]interface{
 	}
 
 	if s.hueClient == nil {
+		var bridgeIP string
+		s.config.View(func(c *config.Config) {
+			bridgeIP = c.Bridge
+		})
 		return map[string]interface{}{
 			"connected":   false,
 			"lastError":   "Hue client not initialized",
-			"bridgeIP":    s.config.Bridge,
+			"bridgeIP":    bridgeIP,
 			"lastAttempt": "",
 		}, nil
 	}
@@ -758,14 +766,16 @@ func (s *Service) RetryConnection(sender dbus.Sender) (bool, *dbus.Error) {
 
 // GetSyncSettings returns current Screen Sync configuration
 func (s *Service) GetSyncSettings() (map[string]interface{}, *dbus.Error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	var settings config.SyncConfig
+	s.config.View(func(c *config.Config) {
+		settings = c.Sync
+	})
 
 	return map[string]interface{}{
-		"fps":            s.config.Sync.FPS,
-		"subsampleWidth": s.config.Sync.SubsampleWidth,
-		"monitor":        s.config.Sync.Monitor,
-		"enabled":        s.config.Sync.Enabled,
+		"fps":            settings.FPS,
+		"subsampleWidth": settings.SubsampleWidth,
+		"monitor":        settings.Monitor,
+		"enabled":        settings.Enabled,
 	}, nil
 }
 
@@ -795,26 +805,15 @@ func (s *Service) SetSyncSettings(fps int32, subsampleWidth int32, monitor strin
 		return false, dbus.MakeFailedError(fmt.Errorf("subsample width must be between %d and %d (got %d)", config.MinSubsampleWidth, config.MaxSubsampleWidth, subsampleWidth))
 	}
 
-	s.mu.Lock()
-	prevFPS := s.config.Sync.FPS
-	prevSubsample := s.config.Sync.SubsampleWidth
-	prevMonitor := s.config.Sync.Monitor
-	s.config.Sync.FPS = int(fps)
-	s.config.Sync.SubsampleWidth = int(subsampleWidth)
-	s.config.Sync.Monitor = monitor
-	err := s.config.Save()
-	if err != nil {
-		// Roll back only the fields this method owns. Restoring the whole
-		// struct would clobber a restore token the sync engine may have
-		// written concurrently, and losing that brings the portal permission
-		// dialog back on every run.
-		s.config.Sync.FPS = prevFPS
-		s.config.Sync.SubsampleWidth = prevSubsample
-		s.config.Sync.Monitor = prevMonitor
-	}
-	engine := s.syncEngine
-	s.mu.Unlock()
-
+	var prev config.SyncConfig
+	err := s.config.Update(func(c *config.Config) {
+		prev = c.Sync
+		c.Sync.FPS = int(fps)
+		c.Sync.SubsampleWidth = int(subsampleWidth)
+		c.Sync.Monitor = monitor
+	}, func(c *config.Config) {
+		c.Sync = prev
+	})
 	if err != nil {
 		// Save writes the file before it chmods it, so a late failure can
 		// leave the new values on disk under the reverted in-memory ones.
@@ -822,8 +821,8 @@ func (s *Service) SetSyncSettings(fps int32, subsampleWidth int32, monitor strin
 		return false, dbus.MakeFailedError(err)
 	}
 
-	if engine != nil {
-		if err := engine.SetFPS(int(fps)); err != nil {
+	if s.syncEngine != nil {
+		if err := s.syncEngine.SetFPS(int(fps)); err != nil {
 			log.Printf("[ERROR] Failed to apply FPS to sync engine: %v", err)
 			return false, dbus.MakeFailedError(err)
 		}
@@ -841,9 +840,10 @@ func (s *Service) GetBridgeSettings(sender dbus.Sender) (map[string]interface{},
 		return nil, dbus.MakeFailedError(err)
 	}
 
-	s.mu.RLock()
-	bridgeIP := s.config.Bridge
-	s.mu.RUnlock()
+	var bridgeIP string
+	s.config.View(func(c *config.Config) {
+		bridgeIP = c.Bridge
+	})
 
 	var connected bool
 	var lastError string
@@ -900,10 +900,11 @@ func (s *Service) GetSelectedRoom(sender dbus.Sender) (string, *dbus.Error) {
 		return "", dbus.MakeFailedError(err)
 	}
 
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	return s.config.GroupedLightID, nil
+	var roomID string
+	s.config.View(func(c *config.Config) {
+		roomID = c.GroupedLightID
+	})
+	return roomID, nil
 }
 
 // SetSelectedRoom updates the room/zone selection
@@ -923,10 +924,9 @@ func (s *Service) SetSelectedRoom(roomID string, sender dbus.Sender) (bool, *dbu
 		return false, dbus.MakeFailedError(fmt.Errorf("room ID cannot be empty"))
 	}
 
-	s.mu.Lock()
-	s.config.GroupedLightID = roomID
-	err := s.config.Save()
-	s.mu.Unlock()
+	err := s.config.Update(func(c *config.Config) {
+		c.GroupedLightID = roomID
+	}, nil)
 
 	if err != nil {
 		log.Printf("[ERROR] Failed to save room selection: %v", err)
@@ -945,10 +945,11 @@ func (s *Service) GetStartupScene(sender dbus.Sender) (string, *dbus.Error) {
 		return "", dbus.MakeFailedError(err)
 	}
 
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	return s.config.StartupScene, nil
+	var displayName string
+	s.config.View(func(c *config.Config) {
+		displayName = c.StartupScene
+	})
+	return displayName, nil
 }
 
 // SetStartupScene clears the startup scene when displayName is empty.
@@ -964,10 +965,9 @@ func (s *Service) SetStartupScene(displayName string, sender dbus.Sender) (bool,
 		return false, dbus.MakeFailedError(err)
 	}
 
-	s.mu.Lock()
-	s.config.StartupScene = displayName
-	err := s.config.Save()
-	s.mu.Unlock()
+	err := s.config.Update(func(c *config.Config) {
+		c.StartupScene = displayName
+	}, nil)
 
 	if err != nil {
 		log.Printf("[ERROR] Failed to save startup scene: %v", err)
@@ -985,19 +985,13 @@ func (s *Service) SetGamingMode(sender dbus.Sender, enabled bool) (bool, *dbus.E
 		return false, dbus.MakeFailedError(err)
 	}
 
-	s.mu.Lock()
-
-	// Update config
-	s.config.GamingMode.Enabled = enabled
-
-	// Save config
-	if err := s.config.Save(); err != nil {
-		s.mu.Unlock()
+	err := s.config.Update(func(c *config.Config) {
+		c.GamingMode.Enabled = enabled
+	}, nil)
+	if err != nil {
 		log.Printf("[ERROR] Failed to save gaming mode config: %v", err)
 		return false, dbus.MakeFailedError(err)
 	}
-
-	s.mu.Unlock()
 
 	// IMPORTANT: Actually start/stop the detector!
 	if enabled {
@@ -1017,10 +1011,11 @@ func (s *Service) SetGamingMode(sender dbus.Sender, enabled bool) (bool, *dbus.E
 
 // IsGamingModeEnabled returns whether gaming mode is enabled in config
 func (s *Service) IsGamingModeEnabled() (bool, *dbus.Error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	return s.config.GamingMode.Enabled, nil
+	var enabled bool
+	s.config.View(func(c *config.Config) {
+		enabled = c.GamingMode.Enabled
+	})
+	return enabled, nil
 }
 
 // IsGamingModeActive returns whether gaming mode is currently detecting gaming activity
@@ -1041,7 +1036,12 @@ func (s *Service) InitGamingMode() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if !s.config.GamingMode.Enabled {
+	var gm config.GamingModeConfig
+	s.config.View(func(c *config.Config) {
+		gm = c.GamingMode
+	})
+
+	if !gm.Enabled {
 		log.Println("[INFO] Gaming mode disabled in config")
 		return
 	}
@@ -1053,13 +1053,13 @@ func (s *Service) InitGamingMode() {
 
 	// Create gaming detector config
 	gamingCfg := gaming.Config{
-		PollInterval:      time.Duration(s.config.GamingMode.PollInterval) * time.Second,
-		DebounceDelay:     time.Duration(s.config.GamingMode.DebounceDelay) * time.Second,
-		UseSystemdInhibit: s.config.GamingMode.UseSystemdInhibit,
-		UsePowerProfile:   s.config.GamingMode.UsePowerProfile,
-		UseSteamAppId:     s.config.GamingMode.UseSteamAppId,
-		UseGameMode:       s.config.GamingMode.UseGameMode,
-		UseFullscreen:     s.config.GamingMode.UseFullscreen,
+		PollInterval:      time.Duration(gm.PollInterval) * time.Second,
+		DebounceDelay:     time.Duration(gm.DebounceDelay) * time.Second,
+		UseSystemdInhibit: gm.UseSystemdInhibit,
+		UsePowerProfile:   gm.UsePowerProfile,
+		UseSteamAppId:     gm.UseSteamAppId,
+		UseGameMode:       gm.UseGameMode,
+		UseFullscreen:     gm.UseFullscreen,
 		InitiallyGaming:   s.gamingModeActive,
 	}
 
@@ -1369,10 +1369,11 @@ func (s *Service) onGamingStateChanged(src *gaming.Detector, isGaming bool) {
 
 // GetTrayIcons returns the configured tray icon names
 func (s *Service) GetTrayIcons() (string, string, string, *dbus.Error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	return s.config.UI.Icons.Gaming, s.config.UI.Icons.Syncing, s.config.UI.Icons.Idle, nil
+	var icons config.IconConfig
+	s.config.View(func(c *config.Config) {
+		icons = c.UI.Icons
+	})
+	return icons.Gaming, icons.Syncing, icons.Idle, nil
 }
 
 // SetTrayIcons updates the tray icon configuration
@@ -1397,16 +1398,12 @@ func (s *Service) SetTrayIcons(gaming string, syncing string, idle string, sende
 		return false, dbus.MakeFailedError(err)
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	// Update config
-	s.config.UI.Icons.Gaming = gaming
-	s.config.UI.Icons.Syncing = syncing
-	s.config.UI.Icons.Idle = idle
-
-	// Save to file
-	if err := s.config.Save(); err != nil {
+	err := s.config.Update(func(c *config.Config) {
+		c.UI.Icons.Gaming = gaming
+		c.UI.Icons.Syncing = syncing
+		c.UI.Icons.Idle = idle
+	}, nil)
+	if err != nil {
 		log.Printf("[ERROR] Failed to save tray icon settings: %v", err)
 		return false, dbus.MakeFailedError(err)
 	}

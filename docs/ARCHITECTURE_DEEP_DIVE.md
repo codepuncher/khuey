@@ -311,7 +311,7 @@ type Service struct {
     syncEngine       *syncengine.Engine // Sync engine
     gamingDetector   *gaming.Detector   // Gaming detector
     gamingModeActive bool               // Gaming state
-    mu               sync.RWMutex       // Protects config access
+    mu               sync.RWMutex       // Guards the gaming state; config has its own lock
     ownerUID         uint32             // Service owner UID
     callerUID        func(dbus.Sender) (uint32, error) // Resolves sender to UID; nil fails closed
 }
@@ -895,8 +895,8 @@ main() goroutine
 **Synchronization Primitives:**
 
 1. **sync.Mutex / sync.RWMutex**
-   - `config.Config.mu` - Protects config modifications
-   - `dbus.Service.mu` - Protects concurrent DBus calls
+   - `config.Config.mu` - Guards every read and write of a shared config, taken by `View`, `Update` and `Save`
+   - `dbus.Service.mu` - Guards the gaming detector state
    - `sync.Engine.mu` - Protects engine state
    - `gaming.Detector.mu` - Protects gaming state
 
@@ -919,11 +919,10 @@ func (s *Service) GetScenes() ([]string, *dbus.Error) {
 }
 
 func (s *Service) SetGroupedLight(id string, sender dbus.Sender) (bool, *dbus.Error) {
-    // Mutex required - modifies config
-    s.mu.Lock()
-    s.config.GroupedLightID = id
-    err := s.config.Save()
-    s.mu.Unlock()
+    // Update changes and saves the config under its own lock
+    err := s.config.Update(func(c *config.Config) {
+        c.GroupedLightID = id
+    }, nil)
     return err == nil, dbusError(err)
 }
 ```
@@ -1651,23 +1650,31 @@ log_level: "info"
 ### Thread Safety
 
 **Concurrent Access Protection:**
-```go
-// Reading config (multiple goroutines)
-func (s *Service) someMethod() {
-    s.mu.RLock()
-    fps := s.config.Sync.FPS
-    s.mu.RUnlock()
-    // Use fps...
-}
 
-// Writing config (exclusive access)
-func (s *Service) SetSyncSettings(fps int) {
-    s.mu.Lock()
-    s.config.Sync.FPS = fps
-    err := s.config.Save()
-    s.mu.Unlock()
-}
+The DBus service and the sync engine share one `*config.Config`. Once it is
+shared, every read goes through `View` and every change through `Update`, both
+of which take the config's own mutex, the same one `Save` takes:
+
+```go
+// Reading config
+var fps int
+s.config.View(func(c *config.Config) {
+    fps = c.Sync.FPS
+})
+
+// Changing config: applied and saved under one lock. The second function
+// undoes the change if the save fails; pass nil to keep it in memory.
+var prev config.SyncConfig
+err := s.config.Update(func(c *config.Config) {
+    prev = c.Sync
+    c.Sync.FPS = fps
+}, func(c *config.Config) {
+    c.Sync = prev
+})
 ```
+
+The sync loop copies what it needs at the start of each session rather than
+calling `View` per frame, where it would wait out every `Save`'s disk write.
 
 **Non-Global Viper:**
 - Each Config has its own `*viper.Viper` instance
