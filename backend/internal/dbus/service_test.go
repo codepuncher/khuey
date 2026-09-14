@@ -1,10 +1,14 @@
 package dbus
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/codepuncher/khuey/internal/config"
+	"github.com/codepuncher/khuey/internal/gaming"
 	"github.com/codepuncher/khuey/internal/hue"
 	"github.com/godbus/dbus/v5"
 )
@@ -875,5 +879,164 @@ func TestCheckAccessFailsClosedWithoutResolver(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "access denied") {
 		t.Errorf("checkAccess() error = %q, want it to contain %q", err.Error(), "access denied")
+	}
+}
+
+// TestDecideRestart covers the three states that look alike from outside the
+// engine. Restarting a session the user stopped would be a bug, and restarting
+// without a bound would re-prompt the portal forever when the cause is a screen
+// share they revoked.
+func TestDecideRestart(t *testing.T) {
+	now := time.Now()
+	boom := errors.New("capture gave up")
+
+	tests := []struct {
+		name          string
+		running       bool
+		failure       error
+		attempts      int
+		nextAttemptAt time.Time
+		want          restartDecision
+	}{
+		{"healthy session", true, nil, 0, time.Time{}, restartWait},
+		{"still running after an earlier failure", true, boom, 1, time.Time{}, restartWait},
+		{"stopped deliberately", false, nil, 0, time.Time{}, restartWait},
+		{"capture gave up", false, boom, 0, time.Time{}, restartNow},
+		{"backing off", false, boom, 1, now.Add(time.Second), restartWait},
+		{"backoff elapsed", false, boom, 1, now.Add(-time.Millisecond), restartNow},
+		{"budget spent", false, boom, gamingRestartAttempts, time.Time{}, restartExhaust},
+		{"budget spent, still backing off", false, boom, gamingRestartAttempts, now.Add(time.Hour), restartExhaust},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := decideRestart(tt.running, tt.failure, tt.attempts, now, tt.nextAttemptAt)
+			if got != tt.want {
+				t.Errorf("decideRestart = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestGamingRestartBackoffGrows makes sure the retries spread out. Each one may
+// re-prompt the portal, so three in quick succession would be three dialogs in
+// a user's face mid-game. Only the waits between attempts are checked: the one
+// computed after the last attempt is never used.
+func TestGamingRestartBackoffGrows(t *testing.T) {
+	var last time.Duration
+	for attempt := 1; attempt < gamingRestartAttempts; attempt++ {
+		backoff := gamingRestartDelay(attempt)
+		if backoff <= last {
+			t.Fatalf("attempt %d waits %v, no longer than the %v before it", attempt, backoff, last)
+		}
+		last = backoff
+	}
+
+	if last >= gamingRestartHealthy {
+		t.Errorf("the last backoff is %v, which outlasts the %v that restores the budget: a session could never recover its retries", last, gamingRestartHealthy)
+	}
+}
+
+// TestGamingEndedOnlyOnGameEnd covers the distinction that decides whether a
+// session the supervisor has just started gets undone. The game ending must
+// undo it; the detector being rebuilt by a settings save must not, or saving
+// settings mid-game would switch sync off.
+func TestGamingEndedOnlyOnGameEnd(t *testing.T) {
+	ended, cancelEnded := context.WithCancelCause(context.Background())
+	cancelEnded(errGamingEnded)
+
+	reconfigured, cancelReconfigured := context.WithCancelCause(context.Background())
+	cancelReconfigured(errDetectorStopped)
+
+	live, cancelLive := context.WithCancelCause(context.Background())
+	defer cancelLive(nil)
+
+	tests := []struct {
+		name string
+		ctx  context.Context
+		want bool
+	}{
+		{"game ended", ended, true},
+		{"detector reconfigured", reconfigured, false},
+		{"still gaming", live, false},
+		{"no supervisor", nil, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := gamingEnded(tt.ctx); got != tt.want {
+				t.Errorf("gamingEnded = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestStaleDetectorCannotStartGaming covers a check that was already in flight
+// when its detector was shut down. Acting on it would start sync, and a
+// supervisor nothing cancels, with gaming mode switched off.
+func TestStaleDetectorCannotStartGaming(t *testing.T) {
+	current := &gaming.Detector{}
+	stale := &gaming.Detector{}
+	s := &Service{gamingDetector: current}
+
+	s.onGamingStateChanged(stale, true)
+	if s.gamingModeActive {
+		t.Fatal("a detector that had been replaced started gaming mode")
+	}
+
+	s.onGamingStateChanged(current, true)
+	if !s.gamingModeActive {
+		t.Fatal("the current detector could not start gaming mode")
+	}
+
+	// A game ending is honoured from either: a late one from the replaced
+	// detector can arrive before the new one sees the same end.
+	s.onGamingStateChanged(stale, false)
+	if s.gamingModeActive {
+		t.Error("a genuine game end from the old detector was ignored")
+	}
+}
+
+// TestRebuildingDetectorKeepsTheGame covers a settings save mid-game, which
+// rebuilds the detector. That is not the game ending: gaming mode has to keep
+// owning the session, or a late game-ended callback from the old detector
+// would find nothing to stop and leave sync running after the game.
+func TestRebuildingDetectorKeepsTheGame(t *testing.T) {
+	var cause error
+	s := &Service{
+		gamingModeActive:     true,
+		stopGamingSupervisor: func(c error) { cause = c },
+	}
+
+	s.StopGamingMode()
+
+	if !s.gamingModeActive {
+		t.Error("rebuilding the detector dropped the game it was tracking")
+	}
+	if s.stopGamingSupervisor != nil {
+		t.Error("StopGamingMode left the supervisor in place")
+	}
+	if !errors.Is(cause, errDetectorStopped) {
+		t.Errorf("supervisor cancelled with %v, want errDetectorStopped so its session is kept", cause)
+	}
+}
+
+// TestDisablingGamingModeHandsTheSessionBack keeps re-enabling gaming mode
+// working. With no detector nothing reports the game ending, so a
+// gamingModeActive left true would stop the next game from ever starting sync.
+func TestDisablingGamingModeHandsTheSessionBack(t *testing.T) {
+	cancelled := false
+	s := &Service{
+		gamingModeActive:     true,
+		stopGamingSupervisor: func(error) { cancelled = true },
+	}
+
+	s.disableGamingMode()
+
+	if s.gamingModeActive {
+		t.Error("gamingModeActive survived disabling gaming mode")
+	}
+	if !cancelled {
+		t.Error("disabling gaming mode left the supervisor running")
 	}
 }

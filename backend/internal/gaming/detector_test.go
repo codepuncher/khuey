@@ -261,3 +261,27 @@ func TestKWinDetectorNilConn(t *testing.T) {
 		t.Error("Expected not fullscreen with nil connection")
 	}
 }
+
+// TestDetectorStartsFromInitialState covers a detector replacing one that had
+// already seen a game start. It only calls back on a change, so one starting
+// from false could never report that game ending.
+func TestDetectorStartsFromInitialState(t *testing.T) {
+	for _, initial := range []bool{false, true} {
+		cfg := DefaultConfig()
+		cfg.InitiallyGaming = initial
+
+		detector, err := NewDetector(cfg, func(bool) {})
+		if err != nil {
+			t.Fatalf("NewDetector: %v", err)
+		}
+		if detector == nil {
+			t.Skip("no gaming detection methods available")
+		}
+
+		if detector.currentState != initial || detector.pendingState != initial {
+			t.Errorf("InitiallyGaming=%v: detector started at current=%v pending=%v",
+				initial, detector.currentState, detector.pendingState)
+		}
+		detector.Close()
+	}
+}

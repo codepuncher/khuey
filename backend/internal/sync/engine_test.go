@@ -594,9 +594,86 @@ func TestMetricsResetClearsEveryAccumulator(t *testing.T) {
 	}
 }
 
-// TestStopSessionOnlyStopsItsOwnSession covers the race where a sync loop that
+// TestEndSessionOnlyEndsItsOwnSession covers the race where a sync loop that
 // has given up sits waiting on e.mu long enough for the user to stop and start
-// again. Stopping blind would tear down the session that replaced it.
+// again. Ending blind would tear down the session that replaced it, and would
+// pin the blame for a failure the new session never had.
+func TestEndSessionOnlyEndsItsOwnSession(t *testing.T) {
+	e := newTestEngine(t, testEngineConfig(30))
+	boom := errors.New("capture gave up")
+
+	e.mu.Lock()
+	e.running = true
+	e.generation = 2
+	e.mu.Unlock()
+
+	e.endSession(1, boom)
+
+	if !e.IsRunning() {
+		t.Fatal("a superseded loop stopped the session that replaced it")
+	}
+	if got := e.LastFailure(); got != nil {
+		t.Fatalf("a superseded loop recorded %v against the session that replaced it", got)
+	}
+
+	e.endSession(2, boom)
+
+	if e.IsRunning() {
+		t.Error("a loop failed to stop its own session")
+	}
+	if got := e.LastFailure(); !errors.Is(got, boom) {
+		t.Errorf("LastFailure = %v, want %v", got, boom)
+	}
+}
+
+// TestStopClearsLastFailure makes a deliberate Stop win over a pending retry.
+// After a session capture ended, a Stop finds nothing running, and a failure
+// left in place would still read as one waiting to be brought back.
+func TestStopClearsLastFailure(t *testing.T) {
+	e := newTestEngine(t, testEngineConfig(30))
+
+	e.mu.Lock()
+	e.running = true
+	e.generation = 1
+	e.mu.Unlock()
+	e.endSession(1, errors.New("capture gave up"))
+
+	if e.LastFailure() == nil {
+		t.Fatal("endSession recorded no failure")
+	}
+
+	if err := e.Stop(); !errors.Is(err, ErrNotRunning) {
+		t.Fatalf("Stop = %v, want ErrNotRunning", err)
+	}
+	if got := e.LastFailure(); got != nil {
+		t.Errorf("LastFailure = %v after a deliberate Stop, want nil", got)
+	}
+}
+
+// TestEndSessionAfterStopRecordsNothing covers a Stop that lands between the
+// loop deciding to give up and taking the lock. The Stop cleared the failure on
+// purpose, and writing it back would get the session restarted against it.
+func TestEndSessionAfterStopRecordsNothing(t *testing.T) {
+	e := newTestEngine(t, testEngineConfig(30))
+
+	e.mu.Lock()
+	e.running = true
+	e.generation = 1
+	e.mu.Unlock()
+
+	if err := e.Stop(); err != nil {
+		t.Fatalf("Stop = %v", err)
+	}
+	e.endSession(1, errors.New("capture gave up"))
+
+	if got := e.LastFailure(); got != nil {
+		t.Errorf("LastFailure = %v after a Stop that came first, want nil", got)
+	}
+}
+
+// TestStopSessionOnlyStopsItsOwnSession covers undoing a start that took long
+// enough for another session to be queued behind it. Stopping whatever is
+// running would end that one instead.
 func TestStopSessionOnlyStopsItsOwnSession(t *testing.T) {
 	e := newTestEngine(t, testEngineConfig(30))
 
@@ -605,17 +682,17 @@ func TestStopSessionOnlyStopsItsOwnSession(t *testing.T) {
 	e.generation = 2
 	e.mu.Unlock()
 
-	if err := e.stopSession(1); !errors.Is(err, ErrNotRunning) {
-		t.Fatalf("stopSession(1) = %v, want ErrNotRunning", err)
+	if err := e.StopSession(1); !errors.Is(err, ErrNotRunning) {
+		t.Fatalf("StopSession(1) = %v, want ErrNotRunning", err)
 	}
 	if !e.IsRunning() {
-		t.Fatal("a superseded loop stopped the session that replaced it")
+		t.Fatal("undoing an old start stopped the session queued behind it")
 	}
 
-	if err := e.stopSession(2); err != nil {
-		t.Fatalf("stopSession(2) = %v, want nil", err)
+	if err := e.StopSession(2); err != nil {
+		t.Fatalf("StopSession(2) = %v, want nil", err)
 	}
 	if e.IsRunning() {
-		t.Error("a loop failed to stop its own session")
+		t.Error("StopSession failed to stop its own session")
 	}
 }

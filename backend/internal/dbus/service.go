@@ -32,9 +32,13 @@ type Service struct {
 	hueClient        *hue.Client
 	syncEngine       *syncengine.Engine
 	gamingDetector   *gaming.Detector
-	gamingModeActive bool         // Track if gaming mode triggered sync
-	mu               sync.RWMutex // Protects config access from concurrent DBus calls
-	ownerUID         uint32       // UID of the service owner for access control
+	gamingModeActive bool // Track if gaming mode triggered sync
+	// Cancels the supervisor watching the sync session gaming mode started.
+	// Only ever set while gamingModeActive is true, and cleared whenever that
+	// goes false, all under mu, so a supervisor never outlives its game.
+	stopGamingSupervisor context.CancelCauseFunc
+	mu                   sync.RWMutex // Protects config access from concurrent DBus calls
+	ownerUID             uint32       // UID of the service owner for access control
 	// callerUID resolves a DBus sender to its UID. Set to getCallerUID by
 	// NewService; a nil value (e.g. a directly-constructed Service in tests)
 	// makes checkAccess fail closed rather than allow or fall back.
@@ -1004,8 +1008,7 @@ func (s *Service) SetGamingMode(sender dbus.Sender, enabled bool) (bool, *dbus.E
 		s.InitGamingMode()
 		log.Println("[INFO] Gaming mode enabled - detector started")
 	} else {
-		// Stop detector
-		s.StopGamingMode()
+		s.disableGamingMode()
 		log.Println("[INFO] Gaming mode disabled - detector stopped")
 	}
 
@@ -1057,11 +1060,15 @@ func (s *Service) InitGamingMode() {
 		UseSteamAppId:     s.config.GamingMode.UseSteamAppId,
 		UseGameMode:       s.config.GamingMode.UseGameMode,
 		UseFullscreen:     s.config.GamingMode.UseFullscreen,
+		InitiallyGaming:   s.gamingModeActive,
 	}
 
-	// Create detector with callback
+	// Create detector with callback. The callback names its detector so a
+	// late one from a detector already shut down can be told apart: Close
+	// does not wait for a check already in flight.
+	var detector *gaming.Detector
 	detector, err := gaming.NewDetector(gamingCfg, func(isGaming bool) {
-		s.onGamingStateChanged(isGaming)
+		s.onGamingStateChanged(detector, isGaming)
 	})
 
 	if err != nil {
@@ -1077,6 +1084,15 @@ func (s *Service) InitGamingMode() {
 	s.gamingDetector = detector
 	s.gamingDetector.Start()
 	log.Println("[INFO] Gaming mode detector started")
+
+	// Seeded mid-game, the detector reports nothing while that game goes on,
+	// so the supervisor the old detector's game had is recreated here rather
+	// than waiting on a callback that will not come.
+	if s.gamingModeActive && s.stopGamingSupervisor == nil {
+		ctx, cancel := context.WithCancelCause(context.Background())
+		s.stopGamingSupervisor = cancel
+		go s.superviseGamingSync(ctx, s.syncEngine)
+	}
 }
 
 // StopGamingMode stops the gaming detector
@@ -1084,38 +1100,263 @@ func (s *Service) StopGamingMode() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	s.stopGamingModeLocked()
+}
+
+// stopGamingModeLocked is StopGamingMode for a caller already holding s.mu.
+func (s *Service) stopGamingModeLocked() {
 	if s.gamingDetector != nil {
 		s.gamingDetector.Close()
 		s.gamingDetector = nil
 		log.Println("[INFO] Gaming mode detector stopped")
 	}
+
+	// The session and gamingModeActive are left as they are: gaming mode
+	// being reconfigured is not the game ending. A detector that replaces
+	// this one is seeded with gamingModeActive, so it can still report that
+	// game ending, and a late game-ended callback from this one still stops
+	// it. Disabling gaming mode is what hands the session back.
+	if s.stopGamingSupervisor != nil {
+		s.stopGamingSupervisor(errDetectorStopped)
+		s.stopGamingSupervisor = nil
+	}
+}
+
+// disableGamingMode stops the detector and hands the session back. Any running
+// session is left running, but gaming mode no longer owns it: with no detector,
+// nothing would report the game ending, and a stale gamingModeActive would stop
+// the next game after gaming mode is re-enabled from ever starting sync.
+//
+// One critical section for both: between them a concurrent enable would see the
+// game still on, seed a new detector with it and start a supervisor, which this
+// would then orphan by clearing the flag underneath.
+func (s *Service) disableGamingMode() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.stopGamingModeLocked()
+	s.gamingModeActive = false
+}
+
+// Why a gaming supervisor was cancelled. Only the game ending means a session
+// the supervisor has just started should be undone.
+var (
+	errGamingEnded     = errors.New("gaming ended")
+	errDetectorStopped = errors.New("gaming detector stopped")
+)
+
+// Recovery limits for a sync session gaming mode started. Capture can now end
+// a session on its own, and the gaming detector is edge triggered, so without
+// this a stream that dies mid-game stays dead until the game does.
+//
+// Bounded and backed off because the cause may be a screen share the user
+// revoked, which the capture layer cannot tell from a transient failure: every
+// attempt then re-prompts the portal, so there must be few of them. The budget
+// is restored once a session has held up, so an evening of hotplugs does not
+// accumulate into a refusal to retry.
+const (
+	gamingRestartAttempts = 3
+	gamingRestartBackoff  = 5 * time.Second
+	gamingRestartHealthy  = time.Minute
+	gamingSupervisorPoll  = 2 * time.Second
+)
+
+// gamingRestartDelay is how long to wait after the given attempt, counting from
+// one, before making the next. The first attempt goes out on the next poll; the
+// waits then double so the retries spread out, because each one may re-prompt
+// the portal when the cause is a revoked screen share.
+func gamingRestartDelay(attempt int) time.Duration {
+	return gamingRestartBackoff * time.Duration(1<<(attempt-1))
+}
+
+// restartDecision is what the supervisor should do on one tick.
+type restartDecision int
+
+const (
+	restartWait    restartDecision = iota // nothing to do
+	restartNow                            // bring the session back
+	restartExhaust                        // gave up, and has not said so yet
+)
+
+// decideRestart separates the three states that look alike from outside: a
+// session that is running, one the user or the detector stopped deliberately,
+// and one capture ended by itself. Only the last is ours to undo.
+func decideRestart(running bool, failure error, attempts int, now, nextAttemptAt time.Time) restartDecision {
+	if running || failure == nil {
+		return restartWait
+	}
+	if attempts >= gamingRestartAttempts {
+		return restartExhaust
+	}
+	if now.Before(nextAttemptAt) {
+		return restartWait
+	}
+	return restartNow
+}
+
+// gamingEnded reports whether ctx was cancelled because the game ended, as
+// opposed to the detector being reconfigured, which leaves the session alone.
+func gamingEnded(ctx context.Context) bool {
+	return ctx != nil && errors.Is(context.Cause(ctx), errGamingEnded)
+}
+
+// startSyncForGaming starts sync on behalf of gaming mode, and undoes it if the
+// game ended while Start was running. The detector runs its callbacks
+// concurrently and Start can block for seconds on the portal and the bridge, so
+// the game-ended handler can finish before this Start does. Its Stop then found
+// nothing to stop, and the session it would have ended outlives the game. The
+// undo is by session, not a plain Stop: by the time Start returns, another
+// start can be queued behind it, and that session is not this call's to end.
+//
+// The session is started on its own context, not ctx: ctx only decides whether
+// to keep it, and a session tied to it would be stranded, still reported as
+// running, the moment the supervisor was cancelled.
+func startSyncForGaming(ctx context.Context, engine *syncengine.Engine) error {
+	gen, err := engine.StartSession(context.Background())
+	if err != nil {
+		return err
+	}
+	if !gamingEnded(ctx) {
+		return nil
+	}
+	if err := engine.StopSession(gen); err != nil && !errors.Is(err, syncengine.ErrNotRunning) {
+		log.Printf("warn: failed to stop sync started after gaming ended: %v", err)
+	}
+	return errGamingEnded
+}
+
+// superviseGamingSync brings back a sync session that capture ended while a
+// game is still running.
+func (s *Service) superviseGamingSync(ctx context.Context, engine *syncengine.Engine) {
+	ticker := time.NewTicker(gamingSupervisorPoll)
+	defer ticker.Stop()
+
+	var (
+		attempts      int
+		healthySince  time.Time
+		nextAttemptAt time.Time
+		saidGaveUp    bool
+	)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+
+		now := time.Now()
+		running := engine.IsRunning()
+
+		if running {
+			if healthySince.IsZero() {
+				healthySince = now
+			}
+			if now.Sub(healthySince) >= gamingRestartHealthy {
+				attempts = 0
+				saidGaveUp = false
+			}
+			continue
+		}
+		healthySince = time.Time{}
+
+		switch decideRestart(running, engine.LastFailure(), attempts, now, nextAttemptAt) {
+		case restartWait:
+			continue
+		case restartExhaust:
+			if !saidGaveUp {
+				log.Printf("[ERROR] Screen sync failed %d times during gaming, not retrying again: %v",
+					attempts, engine.LastFailure())
+				saidGaveUp = true
+			}
+			continue
+		}
+
+		attempts++
+		nextAttemptAt = now.Add(gamingRestartDelay(attempts))
+		log.Printf("[INFO] Screen sync stopped during gaming (%v), restarting (attempt %d of %d)",
+			engine.LastFailure(), attempts, gamingRestartAttempts)
+
+		err := startSyncForGaming(ctx, engine)
+		if errors.Is(err, errGamingEnded) {
+			return
+		}
+		// Someone started it between the check above and this call.
+		if errors.Is(err, syncengine.ErrAlreadyRunning) {
+			continue
+		}
+		if err != nil {
+			log.Printf("[ERROR] Failed to restart sync during gaming: %v", err)
+		}
+	}
 }
 
 // onGamingStateChanged is called when gaming state changes
-func (s *Service) onGamingStateChanged(isGaming bool) {
-	// Check state and determine action while holding lock
+func (s *Service) onGamingStateChanged(src *gaming.Detector, isGaming bool) {
+	// Check state and determine action while holding lock. The supervisor is
+	// created and cancelled here too, in the same critical section as
+	// gamingModeActive, so a game-ended callback that overtakes a slow
+	// game-started one always finds the supervisor it has to cancel.
 	s.mu.Lock()
-	shouldStart := isGaming && s.syncEngine != nil && !s.gamingModeActive
-	shouldStop := !isGaming && s.gamingModeActive && s.syncEngine != nil
-
-	if isGaming {
-		s.gamingModeActive = true
-	} else {
-		s.gamingModeActive = false
+	// A game starting is only acted on from the current detector. One already
+	// shut down would otherwise start sync, and a supervisor nothing cancels,
+	// with gaming mode switched off. A game ending is still honoured from any
+	// detector: it is a real observation, and a late one from the replaced
+	// detector can arrive before the new one has seen the same end.
+	if isGaming && src != s.gamingDetector {
+		s.mu.Unlock()
+		return
 	}
 	engine := s.syncEngine
+	shouldStart := isGaming && engine != nil && !s.gamingModeActive
+	shouldStop := !isGaming && s.gamingModeActive && engine != nil
+	s.gamingModeActive = isGaming
+
+	var superviseCtx context.Context
+	if isGaming && engine != nil && s.stopGamingSupervisor == nil {
+		ctx, cancel := context.WithCancelCause(context.Background())
+		s.stopGamingSupervisor = cancel
+		superviseCtx = ctx
+	}
+
+	var cancelSupervisor context.CancelCauseFunc
+	if !isGaming {
+		cancelSupervisor = s.stopGamingSupervisor
+		s.stopGamingSupervisor = nil
+	}
 	s.mu.Unlock()
+
+	// Before the Stop below, or the supervisor would read the stopped session
+	// as one to bring back.
+	if cancelSupervisor != nil {
+		cancelSupervisor(errGamingEnded)
+	}
 
 	// Perform sync operations WITHOUT holding lock to avoid deadlock
 	if shouldStart {
 		log.Println("[INFO] Gaming detected - starting screen sync")
-		// Use Background context - sync engine manages its own lifecycle via Stop()
-		if err := engine.Start(context.Background()); err != nil {
+		// A failed Start records its error, so the supervisor retries it.
+		err := startSyncForGaming(superviseCtx, engine)
+		switch {
+		case errors.Is(err, errGamingEnded):
+			log.Println("[INFO] Gaming ended while sync was starting - stopped it again")
+		case errors.Is(err, syncengine.ErrAlreadyRunning):
+			log.Println("[INFO] Screen sync already running - gaming mode taking it over")
+		case err != nil:
 			log.Printf("[ERROR] Failed to start sync for gaming mode: %v", err)
-		} else {
+		default:
 			log.Println("[INFO] Screen sync enabled for immersive gaming")
 		}
-	} else if shouldStop {
+	}
+
+	// Started after the initial Start so the two never race to bring the
+	// session up. If the game has already ended, ctx is cancelled and it
+	// exits on its first check.
+	if superviseCtx != nil {
+		go s.superviseGamingSync(superviseCtx, engine)
+	}
+
+	if shouldStop {
 		log.Println("[INFO] Gaming stopped - stopping screen sync")
 		// Not an error: capture can end the session on its own, so by the
 		// time gaming stops there may be nothing left to stop.

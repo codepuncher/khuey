@@ -84,6 +84,11 @@ type Engine struct {
 	// check it and read the metrics without a Start splitting the two.
 	generation uint64
 
+	// Why the last session ended or failed to start, or nil if it was stopped
+	// deliberately. A caller that restarts sync needs the two apart: undoing
+	// the user's own Stop would be a bug, not a recovery.
+	lastFailure error
+
 	// Atomic so a settings change never blocks on e.mu, which Start holds
 	// across the portal dialog and the DTLS connect.
 	fps        atomic.Int64
@@ -265,11 +270,21 @@ func createDefaultZone(index, total int) color.Zone {
 
 // Start begins screen synchronization with the provided context
 func (e *Engine) Start(ctx context.Context) error {
+	_, err := e.StartSession(ctx)
+	return err
+}
+
+// StartSession starts sync like Start and also returns an identifier for the
+// session it started, which StopSession accepts. A caller that may need to
+// undo its own start uses the pair: Start can block for as long as the portal
+// dialog stays open, and by the time it returns another session can already be
+// queued behind it, so stopping whatever is running would stop the wrong one.
+func (e *Engine) StartSession(ctx context.Context) (uint64, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
 	if e.running {
-		return ErrAlreadyRunning
+		return 0, ErrAlreadyRunning
 	}
 
 	// Use provided context or default to Background
@@ -290,13 +305,21 @@ func (e *Engine) Start(ctx context.Context) error {
 
 	// Start screen capture
 	if err := e.capturer.Start(); err != nil {
-		return fmt.Errorf("failed to start screen capture: %w", err)
+		err = fmt.Errorf("failed to start screen capture: %w", err)
+		// Declining the dialog is a choice, recorded as a deliberate stop
+		// would be, so nothing reopens it.
+		e.lastFailure = err
+		if capture.IsPermissionDenied(err) {
+			e.lastFailure = nil
+		}
+		return 0, err
 	}
 
 	// Connect to Entertainment API
 	if err := e.client.Connect(); err != nil {
 		e.capturer.Stop() // Clean up capture on connection failure
-		return fmt.Errorf("failed to connect to Entertainment API: %w", err)
+		e.lastFailure = fmt.Errorf("failed to connect to Entertainment API: %w", err)
+		return 0, e.lastFailure
 	}
 
 	// Create child context for cancellation (proper context propagation)
@@ -305,6 +328,7 @@ func (e *Engine) Start(ctx context.Context) error {
 	e.running = true
 	e.generation++
 	gen := e.generation
+	e.lastFailure = nil
 
 	// Reset here, under e.mu and next to the generation bump, rather than in
 	// the loop below. A retiring loop checks that generation before reading
@@ -316,7 +340,7 @@ func (e *Engine) Start(ctx context.Context) error {
 	go e.syncLoop(syncCtx, gen)
 
 	log.Printf("Screen sync started at %d FPS", e.fps.Load())
-	return nil
+	return gen, nil
 }
 
 // Stop halts screen synchronization
@@ -324,7 +348,55 @@ func (e *Engine) Stop() error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
+	// Cleared even when nothing is running: after a failed start or a session
+	// capture ended, a Stop is the caller saying to leave it stopped, and a
+	// failure left in place would read as one still waiting to be retried.
+	e.lastFailure = nil
 	return e.stopLocked()
+}
+
+// StopSession stops sync only while the session StartSession returned gen for
+// is still the one running, and is otherwise a no-op returning ErrNotRunning.
+// A deliberate stop like Stop, so it clears the recorded failure too.
+func (e *Engine) StopSession(gen uint64) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if e.generation != gen || !e.running {
+		return ErrNotRunning
+	}
+	e.lastFailure = nil
+	return e.stopLocked()
+}
+
+// LastFailure reports why the last session ended or failed to start, or nil if
+// sync is running or was stopped deliberately.
+func (e *Engine) LastFailure() error {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.lastFailure
+}
+
+// endSession records why this loop is giving up and stops the session it
+// belongs to. Gated on the generation because a loop that has decided to give
+// up can be waiting on e.mu long enough for the user to stop and start again,
+// and it must not mark or tear down the session that replaced it.
+func (e *Engine) endSession(gen uint64, cause error) {
+	e.mu.Lock()
+	// Not running means a Stop got here first, between the loop deciding to
+	// give up and taking the lock. That Stop cleared the failure on purpose,
+	// and writing it back would have the session restarted against it.
+	if e.generation != gen || !e.running {
+		e.mu.Unlock()
+		return
+	}
+	e.lastFailure = cause
+	err := e.stopLocked()
+	e.mu.Unlock()
+
+	if err != nil && !errors.Is(err, ErrNotRunning) {
+		log.Printf("[ERROR] Failed to stop sync after capture failure: %v", err)
+	}
 }
 
 // logFinalMetricsIfOwned reports a session's totals, and only its own: Stop
@@ -343,20 +415,6 @@ func (e *Engine) logFinalMetricsIfOwned(gen uint64) {
 		return
 	}
 	e.logFinalMetrics()
-}
-
-// stopSession stops sync only while gen is still the running session. A sync
-// loop that has decided to give up can be waiting on e.mu long enough for the
-// user to stop and start again, and it must not tear down the session that
-// replaced it.
-func (e *Engine) stopSession(gen uint64) error {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-
-	if e.generation != gen {
-		return ErrNotRunning
-	}
-	return e.stopLocked()
 }
 
 func (e *Engine) stopLocked() error {
@@ -422,9 +480,7 @@ func (e *Engine) syncLoop(ctx context.Context, gen uint64) {
 	extractor, err := color.NewExtractor(e.config.Sync.SubsampleWidth, 2.2)
 	if err != nil {
 		log.Printf("[ERROR] Failed to create extractor, ending sync: %v", err)
-		if stopErr := e.stopSession(gen); stopErr != nil && !errors.Is(stopErr, ErrNotRunning) {
-			log.Printf("[ERROR] Failed to stop sync after extractor failure: %v", stopErr)
-		}
+		e.endSession(gen, err)
 		return
 	}
 
@@ -475,9 +531,7 @@ func (e *Engine) syncLoop(ctx context.Context, gen uint64) {
 				if errors.Is(err, capture.ErrCaptureStopped) {
 					log.Printf("[ERROR] Screen capture stopped, ending sync: %v", err)
 					e.logFinalMetricsIfOwned(gen)
-					if stopErr := e.stopSession(gen); stopErr != nil && !errors.Is(stopErr, ErrNotRunning) {
-						log.Printf("[ERROR] Failed to stop sync after capture failure: %v", stopErr)
-					}
+					e.endSession(gen, err)
 					return
 				}
 				// Throttled: this fires on every tick while capture is down,
