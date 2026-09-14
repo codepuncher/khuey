@@ -69,7 +69,7 @@ pre-commit:
       
     # Run Go tests for modified packages
     go-test:
-      glob: "backend/**/*.go"
+      glob: "backend/**/*.{go,c,h}"
       run: |
         cd backend
         export CGO_CFLAGS_ALLOW="-fno-strict-overflow"
@@ -78,7 +78,7 @@ pre-commit:
       
     # Go vet for common mistakes
     go-vet:
-      glob: "backend/**/*.go"
+      glob: "backend/**/*.{go,c,h}"
       run: |
         cd backend
         export CGO_CFLAGS_ALLOW="-fno-strict-overflow"
