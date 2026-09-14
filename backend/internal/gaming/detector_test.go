@@ -1,6 +1,7 @@
 package gaming
 
 import (
+	"sync"
 	"testing"
 	"time"
 )
@@ -283,5 +284,30 @@ func TestDetectorStartsFromInitialState(t *testing.T) {
 				initial, detector.currentState, detector.pendingState)
 		}
 		detector.Close()
+	}
+}
+
+// TestDetectorStartStopConcurrently covers a Start landing inside a Stop. A
+// Stop that closed the channel after releasing the lock could close the one
+// that Start had just made, stopping the new run and double-closing it when
+// that run's own Stop came. Only fully meaningful under -race.
+func TestDetectorStartStopConcurrently(t *testing.T) {
+	d := &Detector{pollInterval: time.Millisecond}
+
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range 200 {
+				d.Start()
+				d.Stop()
+			}
+		}()
+	}
+	wg.Wait()
+
+	if d.isRunning {
+		t.Error("detector still running after every Start was followed by a Stop")
 	}
 }

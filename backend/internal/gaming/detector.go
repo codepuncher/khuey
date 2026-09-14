@@ -85,7 +85,6 @@ func NewDetector(cfg Config, callback StateChangeCallback) (*Detector, error) {
 		useSteamAppId:     cfg.UseSteamAppId,
 		useGameMode:       cfg.UseGameMode,
 		useFullscreen:     cfg.UseFullscreen,
-		stopChan:          make(chan struct{}, 1), // Buffered to prevent blocking on close
 		currentState:      cfg.InitiallyGaming,
 		pendingState:      cfg.InitiallyGaming,
 		stateChangedAt:    time.Now(),
@@ -148,19 +147,16 @@ func (d *Detector) Start() {
 	}
 
 	d.mu.Lock()
+	defer d.mu.Unlock()
 	if d.isRunning {
-		d.mu.Unlock()
 		return
 	}
-	// Recreate stop channel for restart capability
-	// (channel is closed by Stop(), must be recreated)
-	d.stopChan = make(chan struct{}, 1) // Buffered to prevent blocking
+	// Per run, since Stop closes it.
+	d.stopChan = make(chan struct{})
 	d.isRunning = true
 
 	log.Println("[INFO] Gaming mode detector started")
-	// Spawn goroutine while holding lock to prevent race
-	go d.monitorLoop()
-	d.mu.Unlock()
+	go d.monitorLoop(d.stopChan)
 }
 
 // Stop stops monitoring
@@ -170,25 +166,27 @@ func (d *Detector) Stop() {
 	}
 
 	d.mu.Lock()
+	defer d.mu.Unlock()
 	if !d.isRunning {
-		d.mu.Unlock()
 		return
 	}
 	d.isRunning = false
-	d.mu.Unlock()
-
+	// Closed under the lock: once it is released, a Start can replace the
+	// channel, and closing after that would stop the new run instead.
 	close(d.stopChan)
 	log.Println("[INFO] Gaming mode detector stopped")
 }
 
-// monitorLoop polls for gaming activity and triggers callbacks with debouncing
-func (d *Detector) monitorLoop() {
+// monitorLoop polls for gaming activity and triggers callbacks with debouncing.
+// It takes its run's stop channel rather than reading d.stopChan, which the
+// next Start replaces.
+func (d *Detector) monitorLoop(stop <-chan struct{}) {
 	ticker := time.NewTicker(d.pollInterval)
 	defer ticker.Stop()
 
 	for {
 		select {
-		case <-d.stopChan:
+		case <-stop:
 			return
 		case <-ticker.C:
 			d.checkGamingState()
