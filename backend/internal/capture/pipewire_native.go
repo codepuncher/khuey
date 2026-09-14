@@ -12,6 +12,7 @@ package capture
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h>
+#include <time.h>
 
 // Diagnostics below go to stderr, not stdout. systemd hands both fds to
 // journald, and since neither is a terminal libc fully buffers stdout while
@@ -46,6 +47,9 @@ enum drop_reason {
 	DROP_OVERFLOW,
 	DROP_SHORT_CHUNK,
 	DROP_CORRUPTED,
+	DROP_NO_DATA,
+	DROP_UNMAPPED,
+	DROP_ALLOC_FAILED,
 	DROP_REASON_COUNT,
 };
 
@@ -56,6 +60,9 @@ static const char *drop_reason_text[DROP_REASON_COUNT] = {
 	"frame size overflows int",
 	"chunk carries fewer bytes than the negotiated frame",
 	"producer flagged the chunk corrupted",
+	"buffer carries no data planes",
+	"buffer memory is not mapped",
+	"could not allocate a frame slot",
 };
 
 // User data passed to callbacks
@@ -95,6 +102,16 @@ struct user_data {
 	// a dead producer from an idle one.
 	int streaming;
 
+	// The run of consecutive buffers the producer has sent that could not
+	// be used, with the monotonic times of the first and last of them. A
+	// still screen sends no buffers at all, so only the producer's own
+	// output can end the run: a usable buffer, a new format, or a drop
+	// arriving more than UNUSABLE_RUN_GAP_NS after the one before it.
+	uint64_t unusable_run;
+	int64_t unusable_first_ns;
+	int64_t unusable_last_ns;
+	enum drop_reason unusable_reason;
+
 	int frame_width;
 	int frame_height;
 	uint32_t frame_format;
@@ -126,7 +143,15 @@ static void on_stream_param_changed(void *data, uint32_t id, const struct spa_po
 {
 	struct user_data *ud = data;
 
-	if (param == NULL || id != SPA_PARAM_Format)
+	if (id != SPA_PARAM_Format)
+		return;
+
+	// Drops while a stream renegotiates are about the geometry being
+	// replaced. Carrying them over would let unrelated renegotiations on a
+	// still screen, minutes apart, add up to one run.
+	ud->unusable_run = 0;
+
+	if (param == NULL)
 		return;
 
 	// Parse video format
@@ -157,6 +182,38 @@ static void warn_drop_once(struct user_data *ud, enum drop_reason reason,
 		drop_reason_text[reason], stride, height);
 }
 
+static int64_t monotonic_ns(void)
+{
+	struct timespec ts;
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return (int64_t)ts.tv_sec * 1000000000 + ts.tv_nsec;
+}
+
+// A drop this long after the previous one starts a new run. Without it, a
+// burst that no usable frame followed and a stray drop minutes later on a
+// still screen would add up to one run. The cost is that a producer sending
+// less often than this is never judged, which only a near-still screen does.
+#define UNUSABLE_RUN_GAP_NS (5LL * 1000000000)
+
+static void reject_buffer(struct user_data *ud, struct pw_buffer *b,
+			  enum drop_reason reason, int stride, int height)
+{
+	warn_drop_once(ud, reason, stride, height);
+
+	int64_t now = monotonic_ns();
+	if (ud->unusable_run > 0 && now - ud->unusable_last_ns > UNUSABLE_RUN_GAP_NS) {
+		ud->unusable_run = 0;
+	}
+	if (ud->unusable_run == 0) {
+		ud->unusable_first_ns = now;
+	}
+	ud->unusable_run++;
+	ud->unusable_last_ns = now;
+	ud->unusable_reason = reason;
+
+	pw_stream_queue_buffer(ud->stream, b);
+}
+
 static void on_stream_process(void *data)
 {
 	struct user_data *ud = data;
@@ -174,130 +231,139 @@ static void on_stream_process(void *data)
 	// datas is a pointer, so an empty buffer makes datas[0] a read of
 	// unallocated memory rather than of a zeroed struct.
 	if (buf->n_datas == 0) {
+		reject_buffer(ud, b, DROP_NO_DATA, 0, ud->frame_height);
+		return;
+	}
+
+	// MAP_BUFFERS leaves DmaBuf unmapped unless the producer marks it
+	// mappable, so a producer that moves to DmaBuf lands here every time.
+	if (buf->datas[0].data == NULL) {
+		reject_buffer(ud, b, DROP_UNMAPPED, buf->datas[0].chunk->stride,
+			      ud->frame_height);
+		return;
+	}
+
+	uint8_t *src = buf->datas[0].data;
+	int stride = buf->datas[0].chunk->stride;
+
+	// A corrupted chunk can still be full size and pass every bounds
+	// check below, so nothing else would catch it: the garbage would be
+	// extracted and streamed to the lights as if it were a frame. Only
+	// CORRUPTED is rejected; EMPTY means a legitimately black frame.
+	//
+	// It leaves any unusable run alone. KWin sets the flag on every buffer
+	// it sends without video, a cursor-only update for one, so it is the
+	// producer working as intended, but it carries no frame to show that
+	// the producer's frames are usable either.
+	if (buf->datas[0].chunk->flags & SPA_CHUNK_FLAG_CORRUPTED) {
+		warn_drop_once(ud, DROP_CORRUPTED, stride, ud->frame_height);
 		pw_stream_queue_buffer(ud->stream, b);
 		return;
 	}
 
-	// Get video data
-	if (buf->datas[0].data != NULL) {
-		uint8_t *src = buf->datas[0].data;
-		int stride = buf->datas[0].chunk->stride;
+	uint32_t maxsize = buf->datas[0].maxsize;
+	uint32_t claimed = buf->datas[0].chunk->size;
 
-		// A corrupted chunk can still be full size and pass every bounds
-		// check below, so nothing else would catch it: the garbage would be
-		// extracted and streamed to the lights as if it were a frame. Only
-		// CORRUPTED is rejected; EMPTY means a legitimately black frame.
-		if (buf->datas[0].chunk->flags & SPA_CHUNK_FLAG_CORRUPTED) {
-			warn_drop_once(ud, DROP_CORRUPTED, stride, ud->frame_height);
-			pw_stream_queue_buffer(ud->stream, b);
-			return;
-		}
-
-		// chunk->offset and chunk->size are the producer's claims about a
-		// mapping that is only maxsize bytes long, and buffer.h says they
-		// "should be" clamped to it rather than that they are. Bound the
-		// read by the mapping itself, or a producer overstating either one
-		// walks the memcpy below off the end of the mmap.
-		uint32_t offset = buf->datas[0].chunk->offset;
-		uint32_t maxsize = buf->datas[0].maxsize;
-		if (maxsize == 0) {
-			pw_stream_queue_buffer(ud->stream, b);
-			return;
-		}
-		// buffer.h specifies offset modulo maxsize, which is what a
-		// ring-buffer producer relies on; rejecting an out-of-range offset
-		// instead would drop every frame such a producer sends.
-		offset %= maxsize;
-		uint32_t available = maxsize - offset;
-		uint32_t claimed = buf->datas[0].chunk->size;
-		uint32_t usable = claimed < available ? claimed : available;
-		if (usable > INT_MAX) {
-			usable = INT_MAX;
-		}
-		src += offset;
-		int size = (int)usable;
-
-		// Calculate expected size
-		int height = ud->frame_height;
-
-		// chunk->stride is int32_t, and frame_height is still 0 until
-		// param_changed fires. Either makes stride * height non-positive,
-		// which the grow check below reads as "capacity is already big
-		// enough" and memcpy then converts to a huge size_t. Reject the
-		// frame before any of that arithmetic is used. The last term
-		// rejects a product that would overflow int rather than wrap.
-		//
-		// A negative stride means a bottom-up buffer, which this converter
-		// does not handle: reading it correctly needs a row-reversed copy,
-		// not just a sign change. Such frames are dropped rather than
-		// rendered upside down, so say so once instead of failing silently
-		// until the circuit breaker stops capture.
-		if (stride <= 0 || height <= 0 || height > INT_MAX / stride) {
-			// stride > 0 && height > 0 by the time the last branch is
-			// reached, so it can only be the overflow term above.
-			enum drop_reason reason = DROP_OVERFLOW;
-			if (stride < 0) {
-				reason = DROP_BOTTOM_UP;
-			} else if (height <= 0) {
-				reason = DROP_NOT_NEGOTIATED;
-			} else if (stride == 0) {
-				reason = DROP_ZERO_STRIDE;
-			}
-			warn_drop_once(ud, reason, stride, height);
-			pw_stream_queue_buffer(ud->stream, b);
-			return;
-		}
-		int expected_size = stride * height;
-
-		// A data-less frame carries no new pixels. Leave the slot holding
-		// what it already has rather than publishing anything.
-		if (size == 0) {
-			pw_stream_queue_buffer(ud->stream, b);
-			return;
-		}
-
-		// A chunk shorter than the negotiated frame cannot be published
-		// either way. Advertising the full height would stream the tail
-		// realloc left uninitialized, and advertising only the whole rows
-		// that arrived would shrink the frame's reported bounds, which
-		// extractZoneColor reads as fractions of those bounds: a half-height
-		// frame makes a light mapped to the bottom of the screen sample the
-		// middle instead, silently and with nothing logged. Drop it.
-		if (size < expected_size) {
-			warn_drop_once(ud, DROP_SHORT_CHUNK, stride, height);
-			pw_stream_queue_buffer(ud->stream, b);
-			return;
-		}
-
-		// Always target the slot Go does not currently hold (see the
-		// struct user_data comment for why this is race-free).
-		int back_idx = 1 - ud->front_idx;
-		struct frame_buf *fb = &ud->frame[back_idx];
-
-		// Grow (never shrink) the back buffer if needed.
-		if (fb->data == NULL || fb->capacity < expected_size) {
-			uint8_t *grown = realloc(fb->data, expected_size);
-			if (grown == NULL) {
-				// Allocation failed: keep the old buffer and drop this
-				// frame rather than leak or write past its end.
-				pw_stream_queue_buffer(ud->stream, b);
-				return;
-			}
-			fb->data = grown;
-			fb->capacity = expected_size;
-		}
-		// Every short or absent chunk was rejected above, so the slot only
-		// ever describes a full frame it actually holds. Metadata is written
-		// with that data and published by index last, so Go can never read
-		// geometry that outruns the bytes behind it.
-		memcpy(fb->data, src, (size_t)expected_size);
-		fb->stride = stride;
-		fb->width = ud->frame_width;
-		fb->height = height;
-		fb->format = ud->frame_format;
-		ud->ready_idx = back_idx;
-		ud->frame_seq++;
+	// A data-less frame carries no new pixels. Leave the slot holding
+	// what it already has rather than publishing anything. It comes ahead
+	// of the geometry checks because producers leave the stride of such a
+	// frame at zero, and like a corrupted chunk it leaves an unusable run
+	// alone.
+	if (maxsize == 0 || claimed == 0) {
+		pw_stream_queue_buffer(ud->stream, b);
+		return;
 	}
+
+	// chunk->offset and chunk->size are the producer's claims about a
+	// mapping that is only maxsize bytes long, and buffer.h says they
+	// "should be" clamped to it rather than that they are. Bound the
+	// read by the mapping itself, or a producer overstating either one
+	// walks the memcpy below off the end of the mmap.
+	//
+	// buffer.h specifies offset modulo maxsize, which is what a
+	// ring-buffer producer relies on; rejecting an out-of-range offset
+	// instead would drop every frame such a producer sends.
+	uint32_t offset = buf->datas[0].chunk->offset % maxsize;
+	uint32_t available = maxsize - offset;
+	uint32_t usable = claimed < available ? claimed : available;
+	if (usable > INT_MAX) {
+		usable = INT_MAX;
+	}
+	src += offset;
+	int size = (int)usable;
+
+	// Calculate expected size
+	int height = ud->frame_height;
+
+	// chunk->stride is int32_t, and frame_height is still 0 until
+	// param_changed fires. Either makes stride * height non-positive,
+	// which the grow check below reads as "capacity is already big
+	// enough" and memcpy then converts to a huge size_t. Reject the
+	// frame before any of that arithmetic is used. The last term
+	// rejects a product that would overflow int rather than wrap.
+	//
+	// A negative stride means a bottom-up buffer, which this converter
+	// does not handle: reading it correctly needs a row-reversed copy,
+	// not just a sign change. Such frames are dropped rather than
+	// rendered upside down, so say so once instead of failing silently
+	// until the circuit breaker stops capture.
+	if (stride <= 0 || height <= 0 || height > INT_MAX / stride) {
+		// stride > 0 && height > 0 by the time the last branch is
+		// reached, so it can only be the overflow term above.
+		enum drop_reason reason = DROP_OVERFLOW;
+		if (stride < 0) {
+			reason = DROP_BOTTOM_UP;
+		} else if (height <= 0) {
+			reason = DROP_NOT_NEGOTIATED;
+		} else if (stride == 0) {
+			reason = DROP_ZERO_STRIDE;
+		}
+		reject_buffer(ud, b, reason, stride, height);
+		return;
+	}
+	int expected_size = stride * height;
+
+	// A chunk shorter than the negotiated frame cannot be published
+	// either way. Advertising the full height would stream the tail
+	// realloc left uninitialized, and advertising only the whole rows
+	// that arrived would shrink the frame's reported bounds, which
+	// extractZoneColor reads as fractions of those bounds: a half-height
+	// frame makes a light mapped to the bottom of the screen sample the
+	// middle instead, silently and with nothing logged. Drop it.
+	if (size < expected_size) {
+		reject_buffer(ud, b, DROP_SHORT_CHUNK, stride, height);
+		return;
+	}
+
+	// Always target the slot Go does not currently hold (see the
+	// struct user_data comment for why this is race-free).
+	int back_idx = 1 - ud->front_idx;
+	struct frame_buf *fb = &ud->frame[back_idx];
+
+	// Grow (never shrink) the back buffer if needed.
+	if (fb->data == NULL || fb->capacity < expected_size) {
+		uint8_t *grown = realloc(fb->data, expected_size);
+		if (grown == NULL) {
+			// Keep the old buffer and drop this frame rather than
+			// leak or write past its end.
+			reject_buffer(ud, b, DROP_ALLOC_FAILED, stride, height);
+			return;
+		}
+		fb->data = grown;
+		fb->capacity = expected_size;
+	}
+	// Every short or absent chunk was rejected above, so the slot only
+	// ever describes a full frame it actually holds. Metadata is written
+	// with that data and published by index last, so Go can never read
+	// geometry that outruns the bytes behind it.
+	memcpy(fb->data, src, (size_t)expected_size);
+	fb->stride = stride;
+	fb->width = ud->frame_width;
+	fb->height = height;
+	fb->format = ud->frame_format;
+	ud->ready_idx = back_idx;
+	ud->frame_seq++;
+	ud->unusable_run = 0;
 
 	// Return buffer to PipeWire
 	pw_stream_queue_buffer(ud->stream, b);
@@ -439,13 +505,23 @@ void pw_cleanup(struct user_data *ud) {
 	pw_deinit();
 }
 
-// Get frame data. Returns 1 with *seq set when a slot is available, 0 when the
-// stream has not produced one yet, and -1 once the stream has failed.
-// *streaming is set on both of the first two, so a caller waiting for the
-// first frame can tell a stream that is up from one that never came up. A
-// caller that sees the same *seq twice has been handed the same pixels twice.
+struct frame_status {
+	// A caller that sees the same seq twice has been handed the same pixels
+	// twice.
+	uint64_t seq;
+	int streaming;
+	uint64_t unusable_run;
+	int64_t unusable_span_ns; // first to last buffer of the run
+	const char *unusable_reason; // the latest buffer's; NULL with no run
+};
+
+// Get frame data. Returns 1 with the whole of *status set when a slot is
+// available, 0 when the stream has not produced one yet, and -1 once the
+// stream has failed. Everything but seq is set on both of the first two, so a
+// caller waiting for the first frame can tell a stream that is up from one
+// that never came up.
 int pw_get_frame(struct user_data *ud, uint8_t **data, int *width, int *height,
-                 int *stride, uint32_t *format, uint64_t *seq, int *streaming) {
+                 int *stride, uint32_t *format, struct frame_status *status) {
 	if (ud == NULL) {
 		return 0;
 	}
@@ -460,7 +536,14 @@ int pw_get_frame(struct user_data *ud, uint8_t **data, int *width, int *height,
 
 	// Set before the early return as well: the caller needs to tell a stream
 	// that is up and has simply sent nothing yet from one that never came up.
-	*streaming = ud->streaming;
+	status->streaming = ud->streaming;
+	status->unusable_run = ud->unusable_run;
+	status->unusable_span_ns = 0;
+	status->unusable_reason = NULL;
+	if (ud->unusable_run > 0) {
+		status->unusable_span_ns = ud->unusable_last_ns - ud->unusable_first_ns;
+		status->unusable_reason = drop_reason_text[ud->unusable_reason];
+	}
 
 	if (ud->ready_idx < 0) {
 		pw_thread_loop_unlock(ud->loop);
@@ -485,7 +568,7 @@ int pw_get_frame(struct user_data *ud, uint8_t **data, int *width, int *height,
 	*height = fb->height;
 	*stride = fb->stride;
 	*format = fb->format;
-	*seq = ud->frame_seq;
+	status->seq = ud->frame_seq;
 
 	pw_thread_loop_unlock(ud->loop);
 
@@ -509,8 +592,9 @@ import (
 var ErrNoNewFrame = errors.New("no new frame since last poll")
 
 // ErrStreamFailed reports that the PipeWire stream has stopped producing for
-// good: it either errored, or left the streaming state and never came back.
-// Revoking a screen share shows up as the second of these.
+// good: it errored, left the streaming state and never came back, or kept
+// sending buffers none of which could be used. Revoking a screen share shows
+// up as the second of these.
 var ErrStreamFailed = errors.New("pipewire stream failed")
 
 // ErrAwaitingFirstFrame reports that the stream is up but the compositor has
@@ -556,13 +640,48 @@ func (h *streamHealth) observe(streaming bool, now time.Time) {
 
 // staleVerdict decides what being handed the same frame again means. A screen
 // with nothing to send produces no frames while perfectly healthy, so only a
-// stream that has also left the streaming state counts as dead.
-func (h *streamHealth) staleVerdict(now time.Time) error {
+// stream that has also left the streaming state, or a producer whose every
+// recent buffer was unusable, counts as dead.
+func (h *streamHealth) staleVerdict(now time.Time, run unusableRun) error {
 	if streamStalled(h.leftStreamingAt, now) {
 		return fmt.Errorf("%w: no frame in the %v since the stream stopped streaming",
 			ErrStreamFailed, now.Sub(h.leftStreamingAt).Round(time.Millisecond))
 	}
+	if err := run.failure(); err != nil {
+		return err
+	}
 	return ErrNoNewFrame
+}
+
+// unusableRunLimit and unusableRunSpan are how much evidence it takes to call
+// a producer broken, and both have to be met: the count alone would let a
+// renegotiation's burst of drops reach a verdict, and the span alone would let
+// two stray drops a few seconds apart on a still screen.
+const (
+	unusableRunLimit = 10
+	unusableRunSpan  = 2 * time.Second
+)
+
+// unusableRun is the current run of consecutive buffers the producer sent
+// that could not be used.
+type unusableRun struct {
+	count  uint64
+	span   time.Duration // from the first of them to the last
+	reason string        // why the latest one was dropped
+}
+
+// failure reports the run as a failed stream once every buffer the producer
+// sent recently was unusable, and is nil until then. It is judged by what the
+// producer sent rather than by the clock, because a still screen sends nothing
+// at all, and the span runs to the last drop rather than to now, so an idle
+// screen never grows a burst into a verdict. The C side splits the run on a
+// long gap between drops, so neither does a stray drop long after one.
+func (r unusableRun) failure() error {
+	if r.count < unusableRunLimit || r.span < unusableRunSpan {
+		return nil
+	}
+	return fmt.Errorf("%w: the last %d buffers, over %v, were all unusable: %s",
+		ErrStreamFailed, r.count, r.span.Round(time.Millisecond), r.reason)
 }
 
 // faultSince tracks how long a fault has held: the zero time while the stream
@@ -665,19 +784,23 @@ func (npc *NativePipeWireCapture) GetFrame() (*image.RGBA, error) {
 	var data *C.uint8_t
 	var width, height, stride C.int
 	var format C.uint32_t
-	var seq C.uint64_t
-	var streaming C.int
+	var status C.struct_frame_status
 
-	result := C.pw_get_frame(npc.userData, &data, &width, &height, &stride, &format, &seq, &streaming)
+	result := C.pw_get_frame(npc.userData, &data, &width, &height, &stride, &format, &status)
 	if result < 0 {
 		return nil, ErrStreamFailed
 	}
 
 	now := time.Now()
-	npc.health.observe(streaming != 0, now)
+	npc.health.observe(status.streaming != 0, now)
 
 	if result == 0 {
-		if streaming != 0 {
+		// Named here rather than left to the first-frame deadline, which
+		// would end capture without saying why.
+		if err := unusableRunFrom(&status).failure(); err != nil {
+			return nil, err
+		}
+		if status.streaming != 0 {
 			return nil, ErrAwaitingFirstFrame
 		}
 		return nil, fmt.Errorf("no frame available yet")
@@ -685,8 +808,8 @@ func (npc *NativePipeWireCapture) GetFrame() (*image.RGBA, error) {
 
 	// Converting the same pixels again would cost a full frame's work and
 	// publish a buffer identical to the one already installed.
-	if uint64(seq) == npc.lastSeq {
-		return nil, npc.health.staleVerdict(now)
+	if uint64(status.seq) == npc.lastSeq {
+		return nil, npc.health.staleVerdict(now, unusableRunFrom(&status))
 	}
 
 	// Recorded as consumed only once it converts. A slot that never converts
@@ -697,8 +820,19 @@ func (npc *NativePipeWireCapture) GetFrame() (*image.RGBA, error) {
 		return nil, err
 	}
 
-	npc.lastSeq = uint64(seq)
+	npc.lastSeq = uint64(status.seq)
 	return frame, nil
+}
+
+func unusableRunFrom(status *C.struct_frame_status) unusableRun {
+	if status.unusable_run == 0 {
+		return unusableRun{}
+	}
+	return unusableRun{
+		count:  uint64(status.unusable_run),
+		span:   time.Duration(status.unusable_span_ns),
+		reason: C.GoString(status.unusable_reason),
+	}
 }
 
 // Format constants from spa/param/video/format.h

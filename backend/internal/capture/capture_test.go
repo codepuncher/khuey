@@ -607,7 +607,7 @@ func TestStaleFrameVerdict(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := tt.health.staleVerdict(now)
+			err := tt.health.staleVerdict(now, unusableRun{})
 			if !errors.Is(err, tt.want) {
 				t.Fatalf("staleVerdict = %v, want it to match %v", err, tt.want)
 			}
@@ -625,7 +625,7 @@ func TestStreamHealthIdleScreenStaysHealthy(t *testing.T) {
 	for i := 1; i <= 600; i++ {
 		now := start.Add(time.Duration(i) * time.Second)
 		h.observe(true, now)
-		if err := h.staleVerdict(now); !errors.Is(err, ErrNoNewFrame) {
+		if err := h.staleVerdict(now, unusableRun{}); !errors.Is(err, ErrNoNewFrame) {
 			t.Fatalf("after %ds idle: staleVerdict = %v, want ErrNoNewFrame", i, err)
 		}
 	}
@@ -643,20 +643,20 @@ func TestStreamHealthStoppedStreamFails(t *testing.T) {
 	for i := 1; i <= 10; i++ {
 		now := start.Add(time.Duration(i) * time.Second)
 		h.observe(true, now)
-		if err := h.staleVerdict(now); !errors.Is(err, ErrNoNewFrame) {
+		if err := h.staleVerdict(now, unusableRun{}); !errors.Is(err, ErrNoNewFrame) {
 			t.Fatalf("idle poll %d: staleVerdict = %v, want ErrNoNewFrame", i, err)
 		}
 	}
 
 	stop := start.Add(11 * time.Second)
 	h.observe(false, stop)
-	if err := h.staleVerdict(stop); !errors.Is(err, ErrNoNewFrame) {
+	if err := h.staleVerdict(stop, unusableRun{}); !errors.Is(err, ErrNoNewFrame) {
 		t.Fatalf("the instant the stream stopped: %v, want its full grace", err)
 	}
 
 	late := stop.Add(streamStallDeadline)
 	h.observe(false, late)
-	err := h.staleVerdict(late)
+	err := h.staleVerdict(late, unusableRun{})
 	if !errors.Is(err, ErrStreamFailed) {
 		t.Fatalf("staleVerdict = %v, want ErrStreamFailed", err)
 	}
@@ -682,7 +682,7 @@ func TestStreamHealthRenegotiationSurvivesAnIdleScreen(t *testing.T) {
 	for i := 1; i <= 600; i++ {
 		now := pause.Add(time.Duration(i) * time.Second)
 		h.observe(true, now)
-		if err := h.staleVerdict(now); !errors.Is(err, ErrNoNewFrame) {
+		if err := h.staleVerdict(now, unusableRun{}); !errors.Is(err, ErrNoNewFrame) {
 			t.Fatalf("%ds after the renegotiation: staleVerdict = %v, want ErrNoNewFrame", i, err)
 		}
 	}
@@ -711,6 +711,38 @@ func TestIsPermissionDenied(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := IsPermissionDenied(tt.err); got != tt.want {
 				t.Errorf("IsPermissionDenied = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestUnusableRunVerdict(t *testing.T) {
+	now := time.Now()
+	const reason = "buffer memory is not mapped"
+
+	tests := []struct {
+		name string
+		run  unusableRun
+		want error
+	}{
+		{"no run", unusableRun{}, ErrNoNewFrame},
+		{"renegotiation burst", unusableRun{count: 50, span: 100 * time.Millisecond, reason: reason}, ErrNoNewFrame},
+		{"stray drops on a still screen", unusableRun{count: 2, span: 10 * time.Minute, reason: reason}, ErrNoNewFrame},
+		{"one drop short of the limit", unusableRun{count: unusableRunLimit - 1, span: time.Hour, reason: reason}, ErrNoNewFrame},
+		{"just short of the span", unusableRun{count: 1000, span: unusableRunSpan - time.Nanosecond, reason: reason}, ErrNoNewFrame},
+		{"every buffer unusable", unusableRun{count: unusableRunLimit, span: unusableRunSpan, reason: reason}, ErrStreamFailed},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var h streamHealth
+			h.observe(true, now)
+			err := h.staleVerdict(now, tt.run)
+			if !errors.Is(err, tt.want) {
+				t.Fatalf("staleVerdict = %v, want it to match %v", err, tt.want)
+			}
+			if tt.want == ErrStreamFailed && !strings.Contains(err.Error(), reason) {
+				t.Errorf("error %q does not name the drop reason", err)
 			}
 		})
 	}
