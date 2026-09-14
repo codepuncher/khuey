@@ -687,3 +687,31 @@ func TestStreamHealthRenegotiationSurvivesAnIdleScreen(t *testing.T) {
 		}
 	}
 }
+
+// TestIsPermissionDenied separates the user declining the screen-share dialog,
+// which nothing should ask about again, from the portal failing, which is worth
+// retrying. It has to see through the wrapping Start adds on the way up.
+func TestIsPermissionDenied(t *testing.T) {
+	denied := &PortalError{Type: "permission_denied", Msg: "declined"}
+	failed := &PortalError{Type: "request_failed", Msg: "code 2"}
+
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"declined", denied, true},
+		{"declined, wrapped twice", fmt.Errorf("start: %w", fmt.Errorf("select sources: %w", denied)), true},
+		{"portal failed", fmt.Errorf("start: %w", failed), false},
+		{"other error", errors.New("bus gone"), false},
+		{"no error", nil, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsPermissionDenied(tt.err); got != tt.want {
+				t.Errorf("IsPermissionDenied = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

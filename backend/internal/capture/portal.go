@@ -2,6 +2,7 @@ package capture
 
 import (
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"log"
 	"math/big"
@@ -24,6 +25,15 @@ type PortalError struct {
 	Type string // "connection", "permission_denied", "session_failed", etc.
 	Msg  string
 	Hint string // User-friendly guidance
+}
+
+// IsPermissionDenied reports whether err is the user declining the screen-share
+// dialog, as opposed to the portal failing. The difference matters to anything
+// that retries: asking again after a failure is recovery, asking again after a
+// refusal is nagging.
+func IsPermissionDenied(err error) bool {
+	var pe *PortalError
+	return errors.As(err, &pe) && pe.Type == "permission_denied"
 }
 
 func (e *PortalError) Error() string {

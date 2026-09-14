@@ -54,6 +54,11 @@ type Config struct {
 	// Legacy detection (fallback)
 	UseGameMode   bool // Enable GameMode detection (default: false)
 	UseFullscreen bool // Enable fullscreen detection (default: false)
+
+	// The state to start from. A detector replacing one that had already seen
+	// a game start needs to begin believing it, or it could never report that
+	// game ending: it only calls back on a change.
+	InitiallyGaming bool
 }
 
 // DefaultConfig returns default detector configuration
@@ -81,8 +86,8 @@ func NewDetector(cfg Config, callback StateChangeCallback) (*Detector, error) {
 		useGameMode:       cfg.UseGameMode,
 		useFullscreen:     cfg.UseFullscreen,
 		stopChan:          make(chan struct{}, 1), // Buffered to prevent blocking on close
-		currentState:      false,
-		pendingState:      false,
+		currentState:      cfg.InitiallyGaming,
+		pendingState:      cfg.InitiallyGaming,
 		stateChangedAt:    time.Now(),
 		debounceTriggered: false,
 	}
