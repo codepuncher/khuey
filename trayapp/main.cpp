@@ -4,13 +4,13 @@
 #include <QAction>
 #include <QApplication>
 #include <QCheckBox>
-#include <QDateTime>
 #include <QDBusArgument>
 #include <QDBusInterface>
 #include <QDBusMessage>
 #include <QDBusPendingCall>
 #include <QDBusPendingReply>
 #include <QDBusReply>
+#include <QDateTime>
 #include <QDebug>
 #include <QDialog>
 #include <QHBoxLayout>
@@ -30,12 +30,7 @@
 #include <QWidget>
 
 // Enum for connection state
-enum ConnectionState {
-    CONNECTING,
-    CONNECTED,
-    DISCONNECTED,
-    ERROR
-};
+enum ConnectionState { CONNECTING, CONNECTED, DISCONNECTED, ERROR };
 
 class HueControlDialog : public QDialog {
     Q_OBJECT
@@ -60,7 +55,8 @@ class HueControlDialog : public QDialog {
         // Connection status details (collapsible)
         connectionDetailsLabel = new QLabel(this);
         connectionDetailsLabel->setWordWrap(true);
-        connectionDetailsLabel->setStyleSheet("QLabel { color: gray; font-size: 10pt; padding: 5px; }");
+        connectionDetailsLabel->setStyleSheet(
+            "QLabel { color: gray; font-size: 10pt; padding: 5px; }");
         connectionDetailsLabel->hide();
         layout->addWidget(connectionDetailsLabel);
 
@@ -122,10 +118,14 @@ class HueControlDialog : public QDialog {
 
         connect(brightnessSlider, &QSlider::valueChanged, this,
                 &HueControlDialog::onBrightnessChanged);
-        connect(preset25Button, &QPushButton::clicked, [this]() { brightnessSlider->setValue(25); });
-        connect(preset50Button, &QPushButton::clicked, [this]() { brightnessSlider->setValue(50); });
-        connect(preset75Button, &QPushButton::clicked, [this]() { brightnessSlider->setValue(75); });
-        connect(preset100Button, &QPushButton::clicked, [this]() { brightnessSlider->setValue(100); });
+        connect(preset25Button, &QPushButton::clicked,
+                [this]() { brightnessSlider->setValue(25); });
+        connect(preset50Button, &QPushButton::clicked,
+                [this]() { brightnessSlider->setValue(50); });
+        connect(preset75Button, &QPushButton::clicked,
+                [this]() { brightnessSlider->setValue(75); });
+        connect(preset100Button, &QPushButton::clicked,
+                [this]() { brightnessSlider->setValue(100); });
 
         layout->addSpacing(10);
 
@@ -146,7 +146,8 @@ class HueControlDialog : public QDialog {
         layout->addWidget(sceneList);
 
         auto sceneActionLayout = new QHBoxLayout();
-        activateSceneBtn = new QPushButton(QIcon::fromTheme("media-playback-start"), "Activate Scene", this);
+        activateSceneBtn =
+            new QPushButton(QIcon::fromTheme("media-playback-start"), "Activate Scene", this);
         activateSceneBtn->setEnabled(false);
         sceneActionLayout->addWidget(activateSceneBtn);
 
@@ -157,9 +158,8 @@ class HueControlDialog : public QDialog {
 
         layout->addLayout(sceneActionLayout);
 
-        connect(sceneList, &QListWidget::itemSelectionChanged, this, [this]() {
-            activateSceneBtn->setEnabled(sceneList->currentItem());
-        });
+        connect(sceneList, &QListWidget::itemSelectionChanged, this,
+                [this]() { activateSceneBtn->setEnabled(sceneList->currentItem()); });
         connect(sceneList, &QListWidget::itemDoubleClicked, this,
                 &HueControlDialog::onSceneActivated);
         connect(activateSceneBtn, &QPushButton::clicked, this, [this]() {
@@ -173,7 +173,7 @@ class HueControlDialog : public QDialog {
 
         // Action buttons row
         auto buttonLayout = new QHBoxLayout();
-        
+
         auto settingsBtn = new QPushButton(QIcon::fromTheme("configure"), "Select Room/Zone", this);
         connect(settingsBtn, &QPushButton::clicked, this, &HueControlDialog::onSettingsClicked);
         buttonLayout->addWidget(settingsBtn);
@@ -242,13 +242,13 @@ class HueControlDialog : public QDialog {
                 // Give up after 5 attempts
                 statusLabel->setText("Backend not available");
                 updateConnectionState(DISCONNECTED);
-                
+
                 if (!lastErrorShown) {
                     showErrorNotification("Backend Not Running",
-                                        "KDE Hue Control backend could not be reached.\n\n"
-                                        "Start with: systemctl --user start hue-backend\n\n"
-                                        "Or check if it's installed correctly.",
-                                        KNotification::Persistent);
+                                          "KDE Hue Control backend could not be reached.\n\n"
+                                          "Start with: systemctl --user start hue-backend\n\n"
+                                          "Or check if it's installed correctly.",
+                                          KNotification::Persistent);
                     lastErrorShown = true;
                 }
             }
@@ -298,9 +298,9 @@ class HueControlDialog : public QDialog {
             statusLabel->setText("Backend not available");
             if (!lastErrorShown) {
                 showErrorNotification("Service Unavailable",
-                                    "Backend service is not running.\n\n"
-                                    "Start with: systemctl --user start hue-backend",
-                                    KNotification::Persistent);
+                                      "Backend service is not running.\n\n"
+                                      "Start with: systemctl --user start hue-backend",
+                                      KNotification::Persistent);
                 lastErrorShown = true;
             }
             return;
@@ -420,7 +420,7 @@ class HueControlDialog : public QDialog {
   private slots:
     void updateConnectionState(ConnectionState state) {
         connectionState = state;
-        
+
         // Update visibility of retry button
         switch (state) {
             case CONNECTING:
@@ -485,24 +485,25 @@ class HueControlDialog : public QDialog {
     void onPowerToggled(bool checked) {
         QDBusInterface iface("org.kde.plasma.hue", "/org/kde/plasma/hue", "org.kde.plasma.hue",
                              QDBusConnection::sessionBus());
-        
+
         statusLabel->setText(checked ? "⏳ Turning on..." : "⏳ Turning off...");
         powerCheckbox->setEnabled(false);
-        
+
         QDBusReply<bool> reply = iface.call("SetPower", checked);
-        
+
         powerCheckbox->setEnabled(true);
-        
+
         if (!reply.isValid() || !reply.value()) {
             // Revert checkbox on failure
             powerCheckbox->blockSignals(true);
             powerCheckbox->setChecked(!checked);
             powerCheckbox->blockSignals(false);
-            
+
             showErrorNotification("Power Control Failed",
-                                "Failed to turn " + QString(checked ? "on" : "off") + " lights.\n\n"
-                                "Bridge may be unreachable or lights are offline.",
-                                KNotification::CloseOnTimeout);
+                                  "Failed to turn " + QString(checked ? "on" : "off") +
+                                      " lights.\n\n"
+                                      "Bridge may be unreachable or lights are offline.",
+                                  KNotification::CloseOnTimeout);
         } else {
             // Success - clear active scene (power change invalidates it) and show confirmation
             activeScene.clear();
@@ -519,7 +520,9 @@ class HueControlDialog : public QDialog {
 
         brightnessValueLabel->setText(QString::number(value) + "%");
         brightnessValueLabel->setStyleSheet(QString("QLabel { font-weight: bold; color: %1; }")
-                                          .arg(value > 75 ? "green" : value > 25 ? "orange" : "gray"));
+                                                .arg(value > 75   ? "green"
+                                                     : value > 25 ? "orange"
+                                                                  : "gray"));
 
         // Update preset button states
         updatePresetButtons(value);
@@ -537,9 +540,9 @@ class HueControlDialog : public QDialog {
     void applyBrightness() {
         QDBusInterface iface("org.kde.plasma.hue", "/org/kde/plasma/hue", "org.kde.plasma.hue",
                              QDBusConnection::sessionBus());
-        
+
         QDBusReply<bool> reply = iface.call("SetBrightness", pendingBrightness);
-        
+
         if (!reply.isValid() || !reply.value()) {
             /**
              * Brightness change failed - show error but don't revert slider
@@ -560,9 +563,9 @@ class HueControlDialog : public QDialog {
             statusLabel->setText("Backend not available");
             updateConnectionState(DISCONNECTED);
             showErrorNotification("Service Unavailable",
-                                "Backend service is not running.\n\n"
-                                "Start with: systemctl --user start hue-backend",
-                                KNotification::Persistent);
+                                  "Backend service is not running.\n\n"
+                                  "Start with: systemctl --user start hue-backend",
+                                  KNotification::Persistent);
             return;
         }
 
@@ -586,28 +589,32 @@ class HueControlDialog : public QDialog {
                         statusLabel->setText("Failed to activate scene");
 
                         // Provide user-friendly error messages
-                        if (error.contains("unreachable") || error.contains("timeout") || 
+                        if (error.contains("unreachable") || error.contains("timeout") ||
                             error.contains("connection refused")) {
-                            showErrorNotification(
-                                "Bridge Unreachable",
-                                "Cannot connect to Hue Bridge.\n\n"
-                                "Check:\n"
-                                "• Bridge is powered on\n"
-                                "• Network connection is working\n"
-                                "• Bridge IP in config is correct\n\n"
-                                "Bridge IP: Check ~/.openhue/config.yaml",
-                                KNotification::Persistent);
+                            showErrorNotification("Bridge Unreachable",
+                                                  "Cannot connect to Hue Bridge.\n\n"
+                                                  "Check:\n"
+                                                  "• Bridge is powered on\n"
+                                                  "• Network connection is working\n"
+                                                  "• Bridge IP in config is correct\n\n"
+                                                  "Bridge IP: Check ~/.openhue/config.yaml",
+                                                  KNotification::Persistent);
                         } else if (error.contains("not found") || error.contains("unknown")) {
-                            showErrorNotification("Scene Not Found",
-                                                "Scene '" + sceneName + "' could not be found.\n\n"
-                                                "It may have been deleted. Refresh the scene list.",
-                                                KNotification::CloseOnTimeout);
+                            showErrorNotification(
+                                "Scene Not Found",
+                                "Scene '" + sceneName +
+                                    "' could not be found.\n\n"
+                                    "It may have been deleted. Refresh the scene list.",
+                                KNotification::CloseOnTimeout);
                         } else {
                             showErrorNotification("Scene Activation Failed",
-                                                "Failed to activate: " + sceneName + "\n\n"
-                                                "Error: " + error + "\n\n"
-                                                "Try again or check bridge status.",
-                                                KNotification::CloseOnTimeout);
+                                                  "Failed to activate: " + sceneName +
+                                                      "\n\n"
+                                                      "Error: " +
+                                                      error +
+                                                      "\n\n"
+                                                      "Try again or check bridge status.",
+                                                  KNotification::CloseOnTimeout);
                         }
                     } else {
                         QString result = reply.value();
@@ -622,9 +629,10 @@ class HueControlDialog : public QDialog {
                         notif->setUrgency(KNotification::LowUrgency);
                         notif->sendEvent();
                     }
-                    
+
                     // Always refresh to update state and re-enable controls appropriately
-                    QTimer::singleShot(reply.isError() ? 100 : 500, this, &HueControlDialog::refresh);
+                    QTimer::singleShot(reply.isError() ? 100 : 500, this,
+                                       &HueControlDialog::refresh);
 
                     w->deleteLater();
                 });
@@ -658,8 +666,8 @@ class HueControlDialog : public QDialog {
             } else {
                 syncButton->setText("Stop Screen Sync");
                 showErrorNotification("Failed to Stop Sync",
-                                    reply.isValid() ? "Unknown error" : reply.error().message(),
-                                    KNotification::CloseOnTimeout);
+                                      reply.isValid() ? "Unknown error" : reply.error().message(),
+                                      KNotification::CloseOnTimeout);
             }
             syncButton->setEnabled(true);
         } else {
@@ -672,7 +680,8 @@ class HueControlDialog : public QDialog {
             // Show info about permission dialog
             KNotification* permNotif = new KNotification("syncPermission");
             permNotif->setTitle("Screen Sharing Permission Required");
-            permNotif->setText("Please select your monitor and click 'Share' in the dialog that appears.");
+            permNotif->setText(
+                "Please select your monitor and click 'Share' in the dialog that appears.");
             permNotif->setIconName("dialog-information");
             permNotif->setUrgency(KNotification::LowUrgency);
             permNotif->sendEvent();
@@ -680,78 +689,82 @@ class HueControlDialog : public QDialog {
             QDBusPendingCall call = iface.asyncCall("StartSync");
             QDBusPendingCallWatcher* watcher = new QDBusPendingCallWatcher(call, this);
 
-            connect(watcher, &QDBusPendingCallWatcher::finished, this,
-                    [this](QDBusPendingCallWatcher* w) {
-                        syncButton->setEnabled(true);
-                        QDBusPendingReply<bool> reply = *w;
+            connect(
+                watcher, &QDBusPendingCallWatcher::finished, this,
+                [this](QDBusPendingCallWatcher* w) {
+                    syncButton->setEnabled(true);
+                    QDBusPendingReply<bool> reply = *w;
 
-                        if (reply.isError() || !reply.value()) {
-                            QString error = reply.isValid() ? "Unknown error" : reply.error().message();
-                            updateSyncButton(false);
+                    if (reply.isError() || !reply.value()) {
+                        QString error = reply.isValid() ? "Unknown error" : reply.error().message();
+                        updateSyncButton(false);
 
-                            // Parse portal errors for user-friendly messages
-                            if (error.contains("PortalError:permission_denied")) {
-                                QString hint = error.section(':', 2);
+                        // Parse portal errors for user-friendly messages
+                        if (error.contains("PortalError:permission_denied")) {
+                            QString hint = error.section(':', 2);
 
-                                KNotification* notif = new KNotification("syncFailed");
-                                notif->setTitle("Screen Sharing Permission Denied");
-                                notif->setText(
-                                    "You must approve the screen sharing dialog.\n\n" +
-                                    hint + "\n\n"
-                                    "Click 'Start Screen Sync' to try again.");
-                                notif->setIconName("dialog-warning");
-                                notif->setUrgency(KNotification::NormalUrgency);
-                                notif->sendEvent();
-                            } else if (error.contains("PortalError:")) {
-                                QString errorType = error.section(':', 1, 1);
-                                QString hint = error.section(':', 2);
-
-                                showErrorNotification("Screen Sync Failed",
-                                                    "Portal Error: " + errorType + "\n\n" + hint +
-                                                    "\n\nCheck that xdg-desktop-portal is running.",
-                                                    KNotification::Persistent);
-                            } else if (error.contains("sync engine not available") || 
-                                     error.contains("Entertainment") || 
-                                     error.contains("clientkey")) {
-                                showErrorNotification("Screen Sync Not Configured",
-                                                    "Entertainment API is not configured.\n\n"
-                                                    "Setup required:\n"
-                                                    "1. Create Entertainment Area in Hue app\n"
-                                                    "2. Configure clientkey in ~/.openhue/config.yaml\n"
-                                                    "3. Set EntertainmentConfigurationID\n\n"
-                                                    "See documentation for details.",
-                                                    KNotification::Persistent);
-                            } else if (error.contains("PipeWire") || error.contains("capture")) {
-                                showErrorNotification("Screen Capture Failed",
-                                                    "Failed to start screen capture.\n\n"
-                                                    "Check:\n"
-                                                    "• PipeWire is running\n"
-                                                    "• xdg-desktop-portal-kde is installed\n"
-                                                    "• You approved the permission dialog\n\n"
-                                                    "Error: " + error,
-                                                    KNotification::Persistent);
-                            } else {
-                                showErrorNotification("Failed to Start Screen Sync",
-                                                    error + "\n\n"
-                                                    "Check backend logs:\n"
-                                                    "journalctl --user -u hue-backend -n 50",
-                                                    KNotification::Persistent);
-                            }
-                        } else {
-                            updateSyncButton(true);
-                            QTimer::singleShot(500, this, &HueControlDialog::refresh);
-
-                            // Show success notification
-                            KNotification* notif = new KNotification("syncStarted");
-                            notif->setTitle("Screen Sync Started");
-                            notif->setText(QString("Lights are now syncing with your screen at %1 FPS").arg(currentFps));
-                            notif->setIconName("media-record");
-                            notif->setUrgency(KNotification::LowUrgency);
+                            KNotification* notif = new KNotification("syncFailed");
+                            notif->setTitle("Screen Sharing Permission Denied");
+                            notif->setText("You must approve the screen sharing dialog.\n\n" +
+                                           hint +
+                                           "\n\n"
+                                           "Click 'Start Screen Sync' to try again.");
+                            notif->setIconName("dialog-warning");
+                            notif->setUrgency(KNotification::NormalUrgency);
                             notif->sendEvent();
-                        }
+                        } else if (error.contains("PortalError:")) {
+                            QString errorType = error.section(':', 1, 1);
+                            QString hint = error.section(':', 2);
 
-                        w->deleteLater();
-                    });
+                            showErrorNotification(
+                                "Screen Sync Failed",
+                                "Portal Error: " + errorType + "\n\n" + hint +
+                                    "\n\nCheck that xdg-desktop-portal is running.",
+                                KNotification::Persistent);
+                        } else if (error.contains("sync engine not available") ||
+                                   error.contains("Entertainment") || error.contains("clientkey")) {
+                            showErrorNotification(
+                                "Screen Sync Not Configured",
+                                "Entertainment API is not configured.\n\n"
+                                "Setup required:\n"
+                                "1. Create Entertainment Area in Hue app\n"
+                                "2. Configure clientkey in ~/.openhue/config.yaml\n"
+                                "3. Set EntertainmentConfigurationID\n\n"
+                                "See documentation for details.",
+                                KNotification::Persistent);
+                        } else if (error.contains("PipeWire") || error.contains("capture")) {
+                            showErrorNotification("Screen Capture Failed",
+                                                  "Failed to start screen capture.\n\n"
+                                                  "Check:\n"
+                                                  "• PipeWire is running\n"
+                                                  "• xdg-desktop-portal-kde is installed\n"
+                                                  "• You approved the permission dialog\n\n"
+                                                  "Error: " +
+                                                      error,
+                                                  KNotification::Persistent);
+                        } else {
+                            showErrorNotification("Failed to Start Screen Sync",
+                                                  error + "\n\n"
+                                                          "Check backend logs:\n"
+                                                          "journalctl --user -u hue-backend -n 50",
+                                                  KNotification::Persistent);
+                        }
+                    } else {
+                        updateSyncButton(true);
+                        QTimer::singleShot(500, this, &HueControlDialog::refresh);
+
+                        // Show success notification
+                        KNotification* notif = new KNotification("syncStarted");
+                        notif->setTitle("Screen Sync Started");
+                        notif->setText(QString("Lights are now syncing with your screen at %1 FPS")
+                                           .arg(currentFps));
+                        notif->setIconName("media-record");
+                        notif->setUrgency(KNotification::LowUrgency);
+                        notif->sendEvent();
+                    }
+
+                    w->deleteLater();
+                });
         }
     }
 
@@ -760,8 +773,7 @@ class HueControlDialog : public QDialog {
                              QDBusConnection::sessionBus());
 
         if (!iface.isValid()) {
-            QMessageBox::warning(this, "Service Unavailable", 
-                               "Backend service is not running.");
+            QMessageBox::warning(this, "Service Unavailable", "Backend service is not running.");
             return;
         }
 
@@ -774,7 +786,7 @@ class HueControlDialog : public QDialog {
 
         QStringList scenes = scenesReply.value();
         QSet<QString> roomSet;
-        
+
         // Extract unique room names from scenes (format: "Room Name - Scene Name")
         for (const QString& scene : scenes) {
             if (scene.contains(" - ")) {
@@ -784,8 +796,9 @@ class HueControlDialog : public QDialog {
         }
 
         if (roomSet.isEmpty()) {
-            QMessageBox::information(this, "No Rooms", 
-                                   "No rooms found. Scenes must be in format 'Room Name - Scene Name'.");
+            QMessageBox::information(
+                this, "No Rooms",
+                "No rooms found. Scenes must be in format 'Room Name - Scene Name'.");
             return;
         }
 
@@ -805,21 +818,21 @@ class HueControlDialog : public QDialog {
                 currentIndex = 0;
             }
         }
-        
-        QString selected = QInputDialog::getItem(
-            this, "Select Room/Zone", "Choose a room to filter scenes:", 
-            roomList, currentIndex, false, &ok);
+
+        QString selected = QInputDialog::getItem(this, "Select Room/Zone",
+                                                 "Choose a room to filter scenes:", roomList,
+                                                 currentIndex, false, &ok);
 
         if (ok && !selected.isEmpty()) {
             selectedRoom = selected;
-            
+
             // Refresh scene list with new filter
             refresh();
-            
+
             // Show confirmation
-            QString message = (selected == "All Rooms") 
-                ? "Showing scenes from all rooms" 
-                : QString("Filtering scenes for: %1").arg(selected);
+            QString message = (selected == "All Rooms")
+                                  ? "Showing scenes from all rooms"
+                                  : QString("Filtering scenes for: %1").arg(selected);
             statusLabel->setText(message);
         }
     }
@@ -851,20 +864,21 @@ class HueControlDialog : public QDialog {
             // Bridge is unreachable
             updateConnectionState(ERROR);
             statusLabel->setText("Bridge unreachable: " + bridgeIP);
-            
+
             // Show detailed connection info
             connectionDetailsLabel->setText(
                 QString("Last error: %1\nBridge IP: %2\nCheck network and bridge power")
-                    .arg(lastError).arg(bridgeIP));
+                    .arg(lastError)
+                    .arg(bridgeIP));
             connectionDetailsLabel->show();
 
             // Show notification once per disconnection
             static QString lastErrorTime;
             QString currentTime = QDateTime::currentDateTime().toString(Qt::ISODate);
-            
+
             if (lastErrorTime != currentTime.left(16)) { // Check per minute
                 lastErrorTime = currentTime.left(16);
-                
+
                 KNotification* notif = new KNotification("connectionFailed");
                 notif->setTitle("Hue Bridge Unreachable");
                 notif->setText(QString("Cannot connect to bridge at %1\n\n%2\n\n"
@@ -931,14 +945,14 @@ class HueControlDialog : public QDialog {
         } else {
             statusLabel->setText("Still unreachable");
             updateConnectionState(ERROR);
-            
+
             showErrorNotification("Retry Failed",
-                                "Bridge is still unreachable.\n\n"
-                                "Check:\n"
-                                "• Bridge is powered on\n"
-                                "• Network connection is working\n"
-                                "• Bridge IP in config is correct (~/.openhue/config.yaml)",
-                                KNotification::Persistent);
+                                  "Bridge is still unreachable.\n\n"
+                                  "Check:\n"
+                                  "• Bridge is powered on\n"
+                                  "• Network connection is working\n"
+                                  "• Bridge IP in config is correct (~/.openhue/config.yaml)",
+                                  KNotification::Persistent);
         }
     }
 
@@ -967,8 +981,9 @@ class HueControlDialog : public QDialog {
         }
     }
 
-    void showErrorNotification(const QString& title, const QString& message, 
-                              KNotification::NotificationFlags flags = KNotification::CloseOnTimeout) {
+    void
+    showErrorNotification(const QString& title, const QString& message,
+                          KNotification::NotificationFlags flags = KNotification::CloseOnTimeout) {
         KNotification* notif = new KNotification("error");
         notif->setTitle(title);
         notif->setText(message);
@@ -994,19 +1009,19 @@ class HueControlDialog : public QDialog {
     QPushButton* activateSceneBtn;
     QPushButton* syncButton;
     QPushButton* retryButton;
-    
+
     // Timers
     QTimer* brightnessTimer = nullptr;
     QTimer* connectionTimer;
-    
+
     // State
     int pendingBrightness = 100;
     ConnectionState connectionState;
     int connectionRetryCount;
     bool lastErrorShown;
-    QString selectedRoom; // For room filtering
-    QString activeScene;  // Last successfully activated scene
-    int currentFps = 30;  // Configured sync FPS, refreshed from GetSyncSettings
+    QString selectedRoom;                // For room filtering
+    QString activeScene;                 // Last successfully activated scene
+    int currentFps = 30;                 // Configured sync FPS, refreshed from GetSyncSettings
     bool sceneActivationPending = false; // True while an ActivateScene call is in flight
 };
 
@@ -1029,8 +1044,7 @@ class HueTrayApp : public QApplication {
         sni = new KStatusNotifierItem(this);
         sni->setIconByName(idleIconName);
         sni->setTitle("Hue Control");
-        sni->setToolTip(idleIconName, "Hue Control",
-                        "Control Philips Hue lights");
+        sni->setToolTip(idleIconName, "Hue Control", "Control Philips Hue lights");
         sni->setCategory(KStatusNotifierItem::Hardware);
         sni->setStatus(KStatusNotifierItem::Active);
 
@@ -1058,7 +1072,7 @@ class HueTrayApp : public QApplication {
         QTimer* tooltipTimer = new QTimer(this);
         connect(tooltipTimer, &QTimer::timeout, this, &HueTrayApp::updateTooltip);
         tooltipTimer->start(3000); // Update every 3 seconds
-        updateTooltip(); // Initial update
+        updateTooltip();           // Initial update
     }
 
   private slots:
@@ -1113,9 +1127,8 @@ class HueTrayApp : public QApplication {
             gamingIconName = args[0].toString();
             syncingIconName = args[1].toString();
             idleIconName = args[2].toString();
-            qDebug() << "Loaded icon names - Gaming:" << gamingIconName 
-                     << "Syncing:" << syncingIconName 
-                     << "Idle:" << idleIconName;
+            qDebug() << "Loaded icon names - Gaming:" << gamingIconName
+                     << "Syncing:" << syncingIconName << "Idle:" << idleIconName;
         }
     }
 
@@ -1124,8 +1137,7 @@ class HueTrayApp : public QApplication {
                              QDBusConnection::sessionBus());
 
         if (!iface.isValid()) {
-            sni->setToolTip(idleIconName, "Hue Control",
-                            "Backend not running");
+            sni->setToolTip(idleIconName, "Hue Control", "Backend not running");
             sni->setIconByName(idleIconName);
             return;
         }
@@ -1155,7 +1167,7 @@ class HueTrayApp : public QApplication {
 
         // Build tooltip text
         QString tooltipText = "Control Philips Hue lights";
-        
+
         if (syncing && gamingActive) {
             tooltipText = "Gaming Mode Active - Syncing to screen";
         } else if (syncing) {
@@ -1172,7 +1184,7 @@ class HueTrayApp : public QApplication {
   private:
     KStatusNotifierItem* sni;
     HueControlDialog* controlDialog;
-    
+
     // Cached icon names from backend config
     QString gamingIconName;
     QString syncingIconName;

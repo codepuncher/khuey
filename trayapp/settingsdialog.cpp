@@ -97,7 +97,8 @@ void SettingsDialog::setupUI() {
     monitorRow->addWidget(monitorCombo, 1);
     monitorLayout->addLayout(monitorRow);
 
-    QLabel* monitorHint = new QLabel("Selecting a single monitor is not supported yet", monitorGroup);
+    QLabel* monitorHint =
+        new QLabel("Selecting a single monitor is not supported yet", monitorGroup);
     monitorHint->setStyleSheet("QLabel { color: gray; font-size: 10pt; }");
     monitorLayout->addWidget(monitorHint);
 
@@ -524,12 +525,11 @@ void SettingsDialog::saveSettings() {
         return;
     }
 
-    QMessageBox::information(
-        this, "Settings Saved",
-        "Settings saved successfully!\n\n"
-        "Note: Restart the tray app for icon changes to take effect.\n"
-        "FPS applies immediately. If Screen Sync is running, restart it for\n"
-        "quality changes to take effect.");
+    QMessageBox::information(this, "Settings Saved",
+                             "Settings saved successfully!\n\n"
+                             "Note: Restart the tray app for icon changes to take effect.\n"
+                             "FPS applies immediately. If Screen Sync is running, restart it for\n"
+                             "quality changes to take effect.");
 }
 
 bool SettingsDialog::validateSettings() {
