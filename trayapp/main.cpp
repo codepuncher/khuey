@@ -4,8 +4,8 @@
 #include <QAction>
 #include <QApplication>
 #include <QCheckBox>
+#include <QDBusAbstractInterface>
 #include <QDBusArgument>
-#include <QDBusInterface>
 #include <QDBusMessage>
 #include <QDBusPendingCall>
 #include <QDBusPendingReply>
@@ -28,9 +28,44 @@
 #include <QTimer>
 #include <QVBoxLayout>
 #include <QWidget>
+#include <algorithm>
+#include <functional>
+#include <memory>
 
 // Enum for connection state
 enum ConnectionState { CONNECTING, CONNECTED, DISCONNECTED, ERROR };
+
+/**
+ * QDBusInterface introspects the service when constructed, a blocking call
+ * that waits out the DBus timeout if the backend is hung. The base class
+ * generated proxies use makes no call to the service.
+ */
+class HueBackend : public QDBusAbstractInterface {
+  public:
+    explicit HueBackend(QObject* parent = nullptr)
+        : QDBusAbstractInterface("org.kde.plasma.hue", "/org/kde/plasma/hue", "org.kde.plasma.hue",
+                                 QDBusConnection::sessionBus(), parent) {}
+};
+
+/**
+ * Runs done once every call has finished. The watchers are children of
+ * context, so done never runs after context is destroyed.
+ */
+static void whenFinished(QObject* context, const QList<QDBusPendingCall>& calls,
+                         std::function<void()> done) {
+    auto remaining = std::make_shared<qsizetype>(calls.size());
+    for (const QDBusPendingCall& call : calls) {
+        auto* watcher = new QDBusPendingCallWatcher(call, context);
+        QObject::connect(watcher, &QDBusPendingCallWatcher::finished, context,
+                         [remaining, done](QDBusPendingCallWatcher* w) {
+                             w->deleteLater();
+                             if (--*remaining > 0) {
+                                 return;
+                             }
+                             done();
+                         });
+    }
+}
 
 class HueControlDialog : public QDialog {
     Q_OBJECT
@@ -158,8 +193,10 @@ class HueControlDialog : public QDialog {
 
         layout->addLayout(sceneActionLayout);
 
-        connect(sceneList, &QListWidget::itemSelectionChanged, this,
-                [this]() { activateSceneBtn->setEnabled(sceneList->currentItem()); });
+        connect(sceneList, &QListWidget::itemSelectionChanged, this, [this]() {
+            // A refresh reply re-selects the previous item even while the list is disabled
+            activateSceneBtn->setEnabled(sceneList->isEnabled() && sceneList->currentItem());
+        });
         connect(sceneList, &QListWidget::itemDoubleClicked, this,
                 &HueControlDialog::onSceneActivated);
         connect(activateSceneBtn, &QPushButton::clicked, this, [this]() {
@@ -174,9 +211,9 @@ class HueControlDialog : public QDialog {
         // Action buttons row
         auto buttonLayout = new QHBoxLayout();
 
-        auto settingsBtn = new QPushButton(QIcon::fromTheme("configure"), "Select Room/Zone", this);
-        connect(settingsBtn, &QPushButton::clicked, this, &HueControlDialog::onSettingsClicked);
-        buttonLayout->addWidget(settingsBtn);
+        settingsButton = new QPushButton(QIcon::fromTheme("configure"), "Select Room/Zone", this);
+        connect(settingsButton, &QPushButton::clicked, this, &HueControlDialog::onSettingsClicked);
+        buttonLayout->addWidget(settingsButton);
 
         auto refreshBtn = new QPushButton(QIcon::fromTheme("view-refresh"), "Refresh", this);
         connect(refreshBtn, &QPushButton::clicked, this, &HueControlDialog::refresh);
@@ -225,9 +262,6 @@ class HueControlDialog : public QDialog {
 
   public slots:
     void initialConnect() {
-        QDBusInterface iface("org.kde.plasma.hue", "/org/kde/plasma/hue", "org.kde.plasma.hue",
-                             QDBusConnection::sessionBus());
-
         if (!iface.isValid()) {
             // Backend not running - retry with exponential backoff
             connectionRetryCount++;
@@ -268,34 +302,50 @@ class HueControlDialog : public QDialog {
      * tick to prevent racing an in-flight brightness edit or scene activation.
      */
     void pollStatus() {
-        QDBusInterface iface("org.kde.plasma.hue", "/org/kde/plasma/hue", "org.kde.plasma.hue",
-                             QDBusConnection::sessionBus());
-
         if (!iface.isValid()) {
             updateConnectionState(DISCONNECTED);
             return;
         }
 
-        if (checkConnectionStatus(iface)) {
-            /**
-             * Just reconnected - refresh() reloads scenes/state and covers
-             * gaming/sync status too, so there's nothing left to do here.
-             */
-            refresh();
+        if (pollPending) {
             return;
         }
+        pollPending = true;
 
-        QDBusReply<bool> syncReply = iface.call("IsSyncing");
-        updateGamingStatus(syncReply.isValid() && syncReply.value());
+        const int stateWritesAtStart = stateWrites;
+        QDBusPendingCall connectionCall = iface.asyncCall("GetConnectionStatus");
+        QDBusPendingCall syncCall = iface.asyncCall("IsSyncing");
+        QDBusPendingCall gamingCall = iface.asyncCall("IsGamingModeActive");
+
+        auto apply = [this, connectionCall, syncCall, gamingCall, stateWritesAtStart]() {
+            pollPending = false;
+
+            if (checkConnectionStatus(connectionCall)) {
+                /**
+                 * Just reconnected - refresh() reloads scenes/state and covers
+                 * gaming/sync status too, so there's nothing left to do here.
+                 */
+                refresh();
+                return;
+            }
+
+            if (stateChangedSince(stateWritesAtStart)) {
+                return;
+            }
+
+            QDBusReply<bool> syncReply = syncCall;
+            QDBusReply<bool> gamingReply = gamingCall;
+            updateGamingStatus(syncReply.isValid() && syncReply.value(),
+                               gamingReply.isValid() && gamingReply.value());
+        };
+        whenFinished(this, {connectionCall, syncCall, gamingCall}, apply);
     }
 
     void refresh() {
-        QDBusInterface iface("org.kde.plasma.hue", "/org/kde/plasma/hue", "org.kde.plasma.hue",
-                             QDBusConnection::sessionBus());
-
         if (!iface.isValid()) {
             updateConnectionState(DISCONNECTED);
             statusLabel->setText("Backend not available");
+            statusAfterRefresh.clear();
             if (!lastErrorShown) {
                 showErrorNotification("Service Unavailable",
                                       "Backend service is not running.\n\n"
@@ -308,25 +358,46 @@ class HueControlDialog : public QDialog {
 
         lastErrorShown = false;
 
-        // Check connection status first (pass iface to avoid duplicate construction)
-        checkConnectionStatus(iface);
-
-        // Get status - but don't overwrite meaningful state (active scene or sync)
-        QDBusReply<QString> statusReply = iface.call("GetStatus");
-
-        // Get sync status once for use in multiple places
-        QDBusReply<bool> syncReply = iface.call("IsSyncing");
-        bool syncing = syncReply.isValid() && syncReply.value();
-
-        // Refresh the configured FPS so status text reflects the real sync rate
-        QDBusReply<QVariantMap> syncSettingsReply = iface.call("GetSyncSettings");
-        int fps = syncSettingsReply.isValid() ? syncSettingsReply.value().value("fps").toInt() : 0;
-        if (fps > 0) {
-            currentFps = fps;
+        if (refreshPending) {
+            refreshQueued = true;
+            return;
         }
+        refreshPending = true;
+        refreshStale = false;
 
-        if (statusReply.isValid()) {
-            if (connectionState == CONNECTED) {
+        const int stateWritesAtStart = stateWrites;
+        QDBusPendingCall connectionCall = iface.asyncCall("GetConnectionStatus");
+        QDBusPendingCall statusCall = iface.asyncCall("GetStatus");
+        QDBusPendingCall syncCall = iface.asyncCall("IsSyncing");
+        QDBusPendingCall syncSettingsCall = iface.asyncCall("GetSyncSettings");
+        QDBusPendingCall stateCall = iface.asyncCall("GetState");
+        QDBusPendingCall scenesCall = iface.asyncCall("GetScenes");
+        QDBusPendingCall gamingCall = iface.asyncCall("IsGamingModeActive");
+
+        auto apply = [this, connectionCall, statusCall, syncCall, syncSettingsCall, stateCall,
+                      scenesCall, gamingCall, stateWritesAtStart]() {
+            refreshPending = false;
+            const bool stale = stateChangedSince(stateWritesAtStart);
+
+            // Sets the connectionState the status block below reads
+            checkConnectionStatus(connectionCall);
+
+            // Get status - but don't overwrite meaningful state (active scene or sync)
+            QDBusReply<QString> statusReply = statusCall;
+
+            // Get sync status once for use in multiple places
+            QDBusReply<bool> syncReply = syncCall;
+            bool syncing = syncReply.isValid() && syncReply.value();
+
+            // Refresh the configured FPS so status text reflects the real sync rate
+            QDBusReply<QVariantMap> syncSettingsReply = syncSettingsCall;
+            int fps =
+                syncSettingsReply.isValid() ? syncSettingsReply.value().value("fps").toInt() : 0;
+            if (fps > 0) {
+                currentFps = fps;
+            }
+
+            if (statusReply.isValid() && !stale && connectionState == CONNECTED) {
                 updateConnectionState(CONNECTED);
                 // Update status label based on current state
                 if (syncing) {
@@ -338,83 +409,96 @@ class HueControlDialog : public QDialog {
                     statusLabel->setText(statusReply.value());
                 }
             }
-        }
 
-        // Get current state (power and brightness)
-        QDBusMessage stateMsg = iface.call("GetState");
-        if (stateMsg.type() == QDBusMessage::ReplyMessage && stateMsg.arguments().size() >= 3) {
-            bool power = stateMsg.arguments().at(0).toBool();
-            int brightness = stateMsg.arguments().at(1).toInt();
-            bool success = stateMsg.arguments().at(2).toBool();
+            // Get current state (power and brightness)
+            QDBusMessage stateMsg = stateCall.reply();
+            if (stateMsg.type() == QDBusMessage::ReplyMessage && stateMsg.arguments().size() >= 3) {
+                bool power = stateMsg.arguments().at(0).toBool();
+                int brightness = stateMsg.arguments().at(1).toInt();
+                bool success = stateMsg.arguments().at(2).toBool();
 
-            if (success) {
-                // Cancel any pending brightness changes since we're syncing with actual state
-                if (brightnessTimer && brightnessTimer->isActive()) {
-                    brightnessTimer->stop();
+                if (success && !stale) {
+                    // Block signals while updating to avoid triggering DBus calls
+                    powerCheckbox->blockSignals(true);
+                    brightnessSlider->blockSignals(true);
+
+                    powerCheckbox->setChecked(power);
+                    brightnessSlider->setValue(brightness);
+                    brightnessValueLabel->setText(QString::number(brightness) + "%");
+                    updatePresetButtons(brightness);
+
+                    // Update pendingBrightness to match actual state
+                    pendingBrightness = brightness;
+
+                    powerCheckbox->blockSignals(false);
+                    brightnessSlider->blockSignals(false);
+                }
+            }
+
+            // Get scenes with current scene indicator
+            QDBusReply<QStringList> scenesReply = scenesCall;
+            if (scenesReply.isValid()) {
+                QStringList scenes = scenesReply.value();
+
+                // Preserve the current selection across the reload
+                QString previousSelection;
+                if (QListWidgetItem* current = sceneList->currentItem()) {
+                    previousSelection = current->text();
                 }
 
-                // Block signals while updating to avoid triggering DBus calls
-                powerCheckbox->blockSignals(true);
-                brightnessSlider->blockSignals(true);
+                sceneList->clear();
 
-                // Always update to actual state from lights
-                powerCheckbox->setChecked(power);
-                brightnessSlider->setValue(brightness);
-                brightnessValueLabel->setText(QString::number(brightness) + "%");
-                updatePresetButtons(brightness);
+                QStringList filteredScenes;
 
-                // Update pendingBrightness to match actual state
-                pendingBrightness = brightness;
-
-                powerCheckbox->blockSignals(false);
-                brightnessSlider->blockSignals(false);
-            }
-        }
-
-        // Get scenes with current scene indicator
-        QDBusReply<QStringList> scenesReply = iface.call("GetScenes");
-        if (scenesReply.isValid()) {
-            QStringList scenes = scenesReply.value();
-
-            // Preserve the current selection across the reload
-            QString previousSelection;
-            if (QListWidgetItem* current = sceneList->currentItem()) {
-                previousSelection = current->text();
-            }
-
-            sceneList->clear();
-
-            QStringList filteredScenes;
-
-            // Filter scenes by selected room if applicable
-            if (!selectedRoom.isEmpty() && selectedRoom != "All Rooms") {
-                for (const QString& scene : scenes) {
-                    // Scene format: "Room Name - Scene Name"
-                    if (scene.contains(" - ")) {
-                        QString roomName = scene.left(scene.indexOf(" - "));
-                        if (roomName == selectedRoom) {
-                            filteredScenes << scene;
+                // Filter scenes by selected room if applicable
+                if (!selectedRoom.isEmpty() && selectedRoom != "All Rooms") {
+                    for (const QString& scene : scenes) {
+                        // Scene format: "Room Name - Scene Name"
+                        if (scene.contains(" - ")) {
+                            QString roomName = scene.left(scene.indexOf(" - "));
+                            if (roomName == selectedRoom) {
+                                filteredScenes << scene;
+                            }
                         }
                     }
+                } else {
+                    filteredScenes = scenes;
                 }
-            } else {
-                filteredScenes = scenes;
+
+                // Add filtered scenes to list, restoring the previous selection if still present
+                for (const QString& scene : filteredScenes) {
+                    QListWidgetItem* item = new QListWidgetItem(scene);
+                    sceneList->addItem(item);
+                    if (scene == previousSelection) {
+                        sceneList->setCurrentItem(item);
+                    }
+                }
+
+                sceneCountLabel->setText(QString("(%1 available)").arg(filteredScenes.count()));
             }
 
-            // Add filtered scenes to list, restoring the previous selection if still present
-            for (const QString& scene : filteredScenes) {
-                QListWidgetItem* item = new QListWidgetItem(scene);
-                sceneList->addItem(item);
-                if (scene == previousSelection) {
-                    sceneList->setCurrentItem(item);
-                }
+            QDBusReply<bool> gamingReply = gamingCall;
+            if (!stale) {
+                updateGamingStatus(syncing, gamingReply.isValid() && gamingReply.value());
             }
 
-            sceneCountLabel->setText(QString("(%1 available)").arg(filteredScenes.count()));
-        }
+            // A stale or queued refresh is followed by one whose status text would replace it
+            if (!statusAfterRefresh.isEmpty() && !stale && !refreshQueued) {
+                statusLabel->setText(statusAfterRefresh);
+                statusAfterRefresh.clear();
+            }
 
-        // Update gaming mode display using the sync status we already fetched
-        updateGamingStatus(syncing);
+            refreshStale = stale;
+            if (refreshQueued) {
+                refreshQueued = false;
+                refresh();
+            }
+            refreshIfStale();
+        };
+        whenFinished(this,
+                     {connectionCall, statusCall, syncCall, syncSettingsCall, stateCall, scenesCall,
+                      gamingCall},
+                     apply);
     }
 
   private slots:
@@ -435,6 +519,7 @@ class HueControlDialog : public QDialog {
     }
 
     void updateSyncButton(bool syncing) {
+        syncActive = syncing;
         if (syncing) {
             syncButton->setText("Stop Screen Sync");
             syncButton->setIcon(QIcon::fromTheme("media-playback-stop"));
@@ -445,7 +530,6 @@ class HueControlDialog : public QDialog {
 
         // Disable brightness/scene controls while syncing - they conflict with sync
         bool enabled = !syncing;
-        powerCheckbox->setEnabled(enabled);
         brightnessSlider->setEnabled(enabled);
         brightnessValueLabel->setEnabled(enabled);
         preset25Button->setEnabled(enabled);
@@ -454,10 +538,11 @@ class HueControlDialog : public QDialog {
         preset100Button->setEnabled(enabled);
 
         /**
-         * Also keep scene controls disabled while an activation is in flight,
-         * so a periodic pollStatus()/refresh() tick can't re-enable them and
-         * let the user fire a second, overlapping ActivateScene call.
+         * Also keep power and scene controls disabled while their call is in
+         * flight, so a periodic pollStatus()/refresh() tick can't re-enable
+         * them and let the user fire a second, overlapping call.
          */
+        powerCheckbox->setEnabled(enabled && !powerChangePending);
         bool sceneControlsEnabled = enabled && !sceneActivationPending;
         sceneList->setEnabled(sceneControlsEnabled);
         activateSceneBtn->setEnabled(sceneControlsEnabled && sceneList->currentItem());
@@ -483,35 +568,40 @@ class HueControlDialog : public QDialog {
     }
 
     void onPowerToggled(bool checked) {
-        QDBusInterface iface("org.kde.plasma.hue", "/org/kde/plasma/hue", "org.kde.plasma.hue",
-                             QDBusConnection::sessionBus());
-
         statusLabel->setText(checked ? "⏳ Turning on..." : "⏳ Turning off...");
         powerCheckbox->setEnabled(false);
+        powerChangePending = true;
+        queueLightWrite(false, [this, checked]() { sendPower(checked); });
+    }
 
-        QDBusReply<bool> reply = iface.call("SetPower", checked);
+    void sendPower(bool checked) {
+        QDBusPendingCall call = iface.asyncCall("SetPower", checked);
+        whenFinished(this, {call}, [this, call, checked]() {
+            powerChangePending = false;
+            powerCheckbox->setEnabled(!syncActive);
 
-        powerCheckbox->setEnabled(true);
+            QDBusReply<bool> reply = call;
+            if (!reply.isValid() || !reply.value()) {
+                // Revert checkbox on failure
+                powerCheckbox->blockSignals(true);
+                powerCheckbox->setChecked(!checked);
+                powerCheckbox->blockSignals(false);
 
-        if (!reply.isValid() || !reply.value()) {
-            // Revert checkbox on failure
-            powerCheckbox->blockSignals(true);
-            powerCheckbox->setChecked(!checked);
-            powerCheckbox->blockSignals(false);
+                showErrorNotification("Power Control Failed",
+                                      "Failed to turn " + QString(checked ? "on" : "off") +
+                                          " lights.\n\n"
+                                          "Bridge may be unreachable or lights are offline.",
+                                      KNotification::CloseOnTimeout);
+            } else {
+                // Success - clear active scene (power change invalidates it) and show confirmation
+                activeScene.clear();
+                showWriteResult("Power " + QString(checked ? "On" : "Off"));
+            }
 
-            showErrorNotification("Power Control Failed",
-                                  "Failed to turn " + QString(checked ? "on" : "off") +
-                                      " lights.\n\n"
-                                      "Bridge may be unreachable or lights are offline.",
-                                  KNotification::CloseOnTimeout);
-        } else {
-            // Success - clear active scene (power change invalidates it) and show confirmation
-            activeScene.clear();
-            statusLabel->setText("Power " + QString(checked ? "On" : "Off"));
-        }
-
-        // Refresh state after a short delay to get updated brightness
-        QTimer::singleShot(500, this, &HueControlDialog::refresh);
+            // Refresh state after a short delay to get updated brightness
+            QTimer::singleShot(500, this, &HueControlDialog::refresh);
+            lightWriteFinished();
+        });
     }
 
     void onBrightnessChanged(int value) {
@@ -538,26 +628,105 @@ class HueControlDialog : public QDialog {
     }
 
     void applyBrightness() {
-        QDBusInterface iface("org.kde.plasma.hue", "/org/kde/plasma/hue", "org.kde.plasma.hue",
-                             QDBusConnection::sessionBus());
-
-        QDBusReply<bool> reply = iface.call("SetBrightness", pendingBrightness);
-
-        if (!reply.isValid() || !reply.value()) {
-            /**
-             * Brightness change failed - show error but don't revert slider
-             * (might be just a temporary network glitch)
-             */
-            qDebug() << "Brightness change failed:" << reply.error().message();
-        } else {
-            statusLabel->setText(QString("Brightness set to %1%").arg(pendingBrightness));
+        // A queued brightness write reads pendingBrightness when it starts
+        if (!lightWrites.isEmpty() && lightWrites.last().brightness) {
+            return;
         }
+        queueLightWrite(true, [this]() { sendBrightness(); });
+    }
+
+    void sendBrightness() {
+        const int brightness = pendingBrightness;
+        QDBusPendingCall call = iface.asyncCall("SetBrightness", brightness);
+        whenFinished(this, {call}, [this, call, brightness]() {
+            QDBusReply<bool> reply = call;
+            if (!reply.isValid() || !reply.value()) {
+                /**
+                 * Brightness change failed - show error but don't revert slider
+                 * (might be just a temporary network glitch)
+                 */
+                qDebug() << "Brightness change failed:" << reply.error().message();
+            } else {
+                // A scene queued ahead of this write has set activeScene since the drag cleared it
+                activeScene.clear();
+                showWriteResult(QString("Brightness set to %1%").arg(brightness));
+            }
+
+            lightWriteFinished();
+        });
+    }
+
+    /**
+     * The backend runs each call on its own goroutine, so writes sent
+     * together can reach the bridge in any order. Light writes go out one at
+     * a time, in the order the user made them.
+     */
+    void queueLightWrite(bool brightness, std::function<void()> start) {
+        // A brightness change still in its debounce was made first
+        if (!brightness && brightnessTimer && brightnessTimer->isActive()) {
+            brightnessTimer->stop();
+            applyBrightness();
+        }
+        lightWrites.append({brightness, start});
+        if (lightWriteInFlight) {
+            return;
+        }
+        startNextLightWrite();
+    }
+
+    void startNextLightWrite() {
+        lightWriteInFlight = !lightWrites.isEmpty();
+        if (!lightWriteInFlight) {
+            refreshIfStale();
+            return;
+        }
+        lightWrites.takeFirst().start();
+    }
+
+    /**
+     * A queued power or scene write has already put its own progress text in
+     * the label. Brightness writes show none.
+     */
+    void showWriteResult(const QString& text) {
+        bool progressShown = std::any_of(lightWrites.cbegin(), lightWrites.cend(),
+                                         [](const LightWrite& w) { return !w.brightness; });
+        if (progressShown) {
+            return;
+        }
+        statusLabel->setText(text);
+    }
+
+    void lightWriteFinished() {
+        stateWrites++;
+        startNextLightWrite();
+    }
+
+    bool stateChangePending() const {
+        return lightWriteInFlight || syncTogglePending ||
+               (brightnessTimer && brightnessTimer->isActive());
+    }
+
+    /**
+     * A reply can predate a power, brightness, scene or sync change made
+     * while it was in flight, and applying it would snap the controls back.
+     */
+    bool stateChangedSince(int writesAtStart) const {
+        return stateWrites != writesAtStart || stateChangePending();
+    }
+
+    /**
+     * Re-runs a refresh whose replies were dropped as stale, once nothing
+     * that could make them stale again is pending.
+     */
+    void refreshIfStale() {
+        if (!refreshStale || stateChangePending()) {
+            return;
+        }
+        refresh();
     }
 
     void onSceneActivated(QListWidgetItem* item) {
         QString sceneName = item->text();
-        QDBusInterface iface("org.kde.plasma.hue", "/org/kde/plasma/hue", "org.kde.plasma.hue",
-                             QDBusConnection::sessionBus());
 
         if (!iface.isValid()) {
             statusLabel->setText("Backend not available");
@@ -574,8 +743,10 @@ class HueControlDialog : public QDialog {
         sceneList->setEnabled(false);
         activateSceneBtn->setEnabled(false);
         sceneActivationPending = true;
+        queueLightWrite(false, [this, sceneName]() { sendScene(sceneName); });
+    }
 
-        // Make async call to avoid blocking UI
+    void sendScene(const QString& sceneName) {
         QDBusPendingCall call = iface.asyncCall("ActivateScene", sceneName);
         QDBusPendingCallWatcher* watcher = new QDBusPendingCallWatcher(call, this);
 
@@ -586,7 +757,7 @@ class HueControlDialog : public QDialog {
 
                     if (reply.isError()) {
                         QString error = reply.error().message();
-                        statusLabel->setText("Failed to activate scene");
+                        showWriteResult("Failed to activate scene");
 
                         // Provide user-friendly error messages
                         if (error.contains("unreachable") || error.contains("timeout") ||
@@ -619,7 +790,7 @@ class HueControlDialog : public QDialog {
                     } else {
                         QString result = reply.value();
                         activeScene = sceneName;
-                        statusLabel->setText("Scene: " + sceneName);
+                        showWriteResult("Scene: " + sceneName);
 
                         // Show success notification with icon
                         KNotification* notif = new KNotification("sceneActivated");
@@ -633,25 +804,38 @@ class HueControlDialog : public QDialog {
                     // Always refresh to update state and re-enable controls appropriately
                     QTimer::singleShot(reply.isError() ? 100 : 500, this,
                                        &HueControlDialog::refresh);
+                    lightWriteFinished();
 
                     w->deleteLater();
                 });
     }
 
     void onSyncToggled() {
-        QDBusInterface iface("org.kde.plasma.hue", "/org/kde/plasma/hue", "org.kde.plasma.hue",
-                             QDBusConnection::sessionBus());
+        syncButton->setEnabled(false);
+        syncTogglePending = true;
 
-        QDBusReply<bool> syncReply = iface.call("IsSyncing");
-        bool currentlySyncing = syncReply.isValid() ? syncReply.value() : false;
+        QDBusPendingCall call = iface.asyncCall("IsSyncing");
+        whenFinished(this, {call}, [this, call]() {
+            QDBusReply<bool> syncReply = call;
+            if (syncReply.isValid() && syncReply.value()) {
+                stopSync();
+                return;
+            }
+            startSync();
+        });
+    }
 
-        if (currentlySyncing) {
-            // Stopping sync
-            syncButton->setEnabled(false);
-            syncButton->setText("⏳ Stopping...");
-            syncButton->setIcon(QIcon::fromTheme("process-stop"));
+    void stopSync() {
+        syncButton->setText("⏳ Stopping...");
+        syncButton->setIcon(QIcon::fromTheme("process-stop"));
 
-            QDBusReply<bool> reply = iface.call("StopSync");
+        QDBusPendingCall call = iface.asyncCall("StopSync");
+        whenFinished(this, {call}, [this, call]() {
+            syncTogglePending = false;
+            stateWrites++;
+            refreshIfStale();
+
+            QDBusReply<bool> reply = call;
             if (reply.isValid() && reply.value()) {
                 updateSyncButton(false);
                 QTimer::singleShot(500, this, &HueControlDialog::refresh);
@@ -670,115 +854,124 @@ class HueControlDialog : public QDialog {
                                       KNotification::CloseOnTimeout);
             }
             syncButton->setEnabled(true);
-        } else {
-            // Starting sync
-            syncButton->setEnabled(false);
-            syncButton->setText("⏳ Starting...");
-            syncButton->setIcon(QIcon::fromTheme("chronometer"));
-            statusLabel->setText("Waiting for screen share approval");
+        });
+    }
 
-            // Show info about permission dialog
-            KNotification* permNotif = new KNotification("syncPermission");
-            permNotif->setTitle("Screen Sharing Permission Required");
-            permNotif->setText(
-                "Please select your monitor and click 'Share' in the dialog that appears.");
-            permNotif->setIconName("dialog-information");
-            permNotif->setUrgency(KNotification::LowUrgency);
-            permNotif->sendEvent();
+    void startSync() {
+        syncButton->setText("⏳ Starting...");
+        syncButton->setIcon(QIcon::fromTheme("chronometer"));
+        statusLabel->setText("Waiting for screen share approval");
 
-            QDBusPendingCall call = iface.asyncCall("StartSync");
-            QDBusPendingCallWatcher* watcher = new QDBusPendingCallWatcher(call, this);
+        // Show info about permission dialog
+        KNotification* permNotif = new KNotification("syncPermission");
+        permNotif->setTitle("Screen Sharing Permission Required");
+        permNotif->setText(
+            "Please select your monitor and click 'Share' in the dialog that appears.");
+        permNotif->setIconName("dialog-information");
+        permNotif->setUrgency(KNotification::LowUrgency);
+        permNotif->sendEvent();
 
-            connect(
-                watcher, &QDBusPendingCallWatcher::finished, this,
-                [this](QDBusPendingCallWatcher* w) {
-                    syncButton->setEnabled(true);
-                    QDBusPendingReply<bool> reply = *w;
+        QDBusPendingCall call = iface.asyncCall("StartSync");
+        QDBusPendingCallWatcher* watcher = new QDBusPendingCallWatcher(call, this);
 
-                    if (reply.isError() || !reply.value()) {
-                        QString error = reply.isValid() ? "Unknown error" : reply.error().message();
-                        updateSyncButton(false);
+        connect(
+            watcher, &QDBusPendingCallWatcher::finished, this, [this](QDBusPendingCallWatcher* w) {
+                syncButton->setEnabled(true);
+                syncTogglePending = false;
+                stateWrites++;
+                refreshIfStale();
+                QDBusPendingReply<bool> reply = *w;
 
-                        // Parse portal errors for user-friendly messages
-                        if (error.contains("PortalError:permission_denied")) {
-                            QString hint = error.section(':', 2);
+                if (reply.isError() || !reply.value()) {
+                    QString error = reply.isValid() ? "Unknown error" : reply.error().message();
+                    updateSyncButton(false);
 
-                            KNotification* notif = new KNotification("syncFailed");
-                            notif->setTitle("Screen Sharing Permission Denied");
-                            notif->setText("You must approve the screen sharing dialog.\n\n" +
-                                           hint +
-                                           "\n\n"
-                                           "Click 'Start Screen Sync' to try again.");
-                            notif->setIconName("dialog-warning");
-                            notif->setUrgency(KNotification::NormalUrgency);
-                            notif->sendEvent();
-                        } else if (error.contains("PortalError:")) {
-                            QString errorType = error.section(':', 1, 1);
-                            QString hint = error.section(':', 2);
+                    // Parse portal errors for user-friendly messages
+                    if (error.contains("PortalError:permission_denied")) {
+                        QString hint = error.section(':', 2);
 
-                            showErrorNotification(
-                                "Screen Sync Failed",
-                                "Portal Error: " + errorType + "\n\n" + hint +
-                                    "\n\nCheck that xdg-desktop-portal is running.",
-                                KNotification::Persistent);
-                        } else if (error.contains("sync engine not available") ||
-                                   error.contains("Entertainment") || error.contains("clientkey")) {
-                            showErrorNotification(
-                                "Screen Sync Not Configured",
-                                "Entertainment API is not configured.\n\n"
-                                "Setup required:\n"
-                                "1. Create Entertainment Area in Hue app\n"
-                                "2. Configure clientkey in ~/.openhue/config.yaml\n"
-                                "3. Set EntertainmentConfigurationID\n\n"
-                                "See documentation for details.",
-                                KNotification::Persistent);
-                        } else if (error.contains("PipeWire") || error.contains("capture")) {
-                            showErrorNotification("Screen Capture Failed",
-                                                  "Failed to start screen capture.\n\n"
-                                                  "Check:\n"
-                                                  "• PipeWire is running\n"
-                                                  "• xdg-desktop-portal-kde is installed\n"
-                                                  "• You approved the permission dialog\n\n"
-                                                  "Error: " +
-                                                      error,
-                                                  KNotification::Persistent);
-                        } else {
-                            showErrorNotification("Failed to Start Screen Sync",
-                                                  error + "\n\n"
-                                                          "Check backend logs:\n"
-                                                          "journalctl --user -u hue-backend -n 50",
-                                                  KNotification::Persistent);
-                        }
-                    } else {
-                        updateSyncButton(true);
-                        QTimer::singleShot(500, this, &HueControlDialog::refresh);
-
-                        // Show success notification
-                        KNotification* notif = new KNotification("syncStarted");
-                        notif->setTitle("Screen Sync Started");
-                        notif->setText(QString("Lights are now syncing with your screen at %1 FPS")
-                                           .arg(currentFps));
-                        notif->setIconName("media-record");
-                        notif->setUrgency(KNotification::LowUrgency);
+                        KNotification* notif = new KNotification("syncFailed");
+                        notif->setTitle("Screen Sharing Permission Denied");
+                        notif->setText("You must approve the screen sharing dialog.\n\n" + hint +
+                                       "\n\n"
+                                       "Click 'Start Screen Sync' to try again.");
+                        notif->setIconName("dialog-warning");
+                        notif->setUrgency(KNotification::NormalUrgency);
                         notif->sendEvent();
-                    }
+                    } else if (error.contains("PortalError:")) {
+                        QString errorType = error.section(':', 1, 1);
+                        QString hint = error.section(':', 2);
 
-                    w->deleteLater();
-                });
-        }
+                        showErrorNotification("Screen Sync Failed",
+                                              "Portal Error: " + errorType + "\n\n" + hint +
+                                                  "\n\nCheck that xdg-desktop-portal is running.",
+                                              KNotification::Persistent);
+                    } else if (error.contains("sync engine not available") ||
+                               error.contains("Entertainment") || error.contains("clientkey")) {
+                        showErrorNotification("Screen Sync Not Configured",
+                                              "Entertainment API is not configured.\n\n"
+                                              "Setup required:\n"
+                                              "1. Create Entertainment Area in Hue app\n"
+                                              "2. Configure clientkey in ~/.openhue/config.yaml\n"
+                                              "3. Set EntertainmentConfigurationID\n\n"
+                                              "See documentation for details.",
+                                              KNotification::Persistent);
+                    } else if (error.contains("PipeWire") || error.contains("capture")) {
+                        showErrorNotification("Screen Capture Failed",
+                                              "Failed to start screen capture.\n\n"
+                                              "Check:\n"
+                                              "• PipeWire is running\n"
+                                              "• xdg-desktop-portal-kde is installed\n"
+                                              "• You approved the permission dialog\n\n"
+                                              "Error: " +
+                                                  error,
+                                              KNotification::Persistent);
+                    } else {
+                        showErrorNotification("Failed to Start Screen Sync",
+                                              error + "\n\n"
+                                                      "Check backend logs:\n"
+                                                      "journalctl --user -u hue-backend -n 50",
+                                              KNotification::Persistent);
+                    }
+                } else {
+                    updateSyncButton(true);
+                    QTimer::singleShot(500, this, &HueControlDialog::refresh);
+
+                    // Show success notification
+                    KNotification* notif = new KNotification("syncStarted");
+                    notif->setTitle("Screen Sync Started");
+                    notif->setText(QString("Lights are now syncing with your screen at %1 FPS")
+                                       .arg(currentFps));
+                    notif->setIconName("media-record");
+                    notif->setUrgency(KNotification::LowUrgency);
+                    notif->sendEvent();
+                }
+
+                w->deleteLater();
+            });
     }
 
     void onSettingsClicked() {
-        QDBusInterface iface("org.kde.plasma.hue", "/org/kde/plasma/hue", "org.kde.plasma.hue",
-                             QDBusConnection::sessionBus());
-
         if (!iface.isValid()) {
             QMessageBox::warning(this, "Service Unavailable", "Backend service is not running.");
             return;
         }
 
+        settingsButton->setEnabled(false);
+
         // Get all scenes to extract room names
-        QDBusReply<QStringList> scenesReply = iface.call("GetScenes");
+        QDBusPendingCall call = iface.asyncCall("GetScenes");
+        whenFinished(this, {call}, [this, call]() {
+            settingsButton->setEnabled(true);
+            // The user may have closed the panel while the bridge was slow to answer
+            if (!isVisible()) {
+                return;
+            }
+            showRoomPicker(call);
+        });
+    }
+
+    void showRoomPicker(const QDBusReply<QStringList>& scenesReply) {
         if (!scenesReply.isValid()) {
             QMessageBox::warning(this, "Error", "Failed to get scenes from backend.");
             return;
@@ -826,14 +1019,12 @@ class HueControlDialog : public QDialog {
         if (ok && !selected.isEmpty()) {
             selectedRoom = selected;
 
-            // Refresh scene list with new filter
-            refresh();
+            // Show confirmation once the refresh has applied, so its status text doesn't replace it
+            statusAfterRefresh = (selected == "All Rooms")
+                                     ? "Showing scenes from all rooms"
+                                     : QString("Filtering scenes for: %1").arg(selected);
 
-            // Show confirmation
-            QString message = (selected == "All Rooms")
-                                  ? "Showing scenes from all rooms"
-                                  : QString("Filtering scenes for: %1").arg(selected);
-            statusLabel->setText(message);
+            refresh();
         }
     }
 
@@ -843,13 +1034,7 @@ class HueControlDialog : public QDialog {
      *   connected. Callers that don't already reload scenes/state themselves
      *   (pollStatus()) should call refresh() when this returns true.
      */
-    bool checkConnectionStatus(QDBusInterface& iface) {
-        if (!iface.isValid()) {
-            updateConnectionState(DISCONNECTED);
-            return false; // Service not running
-        }
-
-        QDBusReply<QVariantMap> reply = iface.call("GetConnectionStatus");
+    bool checkConnectionStatus(const QDBusReply<QVariantMap>& reply) {
         if (!reply.isValid()) {
             // Method not available (old backend version) - assume connected
             return false;
@@ -922,52 +1107,44 @@ class HueControlDialog : public QDialog {
     }
 
     void retryConnection() {
-        QDBusInterface iface("org.kde.plasma.hue", "/org/kde/plasma/hue", "org.kde.plasma.hue",
-                             QDBusConnection::sessionBus());
-
         statusLabel->setText("Retrying connection...");
         updateConnectionState(CONNECTING);
         connectionDetailsLabel->hide();
+        retryButton->setEnabled(false);
 
-        QDBusReply<bool> reply = iface.call("RetryConnection");
-        if (reply.isValid() && reply.value()) {
-            statusLabel->setText("Connection restored");
-            updateConnectionState(CONNECTED);
+        QDBusPendingCall call = iface.asyncCall("RetryConnection");
+        whenFinished(this, {call}, [this, call]() {
+            retryButton->setEnabled(true);
 
-            KNotification* notif = new KNotification("connectionRestored");
-            notif->setTitle("Connection Restored");
-            notif->setText("Successfully reconnected to Hue Bridge");
-            notif->setIconName("network-connect");
-            notif->setUrgency(KNotification::LowUrgency);
-            notif->sendEvent();
+            QDBusReply<bool> reply = call;
+            if (reply.isValid() && reply.value()) {
+                statusLabel->setText("Connection restored");
+                updateConnectionState(CONNECTED);
 
-            refresh();
-        } else {
-            statusLabel->setText("Still unreachable");
-            updateConnectionState(ERROR);
+                KNotification* notif = new KNotification("connectionRestored");
+                notif->setTitle("Connection Restored");
+                notif->setText("Successfully reconnected to Hue Bridge");
+                notif->setIconName("network-connect");
+                notif->setUrgency(KNotification::LowUrgency);
+                notif->sendEvent();
 
-            showErrorNotification("Retry Failed",
-                                  "Bridge is still unreachable.\n\n"
-                                  "Check:\n"
-                                  "• Bridge is powered on\n"
-                                  "• Network connection is working\n"
-                                  "• Bridge IP in config is correct (~/.openhue/config.yaml)",
-                                  KNotification::Persistent);
-        }
+                refresh();
+            } else {
+                statusLabel->setText("Still unreachable");
+                updateConnectionState(ERROR);
+
+                showErrorNotification("Retry Failed",
+                                      "Bridge is still unreachable.\n\n"
+                                      "Check:\n"
+                                      "• Bridge is powered on\n"
+                                      "• Network connection is working\n"
+                                      "• Bridge IP in config is correct (~/.openhue/config.yaml)",
+                                      KNotification::Persistent);
+            }
+        });
     }
 
-    void updateGamingStatus(bool syncing) {
-        QDBusInterface iface("org.kde.plasma.hue", "/org/kde/plasma/hue", "org.kde.plasma.hue",
-                             QDBusConnection::sessionBus());
-
-        if (!iface.isValid()) {
-            return;
-        }
-
-        // Check if gaming is currently active (game detected)
-        QDBusReply<bool> activeReply = iface.call("IsGamingModeActive");
-        bool gamingActive = activeReply.isValid() && activeReply.value();
-
+    void updateGamingStatus(bool syncing, bool gamingActive) {
         // Update sync button and disable controls if syncing
         updateSyncButton(syncing);
 
@@ -1009,6 +1186,7 @@ class HueControlDialog : public QDialog {
     QPushButton* activateSceneBtn;
     QPushButton* syncButton;
     QPushButton* retryButton;
+    QPushButton* settingsButton;
 
     // Timers
     QTimer* brightnessTimer = nullptr;
@@ -1022,7 +1200,25 @@ class HueControlDialog : public QDialog {
     QString selectedRoom;                // For room filtering
     QString activeScene;                 // Last successfully activated scene
     int currentFps = 30;                 // Configured sync FPS, refreshed from GetSyncSettings
-    bool sceneActivationPending = false; // True while an ActivateScene call is in flight
+    bool sceneActivationPending = false; // From a scene click until its ActivateScene returns
+    bool powerChangePending = false;
+    bool syncTogglePending = false;
+    bool syncActive = false;
+    int stateWrites = 0; // Finished calls that change light or sync state
+    bool refreshPending = false;
+    bool refreshQueued = false;
+    bool refreshStale = false;
+    QString statusAfterRefresh;
+    bool pollPending = false;
+
+    struct LightWrite {
+        bool brightness;
+        std::function<void()> start;
+    };
+    QList<LightWrite> lightWrites;
+    bool lightWriteInFlight = false;
+
+    HueBackend iface;
 };
 
 class HueTrayApp : public QApplication {
@@ -1102,83 +1298,99 @@ class HueTrayApp : public QApplication {
     }
 
     void loadIconNames() {
-        QDBusInterface iface("org.kde.plasma.hue", "/org/kde/plasma/hue", "org.kde.plasma.hue",
-                             QDBusConnection::sessionBus());
-
         if (!iface.isValid()) {
             // Backend not running, keep defaults
             return;
         }
 
-        QDBusMessage reply = iface.call("GetTrayIcons");
-        if (reply.type() == QDBusMessage::ErrorMessage) {
-            // Method failed, keep defaults
-            qDebug() << "Failed to get tray icons:" << reply.errorMessage();
-            return;
-        }
+        QDBusPendingCall call = iface.asyncCall("GetTrayIcons");
+        whenFinished(this, {call}, [this, call]() {
+            QDBusMessage reply = call.reply();
+            if (reply.type() == QDBusMessage::ErrorMessage) {
+                // Method failed, keep defaults
+                qDebug() << "Failed to get tray icons:" << reply.errorMessage();
+                return;
+            }
 
-        /**
-         * GetTrayIcons returns (string gaming, string syncing, string idle).
-         * Parse as three separate QVariant strings in reply.arguments() list
-         * (not as QDBusVariant or struct - that was the initial bug).
-         */
-        QList<QVariant> args = reply.arguments();
-        if (args.size() >= 3) {
-            gamingIconName = args[0].toString();
-            syncingIconName = args[1].toString();
-            idleIconName = args[2].toString();
-            qDebug() << "Loaded icon names - Gaming:" << gamingIconName
-                     << "Syncing:" << syncingIconName << "Idle:" << idleIconName;
-        }
+            /**
+             * GetTrayIcons returns (string gaming, string syncing, string idle)
+             * as three separate string arguments, not a variant or struct.
+             */
+            QList<QVariant> args = reply.arguments();
+            if (args.size() >= 3) {
+                gamingIconName = args[0].toString();
+                syncingIconName = args[1].toString();
+                idleIconName = args[2].toString();
+                qDebug() << "Loaded icon names - Gaming:" << gamingIconName
+                         << "Syncing:" << syncingIconName << "Idle:" << idleIconName;
+                updateTooltip();
+            }
+        });
     }
 
     void updateTooltip() {
-        QDBusInterface iface("org.kde.plasma.hue", "/org/kde/plasma/hue", "org.kde.plasma.hue",
-                             QDBusConnection::sessionBus());
-
         if (!iface.isValid()) {
             sni->setToolTip(idleIconName, "Hue Control", "Backend not running");
             sni->setIconByName(idleIconName);
             return;
         }
 
+        if (tooltipPending) {
+            tooltipQueued = true;
+            return;
+        }
+        tooltipPending = true;
+
         // Get gaming mode status
-        QDBusReply<bool> enabledReply = iface.call("IsGamingModeEnabled");
-        bool gamingEnabled = enabledReply.isValid() && enabledReply.value();
+        QDBusPendingCall enabledCall = iface.asyncCall("IsGamingModeEnabled");
+        QDBusPendingCall activeCall = iface.asyncCall("IsGamingModeActive");
+        QDBusPendingCall syncCall = iface.asyncCall("IsSyncing");
+        auto apply = [this, enabledCall, activeCall, syncCall]() {
+            tooltipPending = false;
 
-        QDBusReply<bool> activeReply = iface.call("IsGamingModeActive");
-        bool gamingActive = activeReply.isValid() && activeReply.value();
+            QDBusReply<bool> enabledReply = enabledCall;
+            bool gamingEnabled = enabledReply.isValid() && enabledReply.value();
 
-        QDBusReply<bool> syncReply = iface.call("IsSyncing");
-        bool syncing = syncReply.isValid() && syncReply.value();
+            QDBusReply<bool> activeReply = activeCall;
+            bool gamingActive = activeReply.isValid() && activeReply.value();
 
-        /**
-         * Update icon based on gaming + sync state. Icons are cached member
-         * variables loaded from backend config (not hardcoded), which allows
-         * users to customize icons via the settings dialog.
-         */
-        if (syncing && gamingActive) {
-            sni->setIconByName(gamingIconName); // Gaming icon when gaming + syncing
-        } else if (syncing) {
-            sni->setIconByName(syncingIconName); // Sync active icon (non-gaming)
-        } else {
-            sni->setIconByName(idleIconName); // Default icon (idle)
-        }
+            QDBusReply<bool> syncReply = syncCall;
+            bool syncing = syncReply.isValid() && syncReply.value();
 
-        // Build tooltip text
-        QString tooltipText = "Control Philips Hue lights";
+            /**
+             * Update icon based on gaming + sync state. Icons are cached member
+             * variables loaded from backend config (not hardcoded), which allows
+             * users to customize icons via the settings dialog.
+             */
+            if (syncing && gamingActive) {
+                sni->setIconByName(gamingIconName); // Gaming icon when gaming + syncing
+            } else if (syncing) {
+                sni->setIconByName(syncingIconName); // Sync active icon (non-gaming)
+            } else {
+                sni->setIconByName(idleIconName); // Default icon (idle)
+            }
 
-        if (syncing && gamingActive) {
-            tooltipText = "Gaming Mode Active - Syncing to screen";
-        } else if (syncing) {
-            tooltipText = "Syncing lights to screen";
-        } else if (gamingEnabled && gamingActive) {
-            tooltipText = "Game detected - preparing to sync...";
-        } else if (gamingEnabled) {
-            tooltipText = "Gaming Mode enabled (armed)";
-        }
+            // Build tooltip text
+            QString tooltipText = "Control Philips Hue lights";
 
-        sni->setToolTip(idleIconName, "Hue Control", tooltipText);
+            if (syncing && gamingActive) {
+                tooltipText = "Gaming Mode Active - Syncing to screen";
+            } else if (syncing) {
+                tooltipText = "Syncing lights to screen";
+            } else if (gamingEnabled && gamingActive) {
+                tooltipText = "Game detected - preparing to sync...";
+            } else if (gamingEnabled) {
+                tooltipText = "Gaming Mode enabled (armed)";
+            }
+
+            sni->setToolTip(idleIconName, "Hue Control", tooltipText);
+
+            if (tooltipQueued) {
+                tooltipQueued = false;
+                updateTooltip();
+            }
+        };
+        whenFinished(this, {enabledCall, activeCall, syncCall}, apply);
     }
 
   private:
@@ -1189,6 +1401,10 @@ class HueTrayApp : public QApplication {
     QString gamingIconName;
     QString syncingIconName;
     QString idleIconName;
+
+    bool tooltipPending = false;
+    bool tooltipQueued = false;
+    HueBackend iface;
 };
 
 int main(int argc, char* argv[]) {
