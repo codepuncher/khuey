@@ -9,6 +9,7 @@ on:
     paths:
       - 'backend/**/*.go'
       - '.github/workflows/performance.yml'
+      - '.github/scripts/comment-benchmark.js'
   push:
     branches: [ main ]
     paths:
@@ -16,7 +17,11 @@ on:
 
 permissions:
   contents: read
-  issues: write
+  pull-requests: write
+
+concurrency:
+  group: performance-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: true
 
 jobs:
   performance-tests:
@@ -41,9 +46,10 @@ jobs:
           
       - name: Run benchmarks
         working-directory: backend
+        shell: bash
         run: |
           echo "Running benchmarks..."
-          go test -bench=BenchmarkExtractColors -benchmem -benchtime=5s ./internal/color/ | tee benchmark-results.txt
+          go test -run='^$' -bench=BenchmarkExtractColors -benchmem -benchtime=5s ./internal/color/ | tee benchmark-results.txt
           
       - name: Upload benchmark results
         uses: actions/upload-artifact@v4
@@ -54,24 +60,8 @@ jobs:
 
       - name: Comment benchmark results on PR
         if: github.event_name == 'pull_request'
-        continue-on-error: true
         uses: actions/github-script@v7
         with:
           script: |
-            const fs = require('fs');
-            const results = fs.readFileSync('backend/benchmark-results.txt', 'utf8');
-            
-            const body = `## 📊 Performance Benchmark Results
-            
-            \`\`\`
-            ${results}
-            \`\`\`
-            
-            *Performance regression tests must pass for PR to be merged.*`;
-            
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: body
-            });
+            const comment = require('./.github/scripts/comment-benchmark.js');
+            await comment({ github, context });
