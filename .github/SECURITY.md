@@ -24,15 +24,15 @@ We will respond within 48 hours and work with you to understand and address the 
 
 ### Configuration File Security
 
-The configuration file (`~/.openhue/config.yaml`) contains sensitive data:
+The configuration file (see "Configuration File Location" in `docs/CONFIGURATION.md`) contains sensitive data:
 - Hue Bridge API keys
 - Entertainment API client keys
 - Network information
 
-**The application will warn if config file permissions are too permissive** and should be set to `0600` (owner read/write only):
+**The backend warns if the config file is readable by group or others**, and logs the `chmod` command for the file it loaded. Set it to `0600` (owner read/write only):
 
 ```bash
-chmod 600 ~/.openhue/config.yaml
+chmod 600 /path/to/config.yaml
 ```
 
 ### DBus Service
