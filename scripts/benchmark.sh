@@ -182,7 +182,9 @@ if $BENCH_CMD | tee -a "$RESULTS_FILE"; then
     
     # Extract and display summary
     echo -e "${BLUE}Top 5 slowest operations:${NC}"
-    grep "^Benchmark" "$RESULTS_FILE" | sort -k3 -n -r | head -5 | while read -r line; do
+    # grep exits 1 when --bench matched no benchmark
+    { grep -E '^Benchmark[^[:space:]]+[[:space:]]+[0-9]' "$RESULTS_FILE" || [ $? -eq 1 ]; } |
+        sort -k3 -n -r | head -5 | while read -r line; do
         echo "  $line"
     done
     
