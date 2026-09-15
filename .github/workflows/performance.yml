@@ -9,6 +9,7 @@ on:
     paths:
       - 'backend/**/*.go'
       - '.github/workflows/performance.yml'
+      - '.github/scripts/comment-benchmark.js'
   push:
     branches: [ main ]
     paths:
@@ -62,42 +63,5 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const fs = require('fs');
-            const results = fs.readFileSync('backend/benchmark-results.txt', 'utf8');
-            const marker = '<!-- performance-benchmark -->';
-
-            const body = `${marker}
-            ## Performance Benchmark Results
-
-            Commit ${context.payload.pull_request.head.sha}
-
-            \`\`\`
-            ${results}
-            \`\`\`
-
-            *Performance regression tests must pass for PR to be merged.*`;
-
-            const comments = await github.paginate(github.rest.issues.listComments, {
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-            });
-            const existing = comments.find(
-              (c) => c.user?.login === 'github-actions[bot]' && c.body?.includes(marker)
-            );
-            if (existing) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: existing.id,
-                body,
-              });
-              return;
-            }
-
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-              body,
-            });
+            const comment = require('./.github/scripts/comment-benchmark.js');
+            await comment({ github, context });
