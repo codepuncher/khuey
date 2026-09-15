@@ -5,6 +5,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/codepuncher/khuey/internal/config"
 	"github.com/codepuncher/khuey/internal/entertainment"
 )
 
@@ -13,13 +14,31 @@ func main() {
 	fmt.Println("=====================================")
 	fmt.Println()
 
-	// Configuration (from your ~/.openhue/config.yaml)
+	appCfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
+	}
+	if !appCfg.HasEntertainmentConfig() {
+		log.Fatal("Entertainment API is not configured: the config needs Bridge, Key, clientkey and entertainmentConfigurationId")
+	}
+
+	var channelIDs []int
+	for _, ch := range appCfg.Channels {
+		if !ch.Active {
+			continue
+		}
+		channelIDs = append(channelIDs, int(ch.ID))
+	}
+	if len(channelIDs) == 0 {
+		log.Fatal("No active channels in the config's 'channels' list")
+	}
+
 	cfg := entertainment.Config{
-		BridgeIP:        "192.168.0.9",
-		Username:        "IxwdSPVqUEkomWphEq7nHHD246IGPCPAGqQpAt0T",
-		ClientKey:       "20197970C01CB43EF516C6923A55ECB5",
-		EntertainmentID: "6a941316-2219-4063-937e-cf0886eecb46",
-		ChannelCount:    3, // You have 3 lights in your Entertainment Area
+		BridgeIP:        appCfg.Bridge,
+		Username:        appCfg.Key,
+		ClientKey:       appCfg.ClientKey,
+		EntertainmentID: appCfg.EntertainmentConfigurationID,
+		ChannelCount:    len(channelIDs),
 	}
 
 	// Create client
@@ -33,7 +52,7 @@ func main() {
 	// Connect
 	fmt.Println("Connecting to Entertainment API...")
 	fmt.Printf("   Bridge: %s:%d\n", cfg.BridgeIP, entertainment.EntertainmentAPIPort)
-	fmt.Println("   Entertainment ID: " + cfg.EntertainmentID[:8] + "...")
+	fmt.Println("   Entertainment ID: " + cfg.EntertainmentID)
 
 	if err := client.Connect(); err != nil {
 		log.Fatalf("Failed to connect: %v\n\nNote: Make sure your Entertainment Area is activated in the Hue app!", err)
@@ -42,12 +61,8 @@ func main() {
 	fmt.Println()
 
 	// Test 1: Send red to all lights
-	fmt.Println("Test 1: Sending RED to all 3 lights...")
-	redColors := []entertainment.ChannelColor{
-		{ChannelID: 0, R: 65535, G: 0, B: 0},
-		{ChannelID: 1, R: 65535, G: 0, B: 0},
-		{ChannelID: 2, R: 65535, G: 0, B: 0},
-	}
+	fmt.Printf("Test 1: Sending RED to all %d lights...\n", len(channelIDs))
+	redColors := solidColors(channelIDs, 65535, 0, 0)
 
 	for i := 0; i < 30; i++ { // Stream for 1 second at 30 FPS
 		if err := client.StreamColors(redColors); err != nil {
@@ -60,12 +75,8 @@ func main() {
 	time.Sleep(500 * time.Millisecond)
 
 	// Test 2: Send green to all lights
-	fmt.Println("Test 2: Sending GREEN to all 3 lights...")
-	greenColors := []entertainment.ChannelColor{
-		{ChannelID: 0, R: 0, G: 65535, B: 0},
-		{ChannelID: 1, R: 0, G: 65535, B: 0},
-		{ChannelID: 2, R: 0, G: 65535, B: 0},
-	}
+	fmt.Printf("Test 2: Sending GREEN to all %d lights...\n", len(channelIDs))
+	greenColors := solidColors(channelIDs, 0, 65535, 0)
 
 	for i := 0; i < 30; i++ {
 		if err := client.StreamColors(greenColors); err != nil {
@@ -78,12 +89,8 @@ func main() {
 	time.Sleep(500 * time.Millisecond)
 
 	// Test 3: Send blue to all lights
-	fmt.Println("Test 3: Sending BLUE to all 3 lights...")
-	blueColors := []entertainment.ChannelColor{
-		{ChannelID: 0, R: 0, G: 0, B: 65535},
-		{ChannelID: 1, R: 0, G: 0, B: 65535},
-		{ChannelID: 2, R: 0, G: 0, B: 65535},
-	}
+	fmt.Printf("Test 3: Sending BLUE to all %d lights...\n", len(channelIDs))
+	blueColors := solidColors(channelIDs, 0, 0, 65535)
 
 	for i := 0; i < 30; i++ {
 		if err := client.StreamColors(blueColors); err != nil {
@@ -97,10 +104,11 @@ func main() {
 
 	// Test 4: Different color per light
 	fmt.Println("Test 4: Different colors per light...")
-	rainbowColors := []entertainment.ChannelColor{
-		{ChannelID: 0, R: 65535, G: 0, B: 0}, // Red
-		{ChannelID: 1, R: 0, G: 65535, B: 0}, // Green
-		{ChannelID: 2, R: 0, G: 0, B: 65535}, // Blue
+	primaries := [][3]uint16{{65535, 0, 0}, {0, 65535, 0}, {0, 0, 65535}}
+	rainbowColors := make([]entertainment.ChannelColor, len(channelIDs))
+	for i, id := range channelIDs {
+		p := primaries[i%len(primaries)]
+		rainbowColors[i] = entertainment.ChannelColor{ChannelID: id, R: p[0], G: p[1], B: p[2]}
 	}
 
 	for i := 0; i < 30; i++ {
@@ -113,4 +121,12 @@ func main() {
 
 	fmt.Println("\nAll tests complete!")
 	fmt.Println("\nNote: Lights will revert to previous state after disconnection.")
+}
+
+func solidColors(channelIDs []int, r, g, b uint16) []entertainment.ChannelColor {
+	colors := make([]entertainment.ChannelColor, len(channelIDs))
+	for i, id := range channelIDs {
+		colors[i] = entertainment.ChannelColor{ChannelID: id, R: r, G: g, B: b}
+	}
+	return colors
 }
