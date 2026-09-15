@@ -2,7 +2,7 @@
 # Benchmark automation script for khuey backend
 # Runs all benchmark tests and saves results with timestamp
 
-set -e
+set -eo pipefail
 
 # pkg-config for libpipewire emits -fno-strict-overflow, which cgo rejects
 # unless it is allowlisted. Needed by any go command that reaches

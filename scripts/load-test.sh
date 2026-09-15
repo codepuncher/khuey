@@ -2,7 +2,7 @@
 # Load testing script for khuey backend
 # Simulates high load scenarios and stress tests critical operations
 
-set -e
+set -eo pipefail
 
 # pkg-config for libpipewire emits -fno-strict-overflow, which cgo rejects
 # unless it is allowlisted. Needed by any go command that reaches
@@ -210,11 +210,13 @@ echo ""
 } >> "$RESULTS_FILE"
 
 # Run performance regression tests
+REGRESSION_FAILED="false"
 if go test -v -run TestPerformance ./... 2>&1 | tee -a "$RESULTS_FILE"; then
     echo -e "${GREEN}✓ All performance regression tests passed${NC}"
 else
     echo -e "${RED}✗ Some performance regression tests failed${NC}"
     echo -e "${YELLOW}Check results for details on performance degradation${NC}"
+    REGRESSION_FAILED="true"
 fi
 
 echo ""
@@ -249,3 +251,7 @@ echo -e "  - Compare with previous load test results"
 echo -e "  - Run regression tests regularly: go test -v -run TestPerformance ./..."
 echo -e "  - Monitor memory usage in production with: go tool pprof"
 echo ""
+
+if [ "$REGRESSION_FAILED" = "true" ]; then
+    exit 1
+fi

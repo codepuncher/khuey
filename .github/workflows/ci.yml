@@ -65,6 +65,7 @@ jobs:
         
     - name: Check test coverage
       working-directory: backend
+      shell: bash
       run: |
         COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
         echo "Test coverage: ${COVERAGE}%"
