@@ -1,9 +1,12 @@
 # Lefthook configuration for KDE Hue Control
 # Fast, parallel Git hooks for Go backend + Qt/C++ tray app
 
-# Global skip conditions
-skip_output:
-  - meta           # Don't show lefthook meta info (cleaner output)
+# Every output section except meta, the lefthook version banner
+output:
+  - summary
+  - empty_summary
+  - skips
+  - execution
   
 pre-commit:
   parallel: true   # Run all checks concurrently for speed
@@ -210,7 +213,7 @@ pre-push:
 commit-msg:
   commands:
     # Enforce commit message format
-    # Current format: "Title (#PR)" or "Title\n\nBody\n\nCo-authored-by: Copilot"
+    # Current format: "Title (#PR)" or "Title\n\nBody"
     validate-message:
       run: |
         MSG_FILE={1}
@@ -228,16 +231,6 @@ commit-msg:
         if [ ${#TITLE} -gt 72 ]; then
           echo "⚠️  Warning: First line exceeds 72 characters (${#TITLE})"
           echo "   Consider keeping under 72 for better git log readability"
-        fi
-        
-        # Ensure there's a Co-authored-by trailer (as required by project)
-        if ! grep -q "Co-authored-by: Copilot" "$MSG_FILE"; then
-          echo ""
-          echo "⚠️  Warning: Missing Co-authored-by trailer"
-          echo "   The project requires:"
-          echo "   Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
-          echo ""
-          echo "   Add it manually or this will be added by GitHub when squash merging."
         fi
         
         echo "✅ Commit message validated"

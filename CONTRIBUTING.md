@@ -68,7 +68,6 @@ Pre-push hooks are skipped on the `main` branch to avoid blocking PR merges.
 
 #### Commit-msg (runs on `git commit`)
 - Validates commit message format (minimum 10 characters, warns if >72)
-- Reminds about `Co-authored-by: Copilot` trailer (required by project)
 
 ### Skip hooks temporarily
 
@@ -166,9 +165,7 @@ All changes must use feature branches and pull requests. Never commit directly t
 
    - Implemented Z
    - Updated documentation
-   - Added tests
-
-   Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
+   - Added tests"
    ```
 
 5. **Push and create PR:**
@@ -181,7 +178,6 @@ All changes must use feature branches and pull requests. Never commit directly t
 
 - **First line**: Brief summary (10-72 characters ideal)
 - **Body**: Detailed explanation if needed (wrap at 72 characters)
-- **Trailers**: Always include `Co-authored-by: Copilot` if using GitHub Copilot
 
 Example:
 ```
@@ -193,8 +189,6 @@ Add Entertainment API screen sync support
 - Added configuration options for FPS and subsampling
 
 Closes #42
-
-Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>
 ```
 
 ## Code Style
