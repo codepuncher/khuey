@@ -24,7 +24,7 @@ We will respond within 48 hours and work with you to understand and address the 
 
 ### Configuration File Security
 
-The configuration file (`~/.openhue/config.yaml`) contains sensitive data:
+The configuration file (`~/.openhue/config.yaml` by default; see "Configuration File Location" in `docs/CONFIGURATION.md`) contains sensitive data:
 - Hue Bridge API keys
 - Entertainment API client keys
 - Network information
