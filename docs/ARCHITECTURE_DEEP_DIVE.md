@@ -1608,7 +1608,7 @@ log_level: "info"
 │    • Fallback: ~/.openhue                                  │
 │                                                            │
 │ 2. Create directory if missing                             │
-│    • mkdir -p ~/.openhue                                   │
+│    • mkdir -p the directory from step 1                    │
 │                                                            │
 │ 3. Initialize defaults                                     │
 │    • DefaultConfig() struct                                │

@@ -395,7 +395,7 @@ dbus-send --session --print-reply \
 ps aux | grep hue-sync
 
 # View error logs
-journalctl --user -u plasma-hue-backend -n 50
+journalctl --user -u hue-backend -n 50
 
 # Verify config exists
 cat ~/.openhue/config.yaml
@@ -424,7 +424,6 @@ cd ../trayapp && cmake . && make
 
 - **Documentation**: See README.md, TESTING.md, DEVELOPMENT.md
 - **Issues**: Check existing GitHub issues or create a new one
-- **Architecture questions**: See the KHuey Expert agent documentation in `.github/agents/`
 
 ## License
 
