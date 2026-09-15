@@ -167,9 +167,10 @@ func DefaultConfig() *Config {
 	}
 }
 
-// getConfigPath returns the path to the config directory
-// Uses ~/.openhue/ to be compatible with openhue-cli
-// getConfigPath returns the config directory path
+// getConfigPath returns the config directory: $XDG_CONFIG_HOME/openhue when
+// XDG_CONFIG_HOME is set, otherwise ~/.openhue. This is openhue-cli's lookup.
+// openhue-go's LoadConf reads only ~/.openhue, so matching it would split
+// khuey from the CLI whenever XDG_CONFIG_HOME is set.
 // Made as a variable for testing purposes
 var getConfigPath = func() string {
 	// Check XDG_CONFIG_HOME first
@@ -194,7 +195,7 @@ var getConfigFile = func() string {
 	return filepath.Join(getConfigPath(), "config.yaml")
 }
 
-// Load reads the configuration from ~/.openhue/config.yaml
+// Load reads config.yaml from the directory getConfigPath returns
 func Load() (*Config, error) {
 	configPath := getConfigPath()
 	configFile := getConfigFile()
@@ -288,7 +289,7 @@ func (c *Config) Update(change, revert func(*Config)) error {
 	return err
 }
 
-// Save writes the configuration to ~/.openhue/config.yaml
+// Save writes config.yaml to the directory getConfigPath returns
 func (c *Config) Save() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()

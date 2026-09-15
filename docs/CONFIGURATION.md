@@ -43,16 +43,26 @@ KDE Hue Control uses a YAML configuration file that is **shared with openhue-cli
 
 ## Configuration File Location
 
-**Primary location:** `~/.openhue/config.yaml`
+The backend reads the same file as openhue-cli:
 
-**Alternative location (XDG-compliant):** `$XDG_CONFIG_HOME/openhue/config.yaml`
+- `$XDG_CONFIG_HOME/openhue/config.yaml` when `XDG_CONFIG_HOME` is set
+- `~/.openhue/config.yaml` otherwise
+
+When `XDG_CONFIG_HOME` is set, `~/.openhue` is not read, even if `$XDG_CONFIG_HOME/openhue/config.yaml` doesn't exist. openhue-cli does the same. The examples in this document use `~/.openhue`.
+
+The backend runs as the `hue-backend` systemd user unit, which starts at login before Plasma copies the login shell's environment into the systemd user manager. An `XDG_CONFIG_HOME` exported in a shell profile therefore misses the backend started at login but reaches one restarted later, so the file it reads changes between a login and a restart. Set it in a `.conf` file under `~/.config/environment.d/` instead, then run `systemctl --user daemon-reload` and restart `hue-backend`. To see what the running backend has:
+
+```bash
+tr '\0' '\n' < /proc/$(systemctl --user show -p MainPID --value hue-backend)/environ | grep XDG_CONFIG_HOME
+```
+
+The `openhue-go` library's `LoadConf` reads only `~/.openhue/config.yaml`. The backend loads its config itself and doesn't call `LoadConf`. Don't change the lookup to match `openhue-go`: with `XDG_CONFIG_HOME` set, the backend and openhue-cli would read different files.
 
 ### Directory Structure
 
 ```
 ~/.openhue/
-├── config.yaml          # Main configuration file
-└── restore_token.txt    # Screen capture restore token (auto-generated)
+└── config.yaml          # Main configuration file, including the screen capture restore token (sync.restoreToken)
 ```
 
 ### File Permissions
