@@ -53,6 +53,16 @@ check_command() {
     return 0
 }
 
+# Same lookup as getConfigPath in backend/internal/config/config.go, which
+# follows openhue-cli
+config_file_for() {
+    if [ -n "$1" ]; then
+        echo "$1/openhue/config.yaml"
+        return
+    fi
+    echo "$HOME/.openhue/config.yaml"
+}
+
 # Print header
 print_header
 
@@ -105,8 +115,10 @@ echo ""
 # Check for config file
 print_section "Checking configuration..."
 
-if [ ! -f ~/.openhue/config.yaml ]; then
-    print_warning "Config file not found at ~/.openhue/config.yaml"
+CONFIG_FILE=$(config_file_for "$XDG_CONFIG_HOME")
+
+if [ ! -f "$CONFIG_FILE" ]; then
+    print_warning "Config file not found at $CONFIG_FILE"
     echo "  You'll need to configure the Hue bridge before the backend will work."
     echo "  Create the config file or run: openhue setup"
     echo ""
@@ -119,13 +131,13 @@ if [ ! -f ~/.openhue/config.yaml ]; then
         fi
     fi
 else
-    print_success "Config file found at ~/.openhue/config.yaml"
+    print_success "Config file found at $CONFIG_FILE"
     
-    # Validate config has required fields
-    if ! grep -q "^Bridge:" ~/.openhue/config.yaml; then
+    # The backend reads keys case-insensitively and saves them lowercase
+    if ! grep -qi "^Bridge:" "$CONFIG_FILE"; then
         print_warning "Config file missing 'Bridge' field"
     fi
-    if ! grep -q "^Key:" ~/.openhue/config.yaml; then
+    if ! grep -qi "^Key:" "$CONFIG_FILE"; then
         print_warning "Config file missing 'Key' field"
     fi
 fi
@@ -260,9 +272,9 @@ echo "  Backend:  systemctl --user status hue-backend"
 echo "  Tray app: Will auto-start on next login"
 echo ""
 echo "Configuration:"
-echo "  Config file: ~/.openhue/config.yaml"
-if [ ! -f ~/.openhue/config.yaml ]; then
-    echo "  ${YELLOW}⚠ Not configured yet!${NC} Run: openhue setup"
+echo "  Config file: $CONFIG_FILE"
+if [ ! -f "$CONFIG_FILE" ]; then
+    echo -e "  ${YELLOW}⚠ Not configured yet!${NC} Run: openhue setup"
 fi
 echo ""
 echo "Useful commands:"

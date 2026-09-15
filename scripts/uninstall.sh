@@ -2,11 +2,22 @@
 # Uninstallation script for KDE Hue Control
 
 # Color codes
-RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
+
+# Same lookup as getConfigPath in backend/internal/config/config.go, which
+# follows openhue-cli
+config_file_for() {
+    if [ -n "$1" ]; then
+        echo "$1/openhue/config.yaml"
+        return
+    fi
+    echo "$HOME/.openhue/config.yaml"
+}
+
+CONFIG_FILE=$(config_file_for "$XDG_CONFIG_HOME")
 
 # Dry-run mode
 DRY_RUN=false
@@ -37,7 +48,7 @@ if [ "$DRY_RUN" = false ]; then
     print_warning "This will remove KDE Hue Control from your system."
     echo "  - Backend service will be stopped and removed"
     echo "  - Tray app will be stopped and autostart removed"
-    echo "  - Config file (~/.openhue/config.yaml) will NOT be removed"
+    echo "  - Config file ($CONFIG_FILE) will NOT be removed"
     echo ""
     read -p "Continue? (y/N) " -n 1 -r
     echo ""
@@ -109,7 +120,7 @@ echo "  ✓ Tray app autostart"
 echo "  ✓ Running processes"
 echo ""
 echo "What was NOT removed:"
-echo "  - Config file: ~/.openhue/config.yaml (contains Hue credentials)"
+echo "  - Config file: $CONFIG_FILE (contains Hue credentials)"
 echo "  - Build artifacts: backend/hue-sync, trayapp/hue-tray"
 echo ""
 echo "To reinstall, run: ./scripts/install.sh"

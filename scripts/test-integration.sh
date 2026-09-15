@@ -1,15 +1,26 @@
 #!/bin/bash
-# Integration test for Plasma Hue Widget
+# Integration test for KDE Hue Control
 
 set -e
 
-echo "=== Plasma Hue Widget Integration Test ==="
+# Same lookup as getConfigPath in backend/internal/config/config.go, which
+# follows openhue-cli
+config_file_for() {
+    if [ -n "$1" ]; then
+        echo "$1/openhue/config.yaml"
+        return
+    fi
+    echo "$HOME/.openhue/config.yaml"
+}
+
+CONFIG_FILE=$(config_file_for "$XDG_CONFIG_HOME")
+
+echo "=== KDE Hue Control Integration Test ==="
 echo ""
 
 # Check prerequisites
 echo "Checking prerequisites..."
 command -v go >/dev/null 2>&1 || { echo "❌ go not found"; exit 1; }
-command -v kpackagetool6 >/dev/null 2>&1 || { echo "❌ kpackagetool6 not found"; exit 1; }
 echo "✓ Prerequisites OK"
 echo ""
 
@@ -23,11 +34,11 @@ echo ""
 
 # Test configuration
 echo "Testing configuration..."
-if [ ! -f ~/.openhue/config.yaml ]; then
-    echo "⚠ No config found. Run 'openhue setup' to configure bridge."
+if [ ! -f "$CONFIG_FILE" ]; then
+    echo "⚠ No config found at $CONFIG_FILE. Run 'openhue setup' to configure bridge."
     echo "  Tests will continue with limited functionality."
 else
-    echo "✓ Config found"
+    echo "✓ Config found at $CONFIG_FILE"
 fi
 echo ""
 
@@ -85,10 +96,9 @@ echo "=== Integration Test Summary ==="
 echo ""
 echo "✅ Backend builds and runs"
 echo "✅ DBus service works"
-echo "✅ QML syntax valid"
 echo ""
 
-if [ -f ~/.openhue/config.yaml ]; then
+if [ -f "$CONFIG_FILE" ]; then
     echo "Ready to install!"
     echo "Run: ./scripts/install.sh"
 else
