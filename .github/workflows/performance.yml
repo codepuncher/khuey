@@ -45,9 +45,10 @@ jobs:
           
       - name: Run benchmarks
         working-directory: backend
+        shell: bash
         run: |
           echo "Running benchmarks..."
-          go test -bench=BenchmarkExtractColors -benchmem -benchtime=5s ./internal/color/ | tee benchmark-results.txt
+          go test -run='^$' -bench=BenchmarkExtractColors -benchmem -benchtime=5s ./internal/color/ | tee benchmark-results.txt
           
       - name: Upload benchmark results
         uses: actions/upload-artifact@v4
