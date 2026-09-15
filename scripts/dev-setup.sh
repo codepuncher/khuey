@@ -211,7 +211,7 @@ if check_tool "lefthook"; then
     print_success "lefthook installed"
 else
     print_warning "lefthook not found (used for git hooks)"
-    echo "  Install with: go install github.com/evilmartians/lefthook@latest"
+    echo "  Install with: go install github.com/evilmartians/lefthook/v2@latest"
 fi
 
 echo ""

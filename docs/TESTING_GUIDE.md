@@ -2060,7 +2060,7 @@ go build -o hue-sync ./cmd/hue-sync
 
 ```bash
 # Install lefthook
-go install github.com/evilmartians/lefthook@latest
+go install github.com/evilmartians/lefthook/v2@latest
 
 # Install hooks
 lefthook install
