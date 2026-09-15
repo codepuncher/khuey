@@ -1,9 +1,12 @@
 # Lefthook configuration for KDE Hue Control
 # Fast, parallel Git hooks for Go backend + Qt/C++ tray app
 
-# Global skip conditions
-skip_output:
-  - meta           # Don't show lefthook meta info (cleaner output)
+# Every output section except meta, the lefthook version banner
+output:
+  - summary
+  - empty_summary
+  - skips
+  - execution
   
 pre-commit:
   parallel: true   # Run all checks concurrently for speed
