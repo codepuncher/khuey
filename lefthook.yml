@@ -8,6 +8,8 @@ output:
   - skips
   - execution
   
+# The default glob matcher lets "*" cross "/", so "dir/*.x" matches the whole
+# tree and "dir/**/*.x" skips files directly in dir
 pre-commit:
   parallel: true   # Run all checks concurrently for speed
   
@@ -33,7 +35,7 @@ pre-commit:
     
     # Format Go code (auto-fix)
     go-fmt:
-      glob: "backend/**/*.go"
+      glob: "backend/*.go"
       run: |
         # Strip 'backend/' prefix from staged files when we cd into backend/
         cd backend
@@ -47,7 +49,7 @@ pre-commit:
     
     # QUAL-011: Check Go imports formatting
     go-imports:
-      glob: "backend/**/*.go"
+      glob: "backend/*.go"
       run: |
         cd backend
         # Check if goimports is installed
@@ -72,7 +74,7 @@ pre-commit:
       
     # Run Go tests for modified packages
     go-test:
-      glob: "backend/**/*.{go,c,h}"
+      glob: "backend/**/*.{go,c,h}"  # ./internal/... never includes files directly in backend/
       run: |
         cd backend
         export CGO_CFLAGS_ALLOW="-fno-strict-overflow"
@@ -81,7 +83,7 @@ pre-commit:
       
     # Go vet for common mistakes
     go-vet:
-      glob: "backend/**/*.{go,c,h}"
+      glob: "backend/**/*.{go,c,h}"  # ./internal/... never includes files directly in backend/
       run: |
         cd backend
         export CGO_CFLAGS_ALLOW="-fno-strict-overflow"
@@ -91,7 +93,7 @@ pre-commit:
     # Optional: golangci-lint (if/when installed)
     # Uncomment after installing: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
     # go-lint:
-    #   glob: "backend/**/*.go"
+    #   glob: "backend/*.go"
     #   run: |
     #     cd backend
     #     golangci-lint run --new-from-rev=HEAD~1
@@ -100,7 +102,7 @@ pre-commit:
     
     # Format C++ code with clang-format
     cpp-format:
-      glob: "trayapp/**/*.{cpp,h}"
+      glob: "trayapp/*.{cpp,h}"
       run: clang-format -i {staged_files}
       stage_fixed: true
       
