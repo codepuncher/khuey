@@ -112,43 +112,43 @@ func TestCreateDefaultZone(t *testing.T) {
 			name:     "Single channel",
 			index:    0,
 			total:    1,
-			expected: color.Zone{ID: 0, U1: 0.0, V1: 0.0, U2: 1.0, V2: 1.0},
+			expected: color.Zone{U1: 0.0, V1: 0.0, U2: 1.0, V2: 1.0},
 		},
 		{
 			name:     "Two channels - first",
 			index:    0,
 			total:    2,
-			expected: color.Zone{ID: 0, U1: 0.0, V1: 0.0, U2: 0.5, V2: 1.0},
+			expected: color.Zone{U1: 0.0, V1: 0.0, U2: 0.5, V2: 1.0},
 		},
 		{
 			name:     "Two channels - second",
 			index:    1,
 			total:    2,
-			expected: color.Zone{ID: 1, U1: 0.5, V1: 0.0, U2: 1.0, V2: 1.0},
+			expected: color.Zone{U1: 0.5, V1: 0.0, U2: 1.0, V2: 1.0},
 		},
 		{
 			name:     "Three channels - first",
 			index:    0,
 			total:    3,
-			expected: color.Zone{ID: 0, U1: 0.0, V1: 0.0, U2: 0.33, V2: 1.0},
+			expected: color.Zone{U1: 0.0, V1: 0.0, U2: 0.33, V2: 1.0},
 		},
 		{
 			name:     "Three channels - middle",
 			index:    1,
 			total:    3,
-			expected: color.Zone{ID: 1, U1: 0.33, V1: 0.0, U2: 0.67, V2: 1.0},
+			expected: color.Zone{U1: 0.33, V1: 0.0, U2: 0.67, V2: 1.0},
 		},
 		{
 			name:     "Three channels - last",
 			index:    2,
 			total:    3,
-			expected: color.Zone{ID: 2, U1: 0.67, V1: 0.0, U2: 1.0, V2: 1.0},
+			expected: color.Zone{U1: 0.67, V1: 0.0, U2: 1.0, V2: 1.0},
 		},
 		{
 			name:     "Four channels - third",
 			index:    2,
 			total:    4,
-			expected: color.Zone{ID: 2, U1: 0.5, V1: 0.0, U2: 0.75, V2: 1.0},
+			expected: color.Zone{U1: 0.5, V1: 0.0, U2: 0.75, V2: 1.0},
 		},
 	}
 
@@ -156,9 +156,6 @@ func TestCreateDefaultZone(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			zone := createDefaultZone(tt.index, tt.total)
 
-			if zone.ID != tt.expected.ID {
-				t.Errorf("Zone ID: expected %d, got %d", tt.expected.ID, zone.ID)
-			}
 			if !floatClose(zone.U1, tt.expected.U1, 0.01) {
 				t.Errorf("Zone U1: expected %.2f, got %.2f", tt.expected.U1, zone.U1)
 			}
@@ -756,7 +753,7 @@ func newLoopTestEngine(t *testing.T, cfg *config.Config) *Engine {
 		Username:        cfg.Key,
 		ClientKey:       cfg.ClientKey,
 		EntertainmentID: cfg.EntertainmentConfigurationID,
-		ChannelCount:    len(cfg.Channels),
+		ChannelCount:    len(createZonesFromConfig(cfg)),
 	})
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)

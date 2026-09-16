@@ -112,6 +112,11 @@ func NewEngine(cfg *config.Config) (*Engine, error) {
 	}
 	engine.fps.Store(int64(cfg.Sync.FPS))
 
+	zones := createZonesFromConfig(cfg)
+	if len(zones) == 0 {
+		return nil, fmt.Errorf("no active channels configured")
+	}
+
 	// Create screen capture - native PipeWire capture with CGo
 	capturer, err := capture.NewScreenCapture(capture.Config{
 		FPS:              cfg.Sync.FPS,
@@ -138,14 +143,12 @@ func NewEngine(cfg *config.Config) (*Engine, error) {
 		Username:        cfg.Key,
 		ClientKey:       cfg.ClientKey,
 		EntertainmentID: cfg.EntertainmentConfigurationID,
-		ChannelCount:    len(cfg.Channels),
+		ChannelCount:    len(zones),
 	})
 	if err != nil {
+		capturer.Stop()
 		return nil, fmt.Errorf("failed to create entertainment client: %w", err)
 	}
-
-	// Create zones from config channels
-	zones := createZonesFromConfig(cfg)
 
 	// Update engine with created components
 	engine.capturer = capturer
@@ -190,7 +193,6 @@ func createZonesFromConfig(cfg *config.Config) []color.Zone {
 			} else {
 				// Use configured UV coordinates
 				zone = color.Zone{
-					ID:   int(ch.ID),
 					U1:   float64(ch.UVA.X),
 					V1:   float64(ch.UVA.Y),
 					U2:   float64(ch.UVB.X),
@@ -206,6 +208,10 @@ func createZonesFromConfig(cfg *config.Config) []color.Zone {
 			log.Printf("Zone %d (%s): Auto-split [%.2f,%.2f] to [%.2f,%.2f]",
 				ch.ID, ch.DeviceName, zone.U1, zone.V1, zone.U2, zone.V2)
 		}
+
+		// A zone's ID is the Hue channel its colour is streamed to. Zones
+		// cover active channels only, so a zone's position is not its channel.
+		zone.ID = int(ch.ID)
 
 		zones = append(zones, zone)
 		autoSplitIndex++
@@ -234,9 +240,8 @@ func validateUVCoordinates(uvA, uvB *config.UV) error {
 }
 
 // createDefaultZone creates auto-split zone for channel at given index
-// Uses the same logic as the previous hardcoded implementation
 func createDefaultZone(index, total int) color.Zone {
-	zone := color.Zone{ID: index}
+	var zone color.Zone
 
 	switch total {
 	case 1:
@@ -477,13 +482,8 @@ func (e *Engine) streamFrames(ctx context.Context) error {
 	// Copied once per session rather than read per frame, where View would
 	// wait out every Save's disk write.
 	var subsampleWidth int
-	var channelIDs []int
 	e.config.View(func(c *config.Config) {
 		subsampleWidth = c.Sync.SubsampleWidth
-		channelIDs = make([]int, len(c.Channels))
-		for i, ch := range c.Channels {
-			channelIDs[i] = int(ch.ID)
-		}
 	})
 
 	extractor, err := color.NewExtractor(subsampleWidth, 2.2)
@@ -565,13 +565,8 @@ func (e *Engine) streamFrames(ctx context.Context) error {
 			// Convert colors for streaming
 			channelColors := make([]entertainment.ChannelColor, len(zoneColors))
 			for i, zc := range zoneColors {
-				channelID := 0
-				if i < len(channelIDs) {
-					channelID = channelIDs[i]
-				}
-
 				channelColors[i] = entertainment.ChannelColor{
-					ChannelID: channelID,
+					ChannelID: zc.ZoneID,
 					R:         uint16(zc.R) * entertainment.Color8To16Multiplier,
 					G:         uint16(zc.G) * entertainment.Color8To16Multiplier,
 					B:         uint16(zc.B) * entertainment.Color8To16Multiplier,
