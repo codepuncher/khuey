@@ -50,7 +50,9 @@ The backend reads the same file as openhue-cli:
 
 When `XDG_CONFIG_HOME` is set, `~/.openhue` is not read, even if `$XDG_CONFIG_HOME/openhue/config.yaml` doesn't exist. openhue-cli does the same. The examples in this document use `~/.openhue`.
 
-The backend runs as the `hue-backend` systemd user unit, which starts at login before Plasma copies the login shell's environment into the systemd user manager. An `XDG_CONFIG_HOME` exported in a shell profile therefore misses the backend started at login but reaches one restarted later, so the file it reads changes between a login and a restart. Set it in a `.conf` file under `~/.config/environment.d/` instead, then run `systemctl --user daemon-reload` and restart `hue-backend`. To see what the running backend has:
+The backend runs as the `hue-backend` systemd user unit, which starts at login before Plasma copies the login shell's environment into the systemd user manager. An `XDG_CONFIG_HOME` exported in a shell profile therefore misses the backend started at login but reaches one restarted later, so the file it reads changes between a login and a restart. Set it in a `.conf` file under `~/.config/environment.d/` instead, then run `systemctl --user daemon-reload` and restart `hue-backend`.
+
+The tray's settings dialog shows the file the running backend loaded, on the Connection tab, and the backend logs it at startup as `Configuration: <path>`. To see the running backend's `XDG_CONFIG_HOME`:
 
 ```bash
 tr '\0' '\n' < /proc/$(systemctl --user show -p MainPID --value hue-backend)/environ | grep XDG_CONFIG_HOME
@@ -109,7 +111,7 @@ Bridge: "192.168.1.100"                 # Bridge IP address
 Key: "YOUR-API-KEY"                     # API key
 grouped_light_id: "room-1"              # Default room/zone for controls
 clientkey: "CLIENT-KEY"                 # Entertainment API key
-entertainmentConfigurationId: "ent-1"   # Entertainment Area ID
+entertainmentConfigurationId: "550e8400-e29b-41d4-a716-446655440000"  # Entertainment Area ID
 log_level: "info"                       # Logging verbosity
 
 sync:                                   # Screen sync settings
@@ -207,8 +209,10 @@ The API key (username) for authenticating with the Hue Bridge.
 
 **How to generate:**
 ```bash
-# Using openhue-cli (recommended)
-openhue register
+# Using openhue-cli (recommended): pairs with the bridge and saves Bridge and Key.
+# It mints a new user, so any clientkey already in the config stops matching;
+# use ./cmd/register-entertainment below to get a Key and clientkey as a pair.
+openhue setup
 
 # Manual registration (press bridge button first!)
 curl -X POST http://192.168.1.100/api \
@@ -231,8 +235,11 @@ The client key enables DTLS encryption for Entertainment API streaming.
 
 **How to generate:**
 ```bash
-# Using openhue-cli
-openhue register
+# Using khuey's registration tool. It registers a new bridge user, so copy both
+# the Key and the clientkey it prints: the Key is the DTLS identity for that
+# clientkey. Add -bridge <ip> when the config has no Bridge yet.
+cd backend
+go run ./cmd/register-entertainment
 
 # Manual registration (press bridge button first!)
 curl -X POST http://192.168.1.100/api \
@@ -246,8 +253,8 @@ curl -X POST http://192.168.1.100/api \
 #### entertainmentConfigurationId
 
 **Type:** String (UUID format)
-**Format:** Resource ID like `"entertainment_configuration/abc123..."`
-**Example:** `"entertainment_configuration/550e8400-e29b-41d4-a716-446655440000"`
+**Format:** Bare UUID, no `entertainment_configuration/` prefix
+**Example:** `"550e8400-e29b-41d4-a716-446655440000"`
 
 The ID of the Entertainment Area (group of lights) to use for screen sync.
 
@@ -257,8 +264,7 @@ The ID of the Entertainment Area (group of lights) to use for screen sync.
 cd backend
 go run ./cmd/get-entertainment-info
 
-# Create new Entertainment Area
-go run ./cmd/register-entertainment
+# Entertainment Areas themselves are created in the Hue app
 ```
 
 **Requirements:**
@@ -1582,7 +1588,7 @@ version: 1
 Bridge: "192.168.1.100"
 Key: "your-api-key-here"
 clientkey: "your-client-key-here"
-entertainmentConfigurationId: "entertainment_configuration/abc123"
+entertainmentConfigurationId: "550e8400-e29b-41d4-a716-446655440000"
 grouped_light_id: "room/living-room"
 
 sync:
@@ -1627,7 +1633,7 @@ version: 1
 Bridge: "192.168.1.100"
 Key: "your-api-key-here"
 clientkey: "your-client-key-here"
-entertainmentConfigurationId: "entertainment_configuration/abc123"
+entertainmentConfigurationId: "550e8400-e29b-41d4-a716-446655440000"
 grouped_light_id: "room/gaming-room"
 
 sync:
@@ -1680,7 +1686,7 @@ version: 1
 Bridge: "192.168.1.100"
 Key: "your-api-key-here"
 clientkey: "your-client-key-here"
-entertainmentConfigurationId: "entertainment_configuration/abc123"
+entertainmentConfigurationId: "550e8400-e29b-41d4-a716-446655440000"
 grouped_light_id: "room/gaming-room"
 
 sync:
@@ -1742,7 +1748,7 @@ version: 1
 Bridge: "192.168.1.100"
 Key: "your-api-key-here"
 clientkey: "your-client-key-here"
-entertainmentConfigurationId: "entertainment_configuration/abc123"
+entertainmentConfigurationId: "550e8400-e29b-41d4-a716-446655440000"
 grouped_light_id: "room/living-room"
 
 sync:
@@ -1802,7 +1808,7 @@ version: 1
 Bridge: "192.168.1.100"
 Key: "your-api-key-here"
 clientkey: "your-client-key-here"
-entertainmentConfigurationId: "entertainment_configuration/abc123"
+entertainmentConfigurationId: "550e8400-e29b-41d4-a716-446655440000"
 grouped_light_id: "room/bedroom"
 
 sync:
@@ -1849,7 +1855,7 @@ version: 1
 Bridge: "192.168.1.100"
 Key: "your-api-key-here"
 clientkey: "your-client-key-here"
-entertainmentConfigurationId: "entertainment_configuration/abc123"
+entertainmentConfigurationId: "550e8400-e29b-41d4-a716-446655440000"
 grouped_light_id: "room/office"
 
 sync:
@@ -1900,7 +1906,7 @@ version: 1
 Bridge: "192.168.1.100"
 Key: "your-api-key-here"
 clientkey: "your-client-key-here"
-entertainmentConfigurationId: "entertainment_configuration/abc123"
+entertainmentConfigurationId: "550e8400-e29b-41d4-a716-446655440000"
 grouped_light_id: "room/test"
 
 sync:
@@ -1977,11 +1983,8 @@ Bridge: "192.168.1.100"  # Add your bridge IP
 
 **How to fix:**
 ```bash
-# Generate key
-openhue register
-
-# Add to config
-Key: "generated-key-here"
+# Pair with the bridge and save Bridge and Key to the config
+openhue setup
 ```
 
 ### Sync Settings Validation
@@ -2164,7 +2167,7 @@ deviceName: "Left \"Main\" Light"
 
 2. **entertainmentConfigurationId missing:**
    ```yaml
-   entertainmentConfigurationId: "entertainment_configuration/abc123"
+   entertainmentConfigurationId: "550e8400-e29b-41d4-a716-446655440000"
    ```
 
 3. **No channels configured:**
@@ -2300,8 +2303,10 @@ ls -la ~/.openhue/config.yaml
    # Test key
    curl http://192.168.1.100/api/YOUR-KEY/lights
 
-   # If fails, regenerate
-   openhue register
+   # If fails, pair again. With a clientkey configured, use
+   # 'cd backend && go run ./cmd/register-entertainment' instead: it prints a
+   # Key and clientkey that belong together.
+   openhue setup
    ```
 
 ---

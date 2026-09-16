@@ -16,7 +16,7 @@ import (
 const version = "0.1.0"
 
 func main() {
-	log.Printf("Plasma Hue Widget Backend v%s starting...", version)
+	log.Printf("KDE Hue Control backend v%s starting...", version)
 
 	// Create cancellable context for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
@@ -31,7 +31,7 @@ func main() {
 	if !cfg.IsConfigured() {
 		log.Println("WARNING: No bridge configuration found")
 		log.Println("Please run 'openhue setup' to configure your bridge")
-		log.Println("Or create ~/.openhue/config.yaml manually")
+		log.Printf("Or create %s manually", config.File())
 		log.Println()
 		log.Println("Starting DBus service anyway (will report 'not configured' status)...")
 	} else {
@@ -88,7 +88,7 @@ func main() {
 	log.Println("The tray application should auto-start and appear in your system tray.")
 	log.Println("If not running, start it manually: ./trayapp/hue-tray")
 	log.Println()
-	log.Println("Configuration: ~/.openhue/config.yaml")
+	log.Printf("Configuration: %s", config.File())
 	log.Println("Run 'openhue setup' if not configured yet")
 	log.Println()
 	log.Println("Press Ctrl+C to stop...")

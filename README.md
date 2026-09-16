@@ -74,7 +74,14 @@ Screen-to-lights synchronization using Entertainment API for gaming/movies. Enab
 
 ## Configuration
 
-Config file: `~/.openhue/config.yaml`
+The backend reads the same file as openhue-cli: `$XDG_CONFIG_HOME/openhue/config.yaml` when `XDG_CONFIG_HOME` is set, otherwise `~/.openhue/config.yaml`. See [Configuration File Location](docs/CONFIGURATION.md#configuration-file-location). The backend logs the file it loaded at startup, and the tray's settings dialog shows it on the Connection tab.
+
+The commands below use `$CONFIG_FILE`:
+
+```bash
+CONFIG_FILE="${XDG_CONFIG_HOME:+$XDG_CONFIG_HOME/openhue}"
+CONFIG_FILE="${CONFIG_FILE:-$HOME/.openhue}/config.yaml"
+```
 
 ### Basic Configuration
 
@@ -166,7 +173,7 @@ journalctl --user -u hue-backend -f
 ```
 
 ### "Not configured" status
-Run `openhue setup` to configure your bridge, or check `~/.openhue/config.yaml` exists.
+Run `openhue setup` to configure your bridge, or check the config file exists (see [Configuration](#configuration)).
 
 ### Tray icon doesn't appear
 ```bash
@@ -222,7 +229,7 @@ systemctl --user restart hue-backend
 journalctl --user -u hue-backend --no-pager -n 50
 
 # Common issues:
-# - Config file missing: Check ~/.openhue/config.yaml exists
+# - Config file missing: check the config file exists (see Configuration)
 # - Bridge address wrong: Update 'Bridge:' in config.yaml
 # - API key invalid: Run 'openhue setup' to generate new key
 ```
@@ -238,7 +245,8 @@ journalctl --user -u hue-backend --no-pager -n 50
 
 2. **Verify bridge IP in config**
    ```bash
-   grep Bridge ~/.openhue/config.yaml
+   # $CONFIG_FILE is set under Configuration above
+   grep -i Bridge "$CONFIG_FILE"
    ```
 
 3. **Test bridge manually**
@@ -254,8 +262,8 @@ journalctl --user -u hue-backend --no-pager -n 50
 
 Set a static IP for your bridge in your router settings, or update the config:
 ```bash
-# Edit config file
-nano ~/.openhue/config.yaml
+# Edit config file ($CONFIG_FILE is set under Configuration above)
+nano "$CONFIG_FILE"
 
 # Update Bridge IP
 Bridge: "192.168.1.X"  # Your new IP
@@ -280,14 +288,16 @@ The dialog is shown by your desktop environment (XDG Desktop Portal) and is requ
 
 ```bash
 # Check if Entertainment API is configured
-grep entertainmentConfigurationId ~/.openhue/config.yaml
+# ($CONFIG_FILE is set under Configuration above)
+grep -i entertainmentConfigurationId "$CONFIG_FILE"
 
-# If not configured, set it up:
+# Create the Entertainment Area in the Hue app, then list the areas and their IDs
 cd backend
-go run ./cmd/register-entertainment
-# Follow prompts to create Entertainment Area
+go run ./cmd/get-entertainment-info
 
-# Update config with the ID and clientkey shown
+# Without a clientkey, register one. Copy the Key and clientkey it prints
+# together: the Key is that clientkey's DTLS identity
+go run ./cmd/register-entertainment
 ```
 
 **Problem: "Sync engine not available"**
@@ -296,8 +306,9 @@ You need to configure Entertainment API:
 1. Open Hue app on phone
 2. Create an Entertainment Area (Settings → Entertainment Areas)
 3. Add your lights to the area
-4. Run: `cd backend && go run ./cmd/register-entertainment`
-5. Update `~/.openhue/config.yaml` with `entertainmentConfigurationId` and `clientkey`
+4. Run `cd backend && go run ./cmd/get-entertainment-info` to list the areas and their IDs
+5. Set `entertainmentConfigurationId` in the config file
+6. Without a clientkey, run `go run ./cmd/register-entertainment` and copy the Key and clientkey it prints together
 
 ### Scene Activation Issues
 

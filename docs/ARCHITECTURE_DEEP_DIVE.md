@@ -1792,8 +1792,8 @@ func (cb *CircuitBreaker) RecordSuccess() {
 
 ❌ Bad: "bridge not configured"
 ✅ Good: "bridge IP not configured
-         → Add 'Bridge: YOUR_BRIDGE_IP' to ~/.openhue/config.yaml
-         → You can discover your bridge with: openhue-cli discover"
+         → Add 'Bridge: YOUR_BRIDGE_IP' to /home/user/.openhue/config.yaml
+         → You can discover your bridge with: openhue discover"
 ```
 
 ---

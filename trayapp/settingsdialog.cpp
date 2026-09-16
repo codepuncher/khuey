@@ -224,8 +224,9 @@ void SettingsDialog::setupUI() {
     lastErrorLabel->setStyleSheet("QLabel { color: red; }");
     bridgeLayout->addWidget(lastErrorLabel, 3, 0, 1, 2);
 
-    QLabel* connectionHint = new QLabel(
-        "💡 Tip: Edit ~/.openhue/config.yaml to change bridge IP or API key", bridgeGroup);
+    connectionHint =
+        new QLabel("Tip: Edit the config file to change bridge IP or API key", bridgeGroup);
+    connectionHint->setTextFormat(Qt::PlainText);
     connectionHint->setWordWrap(true);
     connectionHint->setStyleSheet("QLabel { color: gray; font-size: 10pt; margin-top: 8px; }");
     bridgeLayout->addWidget(connectionHint, 4, 0, 1, 2);
@@ -451,6 +452,10 @@ void SettingsDialog::loadSettings() {
             if (!lastError.isEmpty() && !connected) {
                 lastErrorLabel->setText("Last error: " + lastError);
             }
+
+            connectionHint->setText("Tip: Edit " +
+                                    settings.value("configFile", "the config file").toString() +
+                                    " to change bridge IP or API key");
         }
     }
 
