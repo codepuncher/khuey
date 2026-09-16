@@ -1,3 +1,4 @@
+#include "huebackend.h"
 #include "settingsdialog.h"
 #include <KNotification>
 #include <KStatusNotifierItem>
@@ -34,38 +35,6 @@
 
 // Enum for connection state
 enum ConnectionState { CONNECTING, CONNECTED, DISCONNECTED, ERROR };
-
-/**
- * QDBusInterface introspects the service when constructed, a blocking call
- * that waits out the DBus timeout if the backend is hung. The base class
- * generated proxies use makes no call to the service.
- */
-class HueBackend : public QDBusAbstractInterface {
-  public:
-    explicit HueBackend(QObject* parent = nullptr)
-        : QDBusAbstractInterface("org.kde.plasma.hue", "/org/kde/plasma/hue", "org.kde.plasma.hue",
-                                 QDBusConnection::sessionBus(), parent) {}
-};
-
-/**
- * Runs done once every call has finished. The watchers are children of
- * context, so done never runs after context is destroyed.
- */
-static void whenFinished(QObject* context, const QList<QDBusPendingCall>& calls,
-                         std::function<void()> done) {
-    auto remaining = std::make_shared<qsizetype>(calls.size());
-    for (const QDBusPendingCall& call : calls) {
-        auto* watcher = new QDBusPendingCallWatcher(call, context);
-        QObject::connect(watcher, &QDBusPendingCallWatcher::finished, context,
-                         [remaining, done](QDBusPendingCallWatcher* w) {
-                             w->deleteLater();
-                             if (--*remaining > 0) {
-                                 return;
-                             }
-                             done();
-                         });
-    }
-}
 
 class HueControlDialog : public QDialog {
     Q_OBJECT

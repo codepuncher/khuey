@@ -14,6 +14,7 @@ add_executable(hue-tray
     main.cpp
     settingsdialog.cpp
     settingsdialog.h
+    huebackend.h
 )
 
 target_link_libraries(hue-tray
