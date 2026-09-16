@@ -2,20 +2,29 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"log"
 	"time"
 
 	"github.com/codepuncher/khuey/internal/common"
+	"github.com/codepuncher/khuey/internal/config"
 	"github.com/openhue/openhue-go"
+	"github.com/spf13/viper"
 )
 
 func main() {
+	bridgeFlag := flag.String("bridge", "", "Hue bridge IP address (default: the Bridge in the config)")
+	flag.Parse()
+
 	fmt.Println("Hue Entertainment API Registration")
 	fmt.Println("===================================")
 	fmt.Println()
 
-	bridgeIP := "192.168.0.9"
+	bridgeIP, err := bridgeAddress(*bridgeFlag)
+	if err != nil {
+		log.Fatalf("%v", err)
+	}
 
 	fmt.Printf("Registering with bridge: %s\n", bridgeIP)
 	fmt.Println("\nPLEASE PRESS THE LINK BUTTON ON YOUR HUE BRIDGE NOW!")
@@ -94,10 +103,32 @@ func main() {
 	fmt.Printf("ClientKey:  %s\n", clientKey)
 	fmt.Println("════════════════════════════════════════")
 
-	fmt.Println("\nUpdate your ~/.openhue/config.yaml with:")
+	fmt.Printf("\nReplace these values in %s (the keys may be capitalised there):\n", config.File())
 	fmt.Printf("  key: %s\n", username)
 	fmt.Printf("  clientkey: %s\n", clientKey)
 
 	fmt.Println("\nNote: The clientkey is HEX-encoded and used for")
 	fmt.Println("      Entertainment API DTLS authentication.")
+}
+
+// bridgeAddress returns the bridge to register with. The config is read
+// directly instead of through config.Load, which validates: a config with a
+// Bridge and no Key is the case this tool exists to fix.
+func bridgeAddress(flagValue string) (string, error) {
+	if flagValue != "" {
+		return flagValue, nil
+	}
+
+	v := viper.New()
+	v.SetConfigFile(config.File())
+	v.SetConfigType("yaml")
+	if err := v.ReadInConfig(); err != nil {
+		return "", fmt.Errorf("no -bridge given and %s could not be read: %w", config.File(), err)
+	}
+
+	bridge := v.GetString("bridge")
+	if bridge == "" {
+		return "", fmt.Errorf("no -bridge given and no Bridge in %s", config.File())
+	}
+	return bridge, nil
 }
