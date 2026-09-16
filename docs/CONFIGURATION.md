@@ -129,7 +129,6 @@ gamingMode:                             # Gaming mode settings
   usePowerProfile: true
   useSteamAppId: true
   useGameMode: false
-  useFullscreen: false
 
 ui:                                     # UI customization
   icons:
@@ -509,7 +508,6 @@ Configuration for automatic screen sync detection during gameplay.
 | `gamingMode.usePowerProfile` | bool | `true` | Use power profile validation |
 | `gamingMode.useSteamAppId` | bool | `true` | Use Steam AppId detection |
 | `gamingMode.useGameMode` | bool | `false` | Use Feral GameMode DBus (legacy) |
-| `gamingMode.useFullscreen` | bool | `false` | Use KWin fullscreen detection (unreliable) |
 
 #### gamingMode.enabled
 
@@ -581,11 +579,7 @@ gamingMode:
 
 Wait time after game detection before starting screen sync.
 
-**Purpose:** Prevents false positives from:
-- Alt-tabbing through fullscreen apps
-- Quickly launching and closing games
-- Fullscreen video players
-- Temporary fullscreen popups
+**Purpose:** Prevents false positives from quickly launching and closing games.
 
 **Example:**
 ```yaml
@@ -721,41 +715,6 @@ gamingMode:
 - ❌ Using CachyOS (systemd-inhibit is better)
 - ❌ Games don't use GameMode
 
-##### gamingMode.useFullscreen (Unreliable)
-
-**Type:** Boolean
-**Default:** `false`
-**Platform:** KDE Plasma with KWin
-
-Detects fullscreen windows via KWin DBus.
-
-**How it works:**
-- Queries KWin for fullscreen window state
-- Any fullscreen app triggers detection
-- **Highly unreliable** - triggers on videos, presentations, etc.
-
-**Example:**
-```yaml
-gamingMode:
-  useFullscreen: false  # Not recommended
-```
-
-**When to enable:**
-- ⚠️ No other detection methods available
-- ⚠️ Only as last resort
-
-**When to disable:**
-- ❌ Any other method works (preferred)
-- ❌ Watch fullscreen videos (false positives)
-- ❌ Use fullscreen apps like presentations
-
-**Why unreliable:**
-- Triggers on YouTube fullscreen
-- Triggers on video players
-- Triggers on presentation mode
-- Triggers on fullscreen terminals
-- No way to distinguish games from other fullscreen apps
-
 ### Detection Priority
 
 Gaming mode uses a **tiered priority system** for reliable detection:
@@ -768,7 +727,6 @@ Gaming mode uses a **tiered priority system** for reliable detection:
 
 **Tier 3 (Fallback):**
 3. `useGameMode` (if installed)
-4. `useFullscreen` (least reliable)
 
 **Recommended configuration:**
 
@@ -780,7 +738,6 @@ gamingMode:
   usePowerProfile: true     # Secondary validation
   useSteamAppId: true       # Steam-specific
   useGameMode: false        # Not installed
-  useFullscreen: false      # Unreliable
 
 # Non-CachyOS with Steam
 gamingMode:
@@ -789,7 +746,6 @@ gamingMode:
   usePowerProfile: true     # Available
   useSteamAppId: true       # Primary for Steam
   useGameMode: true         # If installed
-  useFullscreen: false      # Unreliable
 
 # Non-CachyOS without Steam
 gamingMode:
@@ -798,7 +754,6 @@ gamingMode:
   usePowerProfile: false
   useSteamAppId: false
   useGameMode: true         # Primary method
-  useFullscreen: false      # Last resort only
 ```
 
 ---
@@ -1704,7 +1659,6 @@ gamingMode:
   usePowerProfile: true     # Secondary validation
   useSteamAppId: true       # Steam games
   useGameMode: false        # Not installed
-  useFullscreen: false      # Unreliable
 
 ui:
   icons:
@@ -1924,7 +1878,6 @@ gamingMode:
   usePowerProfile: true
   useSteamAppId: true
   useGameMode: true
-  useFullscreen: true  # Enable all for testing
 
 channels:
   - id: 0

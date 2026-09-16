@@ -16,9 +16,8 @@ type Detector struct {
 	powerProfileDetector *PowerProfileDetector
 	steamDetector        *SteamDetector
 
-	// Legacy detectors (fallback)
+	// Legacy detector (fallback)
 	gameMode *GameModeDetector
-	kwin     *KWinDetector
 
 	callback  StateChangeCallback
 	isRunning bool
@@ -32,7 +31,6 @@ type Detector struct {
 	usePowerProfile   bool
 	useSteamAppId     bool
 	useGameMode       bool
-	useFullscreen     bool
 
 	// State tracking
 	currentState      bool
@@ -52,8 +50,7 @@ type Config struct {
 	UseSteamAppId     bool // Steam AppId detection (default: true)
 
 	// Legacy detection (fallback)
-	UseGameMode   bool // Enable GameMode detection (default: false)
-	UseFullscreen bool // Enable fullscreen detection (default: false)
+	UseGameMode bool // Enable GameMode detection (default: false)
 
 	// The state to start from. A detector replacing one that had already seen
 	// a game start needs to begin believing it, or it could never report that
@@ -70,7 +67,6 @@ func DefaultConfig() Config {
 		UsePowerProfile:   true,  // CachyOS secondary validation
 		UseSteamAppId:     true,  // Steam-specific detection
 		UseGameMode:       false, // Legacy (not installed by default)
-		UseFullscreen:     false, // Legacy (unreliable on Wayland)
 	}
 }
 
@@ -84,7 +80,6 @@ func NewDetector(cfg Config, callback StateChangeCallback) (*Detector, error) {
 		usePowerProfile:   cfg.UsePowerProfile,
 		useSteamAppId:     cfg.UseSteamAppId,
 		useGameMode:       cfg.UseGameMode,
-		useFullscreen:     cfg.UseFullscreen,
 		currentState:      cfg.InitiallyGaming,
 		pendingState:      cfg.InitiallyGaming,
 		stateChangedAt:    time.Now(),
@@ -107,7 +102,7 @@ func NewDetector(cfg Config, callback StateChangeCallback) (*Detector, error) {
 		log.Println("[INFO] Steam AppId detector initialized")
 	}
 
-	// Initialize legacy detectors as fallback
+	// Initialize the legacy detector as fallback
 	if cfg.UseGameMode {
 		gameMode, err := NewGameModeDetector()
 		if err != nil {
@@ -119,20 +114,9 @@ func NewDetector(cfg Config, callback StateChangeCallback) (*Detector, error) {
 		}
 	}
 
-	if cfg.UseFullscreen {
-		kwin, err := NewKWinDetector()
-		if err != nil {
-			log.Printf("[WARN] KWin fullscreen detection unavailable: %v", err)
-			log.Println("   Will use other detection methods")
-		} else {
-			d.kwin = kwin
-			log.Println("[INFO] KWin fullscreen detector initialized (legacy)")
-		}
-	}
-
 	// Check if at least one detector is available
 	if d.systemdDetector == nil && d.powerProfileDetector == nil && d.steamDetector == nil &&
-		d.gameMode == nil && d.kwin == nil {
+		d.gameMode == nil {
 		log.Println("[ERROR] No gaming detectors available - feature disabled")
 		return nil, nil
 	}
@@ -236,7 +220,6 @@ func (d *Detector) checkGamingState() {
 // 1. systemd-inhibit (CachyOS game-performance - most reliable)
 // 2. Power profile + Steam AppId (combined validation - high confidence)
 // 3. GameMode DBus (legacy fallback - if installed)
-// 4. KWin fullscreen (legacy fallback - unreliable on Wayland)
 func (d *Detector) detectGaming() bool {
 	// Priority 1: systemd-inhibit (CachyOS game-performance)
 	// This is the most reliable method on CachyOS
@@ -255,11 +238,6 @@ func (d *Detector) detectGaming() bool {
 
 	// Priority 3: Legacy GameMode detection (fallback)
 	if d.gameMode != nil && d.gameMode.IsActive() {
-		return true
-	}
-
-	// Priority 4: Legacy fullscreen detection (lowest priority)
-	if d.kwin != nil && d.kwin.IsFullscreenActive() {
 		return true
 	}
 
@@ -284,8 +262,5 @@ func (d *Detector) Close() {
 
 	if d.gameMode != nil {
 		d.gameMode.Close()
-	}
-	if d.kwin != nil {
-		d.kwin.Close()
 	}
 }

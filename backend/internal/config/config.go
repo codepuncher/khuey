@@ -117,8 +117,7 @@ type GamingModeConfig struct {
 	UseSteamAppId     bool `mapstructure:"useSteamAppId"`     // Steam AppId detection
 
 	// Legacy detection (fallback)
-	UseGameMode   bool `mapstructure:"useGameMode"`   // Feral GameMode (if installed)
-	UseFullscreen bool `mapstructure:"useFullscreen"` // KWin fullscreen (unreliable)
+	UseGameMode bool `mapstructure:"useGameMode"` // Feral GameMode (if installed)
 }
 
 // UIConfig represents user interface settings
@@ -153,7 +152,6 @@ func DefaultConfig() *Config {
 			UsePowerProfile:   true,  // CachyOS secondary validation
 			UseSteamAppId:     true,  // Steam-specific detection
 			UseGameMode:       false, // Feral GameMode (not installed by default)
-			UseFullscreen:     false, // KWin fullscreen (unreliable on Wayland)
 		},
 		UI: UIConfig{
 			Icons: IconConfig{

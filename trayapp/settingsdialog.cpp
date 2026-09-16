@@ -111,7 +111,7 @@ void SettingsDialog::setupUI() {
 
     QLabel* gamingHint =
         new QLabel("When enabled, screen sync will automatically start when you play games.\n"
-                   "Uses GameMode and fullscreen window detection.",
+                   "Uses systemd-inhibit, power profile and Steam detection.",
                    gamingGroup);
     gamingHint->setWordWrap(true);
     gamingHint->setStyleSheet("QLabel { color: gray; font-size: 10pt; }");
