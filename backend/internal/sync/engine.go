@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/codepuncher/khuey/internal/capture"
@@ -61,6 +62,16 @@ const dropLogInterval = 5 * time.Second
 // captureErrLogInterval throttles the capture-error warning, which otherwise
 // repeats every tick for as long as capture is down.
 const captureErrLogInterval = 5 * time.Second
+
+// streamActivationDelay is how long the bridge is given to open UDP 2100 after
+// it accepts an activation.
+const streamActivationDelay = 100 * time.Millisecond
+
+// streamRetryInterval and streamConnectTimeout bound connectStream's retries.
+const (
+	streamRetryInterval  = 500 * time.Millisecond
+	streamConnectTimeout = 10 * time.Second
+)
 
 // Sentinel errors
 var (
@@ -300,17 +311,6 @@ func (e *Engine) StartSession(ctx context.Context) (uint64, error) {
 		ctx = context.Background()
 	}
 
-	// Activate Entertainment Area first
-	if err := e.activateEntertainmentArea(); err != nil {
-		log.Printf("[WARN] Failed to activate Entertainment Area: %v", err)
-		log.Println("   Attempting connection anyway...")
-	}
-
-	// Brief wait for bridge activation to complete
-	// Note: Entertainment client has built-in retry logic and will handle cases
-	// where activation takes longer. This sleep reduces unnecessary retries.
-	time.Sleep(100 * time.Millisecond)
-
 	// Start screen capture
 	if err := e.capturer.Start(); err != nil {
 		err = fmt.Errorf("failed to start screen capture: %w", err)
@@ -323,8 +323,7 @@ func (e *Engine) StartSession(ctx context.Context) (uint64, error) {
 		return 0, err
 	}
 
-	// Connect to Entertainment API
-	if err := e.client.Connect(); err != nil {
+	if err := e.connectStream(ctx); err != nil {
 		e.capturer.Stop() // Clean up capture on connection failure
 		e.lastFailure = fmt.Errorf("failed to connect to Entertainment API: %w", err)
 		return 0, e.lastFailure
@@ -333,6 +332,47 @@ func (e *Engine) StartSession(ctx context.Context) (uint64, error) {
 	gen := e.launchLoopLocked(ctx)
 	log.Printf("Screen sync started at %d FPS", e.fps.Load())
 	return gen, nil
+}
+
+// connectStream activates the Entertainment Area and opens the stream to it.
+//
+// An activation that reaches the bridge while it is still tearing down the
+// previous stream is answered 200 and then discarded: the configuration goes
+// inactive and UDP 2100 closes, which is what a start issued straight after a
+// stop hits. Nothing reopens the port but another activation, so a refused
+// handshake is retried against a fresh one rather than against the dial alone.
+func (e *Engine) connectStream(ctx context.Context) error {
+	deadline := time.Now().Add(streamConnectTimeout)
+	for {
+		activateErr := e.activateEntertainmentArea()
+		if activateErr != nil {
+			log.Printf("[WARN] Failed to activate Entertainment Area: %v", activateErr)
+			log.Println("   Attempting connection anyway...")
+		}
+
+		// The bridge opens the port shortly after accepting the activation.
+		time.Sleep(streamActivationDelay)
+
+		err := e.client.Connect()
+		if err == nil {
+			return nil
+		}
+		// Only an activation the bridge accepted reopens the port, so
+		// retrying one it never answered just buries why it failed.
+		if activateErr != nil {
+			return fmt.Errorf("%w (entertainment area not activated: %v)", err, activateErr)
+		}
+		if !errors.Is(err, syscall.ECONNREFUSED) || time.Now().After(deadline) {
+			return err
+		}
+
+		log.Printf("[WARN] Bridge refused the stream, reactivating: %v", err)
+		select {
+		case <-ctx.Done():
+			return err
+		case <-time.After(streamRetryInterval):
+		}
+	}
 }
 
 // launchLoopLocked marks a new session running and starts its sync loop.
