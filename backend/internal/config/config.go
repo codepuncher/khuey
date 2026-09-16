@@ -195,6 +195,11 @@ var getConfigFile = func() string {
 	return filepath.Join(getConfigPath(), "config.yaml")
 }
 
+// File returns the path Load reads and Save writes.
+func File() string {
+	return getConfigFile()
+}
+
 // Load reads config.yaml from the directory getConfigPath returns
 func Load() (*Config, error) {
 	configPath := getConfigPath()
@@ -361,15 +366,15 @@ func (c *Config) HasEntertainmentConfig() bool {
 func (c *Config) Validate() error {
 	// Basic bridge configuration
 	if c.Bridge == "" {
-		return fmt.Errorf("bridge IP not configured\n" +
-			"  → Add 'Bridge: YOUR_BRIDGE_IP' to ~/.openhue/config.yaml\n" +
-			"  → You can discover your bridge with: openhue-cli discover")
+		return fmt.Errorf("bridge IP not configured\n"+
+			"  → Add 'Bridge: YOUR_BRIDGE_IP' to %s\n"+
+			"  → You can discover your bridge with: openhue discover", getConfigFile())
 	}
 
 	if c.Key == "" {
-		return fmt.Errorf("API key not configured\n" +
-			"  → Add 'Key: YOUR_API_KEY' to ~/.openhue/config.yaml\n" +
-			"  → Generate a key by pressing the bridge button and running: openhue-cli register")
+		return fmt.Errorf("API key not configured\n"+
+			"  → Add 'Key: YOUR_API_KEY' to %s\n"+
+			"  → Generate a key with 'openhue setup', which asks you to press the bridge button", getConfigFile())
 	}
 
 	// Validate sync settings

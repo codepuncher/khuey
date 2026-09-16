@@ -859,9 +859,10 @@ func (s *Service) GetBridgeSettings(sender dbus.Sender) (map[string]interface{},
 	}
 
 	return map[string]interface{}{
-		"bridgeIP":  bridgeIP,
-		"connected": connected,
-		"lastError": lastError,
+		"bridgeIP":   bridgeIP,
+		"connected":  connected,
+		"lastError":  lastError,
+		"configFile": config.File(),
 	}, nil
 }
 

@@ -767,8 +767,7 @@ class HueControlDialog : public QDialog {
                                                   "Check:\n"
                                                   "• Bridge is powered on\n"
                                                   "• Network connection is working\n"
-                                                  "• Bridge IP in config is correct\n\n"
-                                                  "Bridge IP: Check ~/.openhue/config.yaml",
+                                                  "• Bridge IP in config is correct",
                                                   KNotification::Persistent);
                         } else if (error.contains("not found") || error.contains("unknown")) {
                             showErrorNotification(
@@ -912,7 +911,7 @@ class HueControlDialog : public QDialog {
                                               "Entertainment API is not configured.\n\n"
                                               "Setup required:\n"
                                               "1. Create Entertainment Area in Hue app\n"
-                                              "2. Configure clientkey in ~/.openhue/config.yaml\n"
+                                              "2. Configure clientkey in the config file\n"
                                               "3. Set EntertainmentConfigurationID\n\n"
                                               "See documentation for details.",
                                               KNotification::Persistent);
@@ -1138,7 +1137,7 @@ class HueControlDialog : public QDialog {
                                       "Check:\n"
                                       "• Bridge is powered on\n"
                                       "• Network connection is working\n"
-                                      "• Bridge IP in config is correct (~/.openhue/config.yaml)",
+                                      "• Bridge IP in config is correct",
                                       KNotification::Persistent);
             }
         });

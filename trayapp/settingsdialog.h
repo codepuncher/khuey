@@ -60,6 +60,7 @@ class SettingsDialog : public QDialog {
     QPushButton* testConnectionButton;
     QPushButton* reconnectButton;
     QLabel* lastErrorLabel;
+    QLabel* connectionHint;
 
     // Appearance tab
     KIconButton* gamingIconButton;

@@ -260,6 +260,7 @@ Returns bridge configuration information.
 - `bridgeIP` (string) - Configured bridge IP address
 - `connected` (bool) - Current connection status
 - `lastError` (string) - Last error message
+- `configFile` (string) - Config file the backend loaded
 
 **Errors:**
 - `"access denied"` - Caller is not service owner
