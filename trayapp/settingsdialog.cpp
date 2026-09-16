@@ -1,6 +1,7 @@
 #include "settingsdialog.h"
 #include <QDBusArgument>
 #include <QDBusMessage>
+#include <QDBusPendingReply>
 #include <QDBusReply>
 #include <QDebug>
 #include <QGridLayout>
@@ -11,18 +12,13 @@
 #include <QVariantMap>
 
 SettingsDialog::SettingsDialog(QWidget* parent)
-    : QDialog(parent),
-      dbusInterface(new QDBusInterface("org.kde.plasma.hue", "/org/kde/plasma/hue",
-                                       "org.kde.plasma.hue", QDBusConnection::sessionBus(), this)),
-      currentFPS(30), currentSubsample(64) {
+    : QDialog(parent), backend(new HueBackend(this)), currentFPS(30), currentSubsample(64) {
     setWindowTitle("Hue Control Settings");
     setMinimumSize(600, 500);
 
     setupUI();
     loadSettings();
 }
-
-SettingsDialog::~SettingsDialog() { delete dbusInterface; }
 
 void SettingsDialog::setupUI() {
     QVBoxLayout* mainLayout = new QVBoxLayout(this);
@@ -205,16 +201,32 @@ void SettingsDialog::setupUI() {
 
     reconnectButton = new QPushButton("Reconnect", bridgeGroup);
     connect(reconnectButton, &QPushButton::clicked, this, [this]() {
-        QDBusReply<bool> reply = dbusInterface->call("RetryConnection");
-        if (reply.isValid() && reply.value()) {
-            QMessageBox::information(this, "Reconnect", "✓ Successfully reconnected to bridge!");
-            connectionStatusLabel->setText("✓ Connected");
-            connectionStatusLabel->setStyleSheet("QLabel { color: green; font-weight: bold; }");
-            lastErrorLabel->clear();
-        } else {
+        reconnectButton->setText("Reconnecting...");
+        readsInFlight++;
+        updateInputState();
+
+        QDBusPendingCall call = backend->asyncCall("RetryConnection");
+        whenFinished(this, {call}, [this, call]() {
+            reconnectButton->setText("Reconnect");
+            readsInFlight--;
+            updateInputState();
+            if (closing) {
+                return;
+            }
+
+            QDBusReply<bool> reply = call;
+            if (reply.isValid() && reply.value()) {
+                QMessageBox::information(this, "Reconnect",
+                                         "✓ Successfully reconnected to bridge!");
+                connectionStatusLabel->setText("✓ Connected");
+                connectionStatusLabel->setStyleSheet("QLabel { color: green; font-weight: bold; }");
+                lastErrorLabel->clear();
+                return;
+            }
+
             QString error = reply.isValid() ? "Failed to reconnect" : reply.error().message();
             QMessageBox::warning(this, "Reconnect", "✗ " + error);
-        }
+        });
     });
     connectionButtonsLayout->addWidget(reconnectButton);
     bridgeLayout->addLayout(connectionButtonsLayout, 2, 0, 1, 2);
@@ -338,27 +350,23 @@ void SettingsDialog::setupUI() {
 }
 
 void SettingsDialog::loadSettings() {
-    // Load Screen Sync settings
-    QDBusMessage syncReply = dbusInterface->call("GetSyncSettings");
-    if (syncReply.type() != QDBusMessage::ErrorMessage && !syncReply.arguments().isEmpty()) {
-        // Extract variant map from DBus reply
-        QVariant var = syncReply.arguments().at(0);
+    loading = true;
+    updateInputState();
 
-        // DBus a{sv} comes as QDBusArgument, need to properly extract it
-        if (var.canConvert<QDBusArgument>()) {
-            QVariantMap settings;
-            const QDBusArgument arg = var.value<QDBusArgument>();
-            arg.beginMap();
-            while (!arg.atEnd()) {
-                QString key;
-                QVariant value;
-                arg.beginMapEntry();
-                arg >> key >> value;
-                arg.endMapEntry();
-                settings[key] = value;
-            }
-            arg.endMap();
+    QDBusPendingCall syncCall = backend->asyncCall("GetSyncSettings");
+    QDBusPendingCall roomCall = backend->asyncCall("GetSelectedRoom");
+    QDBusPendingCall gamingCall = backend->asyncCall("IsGamingModeEnabled");
+    QDBusPendingCall startupSceneCall = backend->asyncCall("GetStartupScene");
+    QDBusPendingCall scenesCall = backend->asyncCall("GetScenes");
+    QDBusPendingCall bridgeCall = backend->asyncCall("GetBridgeSettings");
+    QDBusPendingCall iconsCall = backend->asyncCall("GetTrayIcons");
+    QDBusPendingCall roomsCall = backend->asyncCall("GetGroupedLights");
 
+    auto apply = [this, syncCall, roomCall, gamingCall, startupSceneCall, scenesCall, bridgeCall,
+                  iconsCall, roomsCall]() {
+        QDBusReply<QVariantMap> syncReply = syncCall;
+        if (syncReply.isValid()) {
+            const QVariantMap settings = syncReply.value();
             currentFPS = settings["fps"].toInt();
             currentSubsample = settings["subsampleWidth"].toInt();
             currentMonitor = settings["monitor"].toString();
@@ -378,68 +386,42 @@ void SettingsDialog::loadSettings() {
                 monitorCombo->setCurrentIndex(index);
             }
         }
-    }
 
-    // Load room selection
-    QDBusReply<QString> roomReply = dbusInterface->call("GetSelectedRoom");
-    if (roomReply.isValid()) {
-        currentRoomID = roomReply.value();
-    }
+        QDBusReply<QString> roomReply = roomCall;
+        if (roomReply.isValid()) {
+            currentRoomID = roomReply.value();
+        }
 
-    // Load gaming mode setting
-    QDBusReply<bool> gamingReply = dbusInterface->call("IsGamingModeEnabled");
-    if (gamingReply.isValid()) {
-        currentGamingMode = gamingReply.value();
-        gamingModeCheckbox->setChecked(currentGamingMode);
-    }
+        QDBusReply<bool> gamingReply = gamingCall;
+        if (gamingReply.isValid()) {
+            currentGamingMode = gamingReply.value();
+            gamingModeCheckbox->setChecked(currentGamingMode);
+        }
 
-    // Auto-load rooms list on dialog open (fixed QDBusArgument extraction)
-    onRefreshRoomsClicked();
+        // Selects currentRoomID, so it runs after the room reply is read.
+        const QString roomsError = applyRooms(roomsCall, currentRoomID);
 
-    QDBusReply<QString> startupSceneReply = dbusInterface->call("GetStartupScene");
-    QString currentStartupScene =
-        startupSceneReply.isValid() ? startupSceneReply.value() : QString();
+        QDBusReply<QString> startupSceneReply = startupSceneCall;
+        QString currentStartupScene =
+            startupSceneReply.isValid() ? startupSceneReply.value() : QString();
 
-    QDBusReply<QStringList> scenesReply = dbusInterface->call("GetScenes");
-    if (scenesReply.isValid()) {
-        for (const QString& scene : scenesReply.value()) {
+        QDBusReply<QStringList> scenesReply = scenesCall;
+        for (const QString& scene : scenesReply.isValid() ? scenesReply.value() : QStringList()) {
             startupSceneCombo->addItem(scene, scene);
         }
-    } else {
-        QMessageBox::warning(this, "Error",
-                             "Failed to load scenes: " + scenesReply.error().message());
-    }
-    if (!currentStartupScene.isEmpty()) {
-        int index = startupSceneCombo->findData(currentStartupScene);
-        if (index < 0) {
-            // Preserve it even if unresolved, so an unrelated Save can't clear it.
-            startupSceneCombo->addItem(currentStartupScene, currentStartupScene);
-            index = startupSceneCombo->count() - 1;
-        }
-        startupSceneCombo->setCurrentIndex(index);
-    }
-
-    // Load bridge settings
-    QDBusMessage bridgeReply = dbusInterface->call("GetBridgeSettings");
-    if (bridgeReply.type() != QDBusMessage::ErrorMessage && !bridgeReply.arguments().isEmpty()) {
-        // Extract variant map from DBus reply
-        QVariant var = bridgeReply.arguments().at(0);
-
-        // DBus a{sv} comes as QDBusArgument, need to properly extract it
-        if (var.canConvert<QDBusArgument>()) {
-            QVariantMap settings;
-            const QDBusArgument arg = var.value<QDBusArgument>();
-            arg.beginMap();
-            while (!arg.atEnd()) {
-                QString key;
-                QVariant value;
-                arg.beginMapEntry();
-                arg >> key >> value;
-                arg.endMapEntry();
-                settings[key] = value;
+        if (!currentStartupScene.isEmpty()) {
+            int index = startupSceneCombo->findData(currentStartupScene);
+            if (index < 0) {
+                // Preserve it even if unresolved, so an unrelated Save can't clear it.
+                startupSceneCombo->addItem(currentStartupScene, currentStartupScene);
+                index = startupSceneCombo->count() - 1;
             }
-            arg.endMap();
+            startupSceneCombo->setCurrentIndex(index);
+        }
 
+        QDBusReply<QVariantMap> bridgeReply = bridgeCall;
+        if (bridgeReply.isValid()) {
+            const QVariantMap settings = bridgeReply.value();
             bridgeIPEdit->setText(settings["bridgeIP"].toString());
 
             bool connected = settings["connected"].toBool();
@@ -457,16 +439,12 @@ void SettingsDialog::loadSettings() {
                                     settings.value("configFile", "the config file").toString() +
                                     " to change bridge IP or API key");
         }
-    }
 
-    // Load tray icon settings
-    QDBusReply<QString> gamingIconReply = dbusInterface->call("GetTrayIcons");
-    if (gamingIconReply.isValid()) {
-        QDBusMessage iconReply = dbusInterface->call("GetTrayIcons");
-        if (iconReply.type() != QDBusMessage::ErrorMessage && iconReply.arguments().size() >= 3) {
-            currentGamingIcon = iconReply.arguments().at(0).toString();
-            currentSyncingIcon = iconReply.arguments().at(1).toString();
-            currentIdleIcon = iconReply.arguments().at(2).toString();
+        QDBusPendingReply<QString, QString, QString> iconsReply = iconsCall;
+        if (!iconsReply.isError()) {
+            currentGamingIcon = iconsReply.argumentAt<0>();
+            currentSyncingIcon = iconsReply.argumentAt<1>();
+            currentIdleIcon = iconsReply.argumentAt<2>();
 
             gamingIconButton->setIcon(currentGamingIcon);
             syncingIconButton->setIcon(currentSyncingIcon);
@@ -476,65 +454,167 @@ void SettingsDialog::loadSettings() {
             syncingIconNameLabel->setText(currentSyncingIcon);
             idleIconNameLabel->setText(currentIdleIcon);
         }
-    }
-}
 
-void SettingsDialog::saveSettings() {
-    auto callSetter = [this](const QString& method, const QVariantList& args,
-                             const QString& label) -> bool {
-        QDBusReply<bool> reply = dbusInterface->callWithArgumentList(QDBus::Block, method, args);
-        if (!reply.isValid() || !reply.value()) {
-            QString errorMsg = reply.isValid() ? "unknown error" : reply.error().message();
-            QMessageBox::warning(this, "Settings Error",
-                                 "Failed to save " + label + ": " + errorMsg);
-            return false;
+        loading = false;
+        updateInputState();
+        if (closing) {
+            return;
         }
-        return true;
+
+        /**
+         * Warned last: the box blocks until dismissed, and the rest of the
+         * dialog should be filled in and usable behind it.
+         */
+        if (!roomsError.isEmpty()) {
+            QMessageBox::warning(this, "Error", roomsError);
+        }
+        if (!scenesReply.isValid()) {
+            QMessageBox::warning(this, "Error",
+                                 "Failed to load scenes: " + scenesReply.error().message());
+        }
     };
 
+    whenFinished(this,
+                 {syncCall, roomCall, gamingCall, startupSceneCall, scenesCall, bridgeCall,
+                  iconsCall, roomsCall},
+                 apply);
+}
+
+/**
+ * The dialog shows before its values arrive and its calls return to the event
+ * loop, so the controls follow the work in flight: the tabs stay unusable
+ * until values are in or written, and anything that starts another call is
+ * disabled while one is outstanding.
+ */
+void SettingsDialog::updateInputState() {
+    const bool busy = loading || saving || readsInFlight > 0;
+    tabWidget->setEnabled(!loading && !saving);
+    okButton->setEnabled(!busy);
+    applyButton->setEnabled(!busy);
+    /**
+     * A second bridge call started under the first would report its result
+     * over the newer one's.
+     */
+    testConnectionButton->setEnabled(!busy);
+    reconnectButton->setEnabled(!busy);
+    refreshRoomsButton->setEnabled(!busy);
+}
+
+void SettingsDialog::reportSaveComplete(const std::function<void()>& onSaved) {
+    QMessageBox::information(this, "Settings Saved",
+                             "Settings saved successfully!\n\n"
+                             "Note: Restart the tray app for icon changes to take effect.\n"
+                             "FPS applies immediately. If Screen Sync is running, restart it for\n"
+                             "quality changes to take effect.");
+    onSaved();
+}
+
+void SettingsDialog::reject() {
+    if (saving) {
+        closePrompt = true;
+        QMessageBox::StandardButton answer = QMessageBox::question(
+            this, "Settings",
+            "Settings are still being saved, and some have been saved already.\n\n"
+            "Close anyway?",
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+        closePrompt = false;
+        if (answer != QMessageBox::Yes) {
+            if (!pendingSaveError.isEmpty()) {
+                QMessageBox::warning(this, "Settings Error", pendingSaveError);
+                pendingSaveError.clear();
+                return;
+            }
+            if (pendingSaveDone) {
+                const std::function<void()> done = pendingSaveDone;
+                pendingSaveDone = nullptr;
+                reportSaveComplete(done);
+            }
+            return;
+        }
+    }
+
+    closing = true;
+    QDialog::reject();
+}
+
+void SettingsDialog::saveSettings(std::function<void()> onSaved) {
     int fps = fpsSpinBox->value();
     int subsample = subsampleSpinBox->value();
     QString monitor = monitorCombo->currentData().toString();
-    if (!callSetter("SetSyncSettings", {fps, subsample, monitor}, "Screen Sync settings")) {
-        return;
-    }
-
     bool gamingMode = gamingModeCheckbox->isChecked();
-    if (!callSetter("SetGamingMode", {gamingMode}, "gaming mode setting")) {
-        return;
-    }
-
     QString roomID = roomCombo->currentData().toString();
-    if (!roomID.isEmpty() && !callSetter("SetSelectedRoom", {roomID}, "room selection")) {
-        return;
-    }
-
     QString startupScene = startupSceneCombo->currentData().toString();
-    if (!callSetter("SetStartupScene", {startupScene}, "startup scene selection")) {
-        return;
-    }
 
     QString gamingIcon = gamingIconButton->icon();
     QString syncingIcon = syncingIconButton->icon();
     QString idleIcon = idleIconButton->icon();
 
     // Use defaults if empty
-    if (gamingIcon.isEmpty())
+    if (gamingIcon.isEmpty()) {
         gamingIcon = "applications-games";
-    if (syncingIcon.isEmpty())
+    }
+    if (syncingIcon.isEmpty()) {
         syncingIcon = "media-record";
-    if (idleIcon.isEmpty())
+    }
+    if (idleIcon.isEmpty()) {
         idleIcon = "preferences-desktop-display-color";
+    }
 
-    if (!callSetter("SetTrayIcons", {gamingIcon, syncingIcon, idleIcon}, "tray icon settings")) {
+    auto queue = std::make_shared<QList<Setter>>();
+    queue->append({"SetSyncSettings", {fps, subsample, monitor}, "Screen Sync settings"});
+    queue->append({"SetGamingMode", {gamingMode}, "gaming mode setting"});
+    if (!roomID.isEmpty()) {
+        queue->append({"SetSelectedRoom", {roomID}, "room selection"});
+    }
+    queue->append({"SetStartupScene", {startupScene}, "startup scene selection"});
+    queue->append({"SetTrayIcons", {gamingIcon, syncingIcon, idleIcon}, "tray icon settings"});
+
+    saving = true;
+    updateInputState();
+    runSetters(queue, onSaved);
+}
+
+/**
+ * Sends the queued setters one at a time, stopping at the first failure so a
+ * later write can't land after an earlier one was rejected.
+ */
+void SettingsDialog::runSetters(std::shared_ptr<QList<Setter>> queue,
+                                std::function<void()> onSaved) {
+    if (queue->isEmpty()) {
+        saving = false;
+        updateInputState();
+        if (closePrompt) {
+            pendingSaveDone = onSaved;
+            return;
+        }
+        if (closing) {
+            return;
+        }
+        reportSaveComplete(onSaved);
         return;
     }
 
-    QMessageBox::information(this, "Settings Saved",
-                             "Settings saved successfully!\n\n"
-                             "Note: Restart the tray app for icon changes to take effect.\n"
-                             "FPS applies immediately. If Screen Sync is running, restart it for\n"
-                             "quality changes to take effect.");
+    const Setter setter = queue->takeFirst();
+    QDBusPendingCall call = backend->asyncCallWithArgumentList(setter.method, setter.args);
+    whenFinished(this, {call}, [this, call, setter, queue, onSaved]() {
+        QDBusReply<bool> reply = call;
+        if (!reply.isValid() || !reply.value()) {
+            QString errorMsg = reply.isValid() ? "unknown error" : reply.error().message();
+            saving = false;
+            updateInputState();
+            const QString message = "Failed to save " + setter.label + ": " + errorMsg;
+            if (closePrompt) {
+                pendingSaveError = message;
+                return;
+            }
+            if (closing) {
+                return;
+            }
+            QMessageBox::warning(this, "Settings Error", message);
+            return;
+        }
+        runSetters(queue, onSaved);
+    });
 }
 
 bool SettingsDialog::validateSettings() {
@@ -561,78 +641,119 @@ bool SettingsDialog::validateSettings() {
 
 void SettingsDialog::onApplyClicked() {
     if (validateSettings()) {
-        saveSettings();
+        saveSettings([]() {});
     }
 }
 
 void SettingsDialog::onOkClicked() {
     if (validateSettings()) {
-        saveSettings();
-        accept();
+        saveSettings([this]() { accept(); });
     }
 }
 
 void SettingsDialog::onCancelClicked() { reject(); }
 
 void SettingsDialog::onTestConnectionClicked() {
-    testConnectionButton->setEnabled(false);
     testConnectionButton->setText("Testing...");
+    readsInFlight++;
+    updateInputState();
 
-    QDBusReply<bool> reply = dbusInterface->call("TestBridgeConnection");
+    QDBusPendingCall call = backend->asyncCall("TestBridgeConnection");
+    whenFinished(this, {call}, [this, call]() {
+        testConnectionButton->setText("Test Connection");
+        readsInFlight--;
+        updateInputState();
+        if (closing) {
+            return;
+        }
 
-    testConnectionButton->setEnabled(true);
-    testConnectionButton->setText("Test Connection");
+        QDBusReply<bool> reply = call;
+        if (reply.isValid() && reply.value()) {
+            QMessageBox::information(this, "Connection Test", "✓ Bridge is reachable!");
+            connectionStatusLabel->setText("✓ Connected");
+            connectionStatusLabel->setStyleSheet("QLabel { color: green; font-weight: bold; }");
+            lastErrorLabel->clear();
+            return;
+        }
 
-    if (reply.isValid() && reply.value()) {
-        QMessageBox::information(this, "Connection Test", "✓ Bridge is reachable!");
-        connectionStatusLabel->setText("✓ Connected");
-        connectionStatusLabel->setStyleSheet("QLabel { color: green; font-weight: bold; }");
-        lastErrorLabel->clear();
-    } else {
         QString error = reply.isValid() ? "Bridge is unreachable" : reply.error().message();
         QMessageBox::warning(this, "Connection Test", "✗ " + error);
         connectionStatusLabel->setText("✗ Disconnected");
         connectionStatusLabel->setStyleSheet("QLabel { color: red; font-weight: bold; }");
         lastErrorLabel->setText("Error: " + error);
-    }
+    });
 }
 
 void SettingsDialog::onRefreshRoomsClicked() {
-    roomCombo->clear();
-    refreshRoomsButton->setEnabled(false);
     refreshRoomsButton->setText("Loading...");
+    readsInFlight++;
+    updateInputState();
 
-    // Get grouped lights from backend using QDBusMessage
-    QDBusMessage reply = dbusInterface->call("GetGroupedLights");
+    QDBusPendingCall call = backend->asyncCall("GetGroupedLights");
+    whenFinished(this, {call}, [this, call]() {
+        readsInFlight--;
+        updateInputState();
+        if (closing) {
+            return;
+        }
 
-    refreshRoomsButton->setEnabled(true);
+        /**
+         * Read when the reply lands, not when Refresh was clicked: the combo
+         * stays usable during the call, and saveSettings reads whatever it
+         * holds.
+         */
+        const QString selected = roomCombo->currentData().toString();
+        const QString error = applyRooms(call, selected.isEmpty() ? currentRoomID : selected);
+        if (!error.isEmpty()) {
+            QMessageBox::warning(this, "Error", error);
+        }
+    });
+}
+
+/**
+ * Fills the room combo from a GetGroupedLights reply and returns the message to
+ * warn with, empty when there is nothing to report. The combo is only cleared
+ * once the reply is known good, so a failed refresh keeps the current items and
+ * the selection saveSettings reads.
+ */
+QString SettingsDialog::applyRooms(const QDBusPendingCall& call, const QString& selectRoomID) {
     refreshRoomsButton->setText("Refresh");
 
+    QDBusMessage reply = call.reply();
+
+    /**
+     * Leaves an empty combo with something to show, without wiping items a
+     * failed refresh should keep.
+     */
+    auto fail = [this](const QString& preview, const QString& message) {
+        roomPreviewLabel->setText(preview);
+        if (roomCombo->count() == 0) {
+            roomCombo->addItem("No rooms loaded", "");
+        }
+        return message;
+    };
+
     if (reply.type() == QDBusMessage::ErrorMessage) {
-        QMessageBox::warning(this, "Error", "Failed to load rooms: " + reply.errorMessage());
-        roomCombo->addItem("Error loading rooms", "");
-        roomPreviewLabel->setText("❌ Failed to load rooms from bridge");
-        return;
+        return fail("❌ Failed to load rooms from bridge",
+                    "Failed to load rooms: " + reply.errorMessage());
     }
 
     if (reply.arguments().isEmpty()) {
-        roomCombo->addItem("No data received", "");
-        roomPreviewLabel->setText("⚠️  No data from bridge");
-        return;
+        return fail("⚠️  No data from bridge", "The backend returned no rooms.");
     }
 
     // Extract the QDBusArgument from the message - MUST be const!
     QVariant var = reply.arguments().at(0);
     if (!var.canConvert<QDBusArgument>()) {
-        roomCombo->addItem("Invalid data format", "");
-        roomPreviewLabel->setText("❌ Invalid response from bridge");
-        return;
+        return fail("❌ Invalid response from bridge",
+                    "The backend returned rooms in an unexpected format.");
     }
+
+    roomCombo->clear();
 
     const QDBusArgument arg = var.value<QDBusArgument>();
     arg.beginArray();
 
-    int count = 0;
     while (!arg.atEnd()) {
         arg.beginStructure();
         QString id, name, type;
@@ -642,20 +763,19 @@ void SettingsDialog::onRefreshRoomsClicked() {
         roomCombo->addItem(QString("%1 (%2)").arg(name, type), id);
 
         // Select current room
-        if (id == currentRoomID) {
+        if (id == selectRoomID) {
             roomCombo->setCurrentIndex(roomCombo->count() - 1);
         }
-
-        count++;
     }
     arg.endArray();
 
     if (roomCombo->count() == 0) {
         roomCombo->addItem("No rooms found", "");
         roomPreviewLabel->setText("⚠️  No rooms or zones available. Check bridge connection.");
-    } else {
-        roomPreviewLabel->setText(QString("Found %1 room(s)/zone(s)").arg(roomCombo->count()));
+        return QString();
     }
+    roomPreviewLabel->setText(QString("Found %1 room(s)/zone(s)").arg(roomCombo->count()));
+    return QString();
 }
 
 void SettingsDialog::onFpsChanged(int value) {

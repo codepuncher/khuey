@@ -1,10 +1,11 @@
 #ifndef SETTINGSDIALOG_H
 #define SETTINGSDIALOG_H
 
+#include "huebackend.h"
 #include <KIconButton>
 #include <QCheckBox>
 #include <QComboBox>
-#include <QDBusInterface>
+#include <QDBusPendingCall>
 #include <QDialog>
 #include <QLabel>
 #include <QLineEdit>
@@ -12,13 +13,17 @@
 #include <QSlider>
 #include <QSpinBox>
 #include <QTabWidget>
+#include <QVariantList>
+#include <functional>
+#include <memory>
 
 class SettingsDialog : public QDialog {
     Q_OBJECT
 
   public:
     explicit SettingsDialog(QWidget* parent = nullptr);
-    ~SettingsDialog();
+
+    void reject() override;
 
   private slots:
     void onApplyClicked();
@@ -33,8 +38,18 @@ class SettingsDialog : public QDialog {
   private:
     void setupUI();
     void loadSettings();
-    void saveSettings();
+    QString applyRooms(const QDBusPendingCall& call, const QString& selectRoomID);
+
+    struct Setter {
+        QString method;
+        QVariantList args;
+        QString label;
+    };
+    void saveSettings(std::function<void()> onSaved);
+    void reportSaveComplete(const std::function<void()>& onSaved);
+    void runSetters(std::shared_ptr<QList<Setter>> queue, std::function<void()> onSaved);
     bool validateSettings();
+    void updateInputState();
 
     // UI Components
     QTabWidget* tabWidget;
@@ -77,7 +92,35 @@ class SettingsDialog : public QDialog {
     QPushButton* cancelButton;
 
     // DBus interface
-    QDBusInterface* dbusInterface;
+    HueBackend* backend;
+
+    /**
+     * In-flight DBus work. Closing during a save needs a confirmation: the
+     * setters go out one at a time, so a prefix of them is already persisted.
+     */
+    bool loading = false;
+    bool saving = false;
+    int readsInFlight = 0;
+
+    /**
+     * Set while the close confirmation is up. Its nested event loop still
+     * delivers the setter replies, so the save's own boxes and accept() would
+     * land on top of the prompt.
+     */
+    bool closePrompt = false;
+
+    /**
+     * Set once the close is confirmed. A reply can still be delivered between
+     * QDialog::reject() and the dialog being destroyed.
+     */
+    bool closing = false;
+
+    /**
+     * Outcome of a save that finished while the close prompt was up, replayed
+     * if the prompt is declined so the result is not lost.
+     */
+    QString pendingSaveError;
+    std::function<void()> pendingSaveDone;
 
     // Current values
     int currentFPS;
