@@ -39,7 +39,9 @@ type Service struct {
 	// goes false, all under mu, so a supervisor never outlives its game.
 	stopGamingSupervisor context.CancelCauseFunc
 	mu                   sync.RWMutex // Guards the gaming state; config has its own lock
-	ownerUID             uint32       // UID of the service owner for access control
+	// Serialises SetGamingMode's config write with its detector transition.
+	setGamingModeMu sync.Mutex
+	ownerUID        uint32 // UID of the service owner for access control
 	// callerUID resolves a DBus sender to its UID. Set to getCallerUID by
 	// NewService; a nil value (e.g. a directly-constructed Service in tests)
 	// makes checkAccess fail closed rather than allow or fall back.
@@ -987,6 +989,12 @@ func (s *Service) SetGamingMode(sender dbus.Sender, enabled bool) (bool, *dbus.E
 		return false, dbus.MakeFailedError(err)
 	}
 
+	// The config write and the detector have to move together, or a
+	// concurrent enable and disable can leave the config saying gaming mode
+	// is on with no detector running.
+	s.setGamingModeMu.Lock()
+	defer s.setGamingModeMu.Unlock()
+
 	err := s.config.Update(func(c *config.Config) {
 		c.GamingMode.Enabled = enabled
 	}, nil)
@@ -995,17 +1003,11 @@ func (s *Service) SetGamingMode(sender dbus.Sender, enabled bool) (bool, *dbus.E
 		return false, dbus.MakeFailedError(err)
 	}
 
-	// IMPORTANT: Actually start/stop the detector!
 	if enabled {
-		// Stop existing detector if running
-		s.StopGamingMode()
-
-		// Start new detector
 		s.InitGamingMode()
-		log.Println("[INFO] Gaming mode enabled - detector started")
 	} else {
 		s.disableGamingMode()
-		log.Println("[INFO] Gaming mode disabled - detector stopped")
+		log.Println("[INFO] Gaming mode disabled")
 	}
 
 	return true, nil
@@ -1030,12 +1032,23 @@ func (s *Service) IsGamingModeActive() (bool, *dbus.Error) {
 	return detector.IsGaming(), nil
 }
 
-// InitGamingMode initializes the gaming detector if enabled in config
-// Should be called from main() after service is created
+// InitGamingMode starts the gaming detector if the config enables it,
+// replacing any detector already running. The replacement is one critical
+// section: godbus dispatches each method call on its own goroutine, so a
+// detector replaced by a concurrent call would otherwise be left running and
+// never closed.
 func (s *Service) InitGamingMode() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	s.stopGamingModeLocked()
+	s.initGamingModeLocked()
+}
+
+// initGamingModeLocked is InitGamingMode's body. Callers hold s.mu and must
+// have stopped any detector already running, which this would otherwise leave
+// running and never close.
+func (s *Service) initGamingModeLocked() {
 	var gm config.GamingModeConfig
 	s.config.View(func(c *config.Config) {
 		gm = c.GamingMode
