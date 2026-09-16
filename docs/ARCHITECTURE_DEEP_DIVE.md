@@ -634,7 +634,6 @@ type Config struct {
     UsePowerProfile   bool // CachyOS secondary validation
     UseSteamAppId     bool // Steam-specific detection
     UseGameMode       bool // Feral GameMode (if installed)
-    UseFullscreen     bool // KWin fullscreen (unreliable)
 }
 ```
 
@@ -660,11 +659,6 @@ type Config struct {
    - Not installed by default on CachyOS
    - Fallback for other distros
 
-5. **KWin Fullscreen (Unreliable)**
-   - Checks for fullscreen windows
-   - Many false positives (video players, browsers)
-   - Disabled by default
-
 **Detection Flow:**
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -680,7 +674,7 @@ type Config struct {
 
 **Debouncing:**
 - Wait 5 seconds before triggering (configurable)
-- Prevents false positives from brief fullscreen
+- Prevents false positives from a game launched and closed again quickly
 - Smooth state transitions
 
 **Callback Integration:**
@@ -1102,7 +1096,7 @@ func (d *Detector) Stop() {
 ```
 
 **Debouncing Prevents:**
-- False positives from brief fullscreen
+- False positives from a game launched and closed again quickly
 - Rapid sync start/stop cycles
 - Battery drain from unnecessary sync
 
@@ -1467,19 +1461,14 @@ func (d *Detector) checkSteamAppId() bool {
 
 ### Aggregation Logic
 
-**CachyOS Optimized (Default):**
+`detectGaming` has one rule, whatever the distro. A detector disabled in the
+config is nil and drops out of it.
+
 ```go
 // Primary: systemd-inhibit (high confidence)
-// Secondary: power profile (validation)
-// Tertiary: Steam AppId (specific games)
-
-isGaming := (systemdInhibit && powerProfile) || steamAppId
-```
-
-**Generic Linux (Fallback):**
-```go
-// Use all available methods
-isGaming := systemdInhibit || powerProfile || steamAppId || gameMode || fullscreen
+// Secondary: power profile AND Steam AppId, which have to agree
+// Fallback: Feral GameMode
+isGaming := systemdInhibit || (powerProfile && steamAppId) || gameMode
 ```
 
 ### Debouncing Algorithm
@@ -1514,7 +1503,7 @@ func (db *Debouncer) Update(newState bool) bool {
 ```
 
 **Prevents:**
-- Brief fullscreen triggering sync (e.g., video player)
+- A game launched and closed again quickly triggering sync
 - Rapid start/stop cycles
 - False positives from window manager glitches
 
@@ -1561,7 +1550,6 @@ gamingMode:
   usePowerProfile: true      # CachyOS secondary
   useSteamAppId: true        # Steam games
   useGameMode: false         # Feral GameMode
-  useFullscreen: false       # KWin fullscreen (unreliable)
 
 # Entertainment API channel mapping
 channels:

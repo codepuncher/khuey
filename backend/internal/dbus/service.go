@@ -1072,7 +1072,6 @@ func (s *Service) initGamingModeLocked() {
 		UsePowerProfile:   gm.UsePowerProfile,
 		UseSteamAppId:     gm.UseSteamAppId,
 		UseGameMode:       gm.UseGameMode,
-		UseFullscreen:     gm.UseFullscreen,
 		InitiallyGaming:   s.gamingModeActive,
 	}
 

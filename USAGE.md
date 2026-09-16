@@ -53,7 +53,7 @@ The Settings Dialog provides a GUI to configure:
   - Higher = better color accuracy, more CPU usage
 - **Monitor**: Select which monitor to capture (default: primary monitor)
 - **Gaming Mode**: Automatically enable screen sync when gaming (disabled by default)
-  - Detects games using GameMode and fullscreen window detection
+  - Detects games using systemd-inhibit, power profile and Steam detection
   - Auto-starts sync when you launch a game
   - Auto-stops sync when you exit the game
   - Great for immersive gaming without manual toggling
@@ -128,19 +128,20 @@ Gaming Mode automatically detects when you're playing games and enables screen s
 
 ### How It Works
 
-Gaming Mode uses two detection methods:
+Gaming Mode uses three detection methods:
 
-1. **GameMode Detection** (Primary)
-   - Detects games launched with GameMode (Steam, Lutris, etc.)
-   - Most modern games automatically use GameMode on Linux
-   - Very reliable and game-specific
+1. **systemd-inhibit** (Primary)
+   - Matches `systemd-inhibit --list` against the game-performance lock
+   - A game started without that wrapper takes no lock and is not seen here
 
-2. **Fullscreen Detection** (Secondary)
-   - Detects any fullscreen window via KWin
-   - Catches games that don't use GameMode
-   - Provides fallback coverage
+2. **Power Profile + Steam AppId** (Secondary)
+   - Requires both the "performance" power profile and a running Steam game
+   - Both have to agree, which keeps false positives down
 
-**Debouncing**: Waits 5 seconds after detection before triggering to avoid false positives from alt-tabbing.
+3. **Feral GameMode** (Fallback)
+   - Off by default; enable with `useGameMode`
+
+**Debouncing**: Waits 5 seconds after detection before triggering, so a game launched and closed again inside that window does not start sync.
 
 ### Status Indicator
 
@@ -157,26 +158,27 @@ gamingMode:
   enabled: false          # Feature toggle
   pollInterval: 2         # How often to check (seconds)
   debounceDelay: 5        # Wait before triggering (seconds)
-  useGameMode: true       # Check GameMode DBus
-  useFullscreen: true     # Check KWin fullscreen
+  useSystemdInhibit: true # Check the systemd-inhibit game lock
+  usePowerProfile: true   # Check the power profile
+  useSteamAppId: true     # Check for a running Steam game
+  useGameMode: false      # Check GameMode DBus
 ```
 
 ### Troubleshooting
 
 **Gaming mode not detecting my game:**
-- Check if the game uses GameMode: `gamemoded -s`
-- Verify the game runs in fullscreen (not windowed/borderless)
+- Check the inhibitor lock is taken: `systemd-inhibit --list | grep -i game`
+- Check the power profile switches: `powerprofilesctl get`
 - Check backend logs: `journalctl --user -u hue-backend -f`
-- Try launching game with GameMode: `gamemoderun ./game`
 
-**False positives (video players, etc.):**
-- Debouncing helps reduce flicker
-- Future: Window class filtering will be added
+**False positives:**
+- Increase `debounceDelay` to 10+ seconds
+- Disable `usePowerProfile` and `useSteamAppId` to rely on systemd-inhibit alone
 
 **Gaming mode not working at all:**
 - Ensure Entertainment API is configured (required for screen sync)
-- Check if GameMode is installed: `which gamemoded`
-- Verify KWin is running: `qdbus org.kde.KWin`
+- Ensure `gamingMode.enabled: true` in the config
+- Check at least one detection method is enabled
 
 ### Performance
 
@@ -271,11 +273,6 @@ The app uses multiple detection methods to identify gaming activity:
 - Many games use GameMode for optimization
 - Lower priority than CachyOS detection
 
-**4. KWin Fullscreen** (Legacy Fallback)
-- Detects fullscreen windows
-- Unreliable on Wayland (many false positives)
-- Lowest priority - only used if other methods unavailable
-
 ### Setup
 
 **Option 1: Via Settings Dialog (Recommended)**
@@ -298,7 +295,6 @@ gamingMode:
   usePowerProfile: true          # Power profile validation
   useSteamAppId: true            # Steam-specific detection
   useGameMode: false             # Feral GameMode (if installed)
-  useFullscreen: false           # KWin fullscreen (unreliable)
 ```
 
 **Option 3: Via DBus Command**
@@ -350,8 +346,8 @@ When no game is running:
 4. Notification: "🎮 Gaming stopped - stopping screen sync"
 
 **Debouncing prevents false triggers:**
-- Quick alt-tabs don't trigger sync
-- Minimizing to desktop briefly won't stop sync
+- A game launched and closed again inside the debounce window doesn't trigger sync
+- A brief detection dropout won't stop sync
 - Only sustained gaming activity triggers auto-sync
 
 ### Troubleshooting
@@ -365,7 +361,6 @@ When no game is running:
 
 **On other distros:**
 - Install GameMode for better detection: `sudo pacman -S gamemode`
-- Or use fullscreen detection (enable `useFullscreen: true` in config)
 
 **Check detection status:**
 ```bash
@@ -378,7 +373,7 @@ journalctl --user -u hue-backend -f
 ```
 
 **False activations?**
-- Debouncing prevents quick alt-tabs from triggering
+- Debouncing prevents brief detections from triggering
 - Power profile check reduces false positives from non-gaming "performance" usage
 - If still happening, increase `debounceDelay` to 10 seconds
 
@@ -409,7 +404,6 @@ You can always manually start/stop screen sync from the tray app regardless of g
 **Other Distros:**
 - Steam games (via AppId detection)
 - Games that use GameMode (if installed)
-- Fullscreen games (unreliable on Wayland)
 
 ### Performance Impact
 

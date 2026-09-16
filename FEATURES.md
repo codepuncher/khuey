@@ -142,7 +142,6 @@ gamingMode:
 
   # Legacy detection (fallback)
   useGameMode: false         # Feral GameMode (if installed)
-  useFullscreen: false       # KWin fullscreen (unreliable on Wayland)
 ```
 
 ### Detection Methods
@@ -169,11 +168,6 @@ gamingMode:
 - Requires Feral GameMode installed
 - Fallback for non-CachyOS systems
 
-#### 5. KWin Fullscreen (Legacy)
-- Detects fullscreen windows via KWin DBus
-- **Unreliable on Wayland** - many apps use fullscreen
-- Disabled by default
-
 ### How It Works
 
 ```
@@ -181,7 +175,7 @@ Game starts → Detection(s) trigger → Debounce delay (5s) → Screen sync sta
 Game exits  → Detection(s) clear   → Debounce delay (5s) → Screen sync stops
 ```
 
-The debounce delay prevents flickering from brief alt-tabs or loading screens.
+The debounce delay prevents flickering from brief detection changes.
 
 ### Testing Detection
 
@@ -217,9 +211,8 @@ Gaming Mode respects manual control:
 4. Verify game is actually running: `ps aux | grep <game-name>`
 
 **False positives?**
-1. Disable `useFullscreen` (most common cause)
-2. Increase `debounceDelay` to 10+ seconds
-3. Rely only on systemd-inhibit + Steam detection
+1. Increase `debounceDelay` to 10+ seconds
+2. Rely on systemd-inhibit alone by disabling `usePowerProfile`, `useSteamAppId` and `useGameMode`
 
 ---
 

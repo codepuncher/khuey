@@ -33,7 +33,6 @@ gamingMode:
   usePowerProfile: true
   useSteamAppId: true
   useGameMode: false
-  useFullscreen: false
 ui:
   icons:
     gaming: "applications-games"

@@ -31,9 +31,6 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.UseGameMode {
 		t.Error("Expected GameMode detection disabled by default")
 	}
-	if cfg.UseFullscreen {
-		t.Error("Expected fullscreen detection disabled by default")
-	}
 }
 
 func TestDetectorCreation(t *testing.T) {
@@ -63,10 +60,9 @@ func TestDetectorCreation(t *testing.T) {
 
 func TestDetectorStartStop(t *testing.T) {
 	cfg := Config{
-		PollInterval:  100 * time.Millisecond,
-		DebounceDelay: 500 * time.Millisecond,
-		UseGameMode:   true,
-		UseFullscreen: true,
+		PollInterval:      100 * time.Millisecond,
+		DebounceDelay:     500 * time.Millisecond,
+		UseSystemdInhibit: true,
 	}
 
 	detector, err := NewDetector(cfg, nil)
@@ -101,10 +97,9 @@ func TestDetectorStartStop(t *testing.T) {
 
 func TestDetectorCallback(t *testing.T) {
 	cfg := Config{
-		PollInterval:  50 * time.Millisecond,
-		DebounceDelay: 100 * time.Millisecond,
-		UseGameMode:   true,
-		UseFullscreen: true,
+		PollInterval:      50 * time.Millisecond,
+		DebounceDelay:     100 * time.Millisecond,
+		UseSystemdInhibit: true,
 	}
 
 	detector, err := NewDetector(cfg, func(isGaming bool) {
@@ -121,7 +116,7 @@ func TestDetectorCallback(t *testing.T) {
 	defer detector.Close()
 
 	// Note: This test doesn't actually verify callback is called
-	// because we'd need to mock GameMode/KWin DBus calls
+	// because we'd need to mock what the detectors shell out to
 	// The test just verifies the structure is set up correctly
 	if detector.callback == nil {
 		t.Error("Expected callback to be set")
@@ -137,7 +132,6 @@ func TestDetectorWithDisabledMethods(t *testing.T) {
 		UsePowerProfile:   false,
 		UseSteamAppId:     false,
 		UseGameMode:       false,
-		UseFullscreen:     false,
 	}
 
 	detector, err := NewDetector(cfg, nil)
@@ -238,29 +232,6 @@ func TestPowerProfileDetector(t *testing.T) {
 	// Will return false unless performance mode is active
 	isPerfMode := detector.IsPerformanceMode()
 	_ = isPerfMode // Just verify it doesn't panic
-}
-
-// TestKWinDetector tests KWin fullscreen detection
-func TestKWinDetector(t *testing.T) {
-	detector, err := NewKWinDetector()
-	if err != nil {
-		t.Skip("KWin DBus not available (expected in test environment)")
-	}
-	defer detector.Close()
-
-	// IsFullscreenActive should not panic
-	// In test environment, likely returns false
-	isFullscreen := detector.IsFullscreenActive()
-	_ = isFullscreen // Just verify it doesn't panic
-}
-
-// TestKWinDetectorNilConn tests KWin detector with nil connection
-func TestKWinDetectorNilConn(t *testing.T) {
-	detector := &KWinDetector{conn: nil}
-	isFullscreen := detector.IsFullscreenActive()
-	if isFullscreen {
-		t.Error("Expected not fullscreen with nil connection")
-	}
 }
 
 // TestDetectorStartsFromInitialState covers a detector replacing one that had
