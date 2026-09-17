@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime/debug"
+	"strings"
 	"syscall"
 
 	"github.com/codepuncher/khuey/internal/config"
@@ -52,14 +53,14 @@ func versionString() string {
 	return version + "-" + revision
 }
 
-func printUsage(w io.Writer, flags *flag.FlagSet) {
-	fmt.Fprintf(w, "Usage: %s [--help] [--version]\n\n", flags.Name())
-	fmt.Fprintln(w, "Runs the khuey backend on the DBus session bus as org.kde.plasma.hue.")
-	fmt.Fprintln(w)
-	fmt.Fprintln(w, "Options:")
-	flags.SetOutput(w)
+func usage(flags *flag.FlagSet) string {
+	var defaults strings.Builder
+	flags.SetOutput(&defaults)
 	flags.PrintDefaults()
 	flags.SetOutput(io.Discard)
+	return fmt.Sprintf("Usage: %s [--help] [--version]\n\n"+
+		"Runs the khuey backend on the DBus session bus as org.kde.plasma.hue.\n\n"+
+		"Options:\n%s", flags.Name(), defaults.String())
 }
 
 // parseArgs exits for --help, --version and invalid input so none of them
@@ -71,17 +72,17 @@ func parseArgs() {
 
 	err := flags.Parse(os.Args[1:])
 	if errors.Is(err, flag.ErrHelp) {
-		printUsage(os.Stdout, flags)
+		fmt.Print(usage(flags))
 		os.Exit(0)
 	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s: %v\n", flags.Name(), err)
-		printUsage(os.Stderr, flags)
+		fmt.Fprint(os.Stderr, usage(flags))
 		os.Exit(2)
 	}
 	if flags.NArg() > 0 {
 		fmt.Fprintf(os.Stderr, "%s: unexpected argument %q\n", flags.Name(), flags.Arg(0))
-		printUsage(os.Stderr, flags)
+		fmt.Fprint(os.Stderr, usage(flags))
 		os.Exit(2)
 	}
 	if *showVersion {
