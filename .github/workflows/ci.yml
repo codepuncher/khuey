@@ -13,10 +13,10 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
       
     - name: Set up Go
-      uses: actions/setup-go@v5
+      uses: actions/setup-go@v7
       with:
         go-version: '1.25'
         
@@ -26,7 +26,7 @@ jobs:
         sudo apt-get install -y libpipewire-0.3-dev pkg-config
         
     - name: Cache Go modules
-      uses: actions/cache@v4
+      uses: actions/cache@v6
       with:
         path: ~/go/pkg/mod
         key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
@@ -55,9 +55,9 @@ jobs:
       run: CGO_CFLAGS_ALLOW='-fno-strict-overflow' go test -v -race -coverprofile=coverage.out ./...
       
     - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v4
+      uses: codecov/codecov-action@v7
       with:
-        file: backend/coverage.out
+        files: backend/coverage.out
         flags: backend
         fail_ci_if_error: false
       env:
@@ -81,10 +81,10 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
       
     - name: Set up Go
-      uses: actions/setup-go@v5
+      uses: actions/setup-go@v7
       with:
         go-version: '1.25'
         
@@ -98,7 +98,7 @@ jobs:
       run: CGO_CFLAGS_ALLOW='-fno-strict-overflow' go build -v -o hue-sync ./cmd/hue-sync
       
     - name: Upload backend binary
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: hue-sync-binary
         path: backend/hue-sync
@@ -112,7 +112,7 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
       
     - name: Install dependencies
       run: |
@@ -136,7 +136,7 @@ jobs:
         make -C build
         
     - name: Upload tray binary
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: hue-tray-binary
         path: trayapp/build/hue-tray
@@ -148,10 +148,10 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
       
     - name: Set up Go
-      uses: actions/setup-go@v5
+      uses: actions/setup-go@v7
       with:
         go-version: '1.25'
         
