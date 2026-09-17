@@ -44,7 +44,7 @@ jobs:
 
     - name: Build backend
       working-directory: backend
-      run: CGO_CFLAGS_ALLOW='-fno-strict-overflow' go build -v -o hue-sync ./cmd/hue-sync
+      run: CGO_CFLAGS_ALLOW='-fno-strict-overflow' go build -v -ldflags "-X main.version=${GITHUB_REF_NAME#v}" -o hue-sync ./cmd/hue-sync
       
     - name: Build tray app
       working-directory: trayapp
