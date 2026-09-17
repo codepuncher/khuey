@@ -619,79 +619,77 @@ func ExtractZone(img image.Image, uvA, uvB UV, gamma float32) RGBColor {
 **Key Types:**
 ```go
 type Detector struct {
-    cfg            Config
-    isGaming       bool
-    callback       func(bool) // Called on state change
-    stopChan       chan struct{}
-    detectionChans []chan bool // Buffered channels for detection methods
-    mu             sync.RWMutex
+    systemdDetector      *SystemdDetector
+    powerProfileDetector *PowerProfileDetector
+    steamDetector        *SteamDetector
+    gameMode             *GameModeDetector
+
+    callback  StateChangeCallback
+    isRunning bool
+    stopChan  chan struct{}
+    mu        sync.RWMutex
+
+    pollInterval      time.Duration
+    debounceDelay     time.Duration
+    useSystemdInhibit bool
+    usePowerProfile   bool
+    useSteamAppId     bool
+    useGameMode       bool
+
+    currentState      bool      // State last reported, or InitiallyGaming
+    pendingState      bool      // State waiting for the debounce
+    stateChangedAt    time.Time // When pendingState was first seen
+    debounceTriggered bool
 }
 
 type Config struct {
     PollInterval      time.Duration
     DebounceDelay     time.Duration
-    UseSystemdInhibit bool // CachyOS primary detection
-    UsePowerProfile   bool // CachyOS secondary validation
-    UseSteamAppId     bool // Steam-specific detection
-    UseGameMode       bool // Feral GameMode (if installed)
+    UseSystemdInhibit bool
+    UsePowerProfile   bool
+    UseSteamAppId     bool
+    UseGameMode       bool
+    InitiallyGaming   bool // Seeds a detector that replaces one mid-game
 }
 ```
 
+A check turned off in `Config` leaves its detector nil. `NewDetector` returns
+`nil, nil` when all four are nil.
+
 **Detection Methods (Priority Order):**
 
-1. **systemd-inhibit (Primary for CachyOS)**
-   - Checks for `systemd-inhibit` locks
-   - Games use inhibitors to prevent sleep
-   - Most reliable method
+1. **systemd-inhibit (Primary):** the lock CachyOS's `game-performance` wrapper takes
+2. **Power Profile + Steam AppId (Secondary):** both have to be true
+3. **Feral GameMode (Fallback):** `QueryStatus` on the session bus, off by default
 
-2. **Power Profile (Secondary Validation)**
-   - Checks if power profile is "performance"
-   - CachyOS switches to performance when gaming
-   - Validates systemd-inhibit detection
-
-3. **Steam AppId Detection**
-   - Checks running processes for Steam game IDs
-   - Uses CachyOS game database
-   - High accuracy for Steam games
-
-4. **Feral GameMode (Legacy)**
-   - Checks for gamemode daemon
-   - Not installed by default on CachyOS
-   - Fallback for other distros
+[Gaming Mode Detection](#gaming-mode-detection) has the details of each.
 
 **Detection Flow:**
 ```
-┌─────────────────────────────────────────────────────────────┐
-│ Detector.Start()                                            │
-│  └─> Launch detection goroutines                            │
-│       ├─> systemdInhibitDetector() → chan bool              │
-│       ├─> powerProfileDetector() → chan bool                │
-│       ├─> steamAppIdDetector() → chan bool                  │
-│       └─> aggregateDetections() ← all chans                 │
-│            └─> Debounce logic → callback(isGaming)          │
-└─────────────────────────────────────────────────────────────┘
+Detector.Start()
+ └─> go monitorLoop(stopChan)              one goroutine per run
+      └─> every PollInterval: checkGamingState()
+           ├─> detectGaming()              runs the checks one after another
+           └─> debounce under Detector.mu
+                └─> go callback(isGaming)  once per confirmed change
 ```
 
 **Debouncing:**
-- Wait 5 seconds before triggering (configurable)
-- Prevents false positives from a game launched and closed again quickly
-- Smooth state transitions
+- A result that differs from the reported state starts the timer
+- The callback fires on the first poll at least `DebounceDelay` later, if the result still differs
+- A poll that matches the reported state again drops the pending change
+- With the defaults (2 s poll, 5 s delay) a change is reported 6 s after the first poll that sees it
 
 **Callback Integration:**
-```go
-// In DBus service
-detector.SetCallback(func(isGaming bool) {
-    if isGaming && !s.syncEngine.IsRunning() {
-        s.syncEngine.Start()
-        s.gamingModeActive = true
-        log.Println("🎮 Game detected - sync started")
-    } else if !isGaming && s.gamingModeActive {
-        s.syncEngine.Stop()
-        s.gamingModeActive = false
-        log.Println("🎮 Game ended - sync stopped")
-    }
-})
-```
+
+`initGamingModeLocked` (`internal/dbus/service.go`) creates the detector only
+when `gamingMode.enabled` is set and the sync engine exists, which needs the
+Entertainment API configured. The callback calls
+`onGamingStateChanged(detector, isGaming)`:
+
+- **Game started:** ignored unless it comes from the current detector. If gaming mode doesn't already own sync, it sets `gamingModeActive`, starts sync through `startSyncForGaming` and runs `superviseGamingSync`. When sync is already running, gaming mode takes that session over.
+- **Game ended:** accepted from any detector. It cancels the supervisor, then stops sync if gaming mode owned it.
+- **Supervisor:** polls every 2 s and restarts a session that ended with a recorded failure, up to 3 attempts, waiting 5 s after the first and doubling. A minute of healthy running restores the budget. A manual `StopSync` clears the failure, so sync stays stopped until the game ends.
 
 ---
 
@@ -1054,51 +1052,49 @@ func (d *Detector) Stop() {
 
 ```
 ┌──────────────┐
-│   DISABLED   │ Gaming mode off in config
+│   DISABLED   │ gamingMode.enabled false, no sync engine, or no check available
 └──────┬───────┘
        │
-       │ SetGamingMode(true)
+       │ Startup with enabled set, or SetGamingMode(true)
        ▼
 ┌──────────────────────┐
-│   MONITORING         │ Polling for games
-│   • Check processes  │ Every 2 seconds
-│   • Check inhibitors │
-└──────┬───────────────┘
-       │
-       │ Game detected
-       ▼
-┌──────────────────────┐
-│   DEBOUNCING         │ Waiting to confirm
-│   • Wait 5 seconds   │ (prevent false positive)
-└──────┬───────────────┘
-       │
-       │ Still gaming after delay
-       ▼
-┌──────────────────────┐
-│   GAMING_ACTIVE      │ Sync started automatically
-│   • Sync running     │ ◄─────┐
-│   • Icon: gaming     │       │
-└──────┬───────────────┘       │ Game still running
-       │                       │
-       │ Game ended            │
-       ▼                       │
-┌──────────────────────┐       │
-│   COOLDOWN           │───────┘ Re-check
-│   • Wait 5 seconds   │
-└──────┬───────────────┘
-       │
-       │ Confirmed game ended
-       ▼
-┌──────────────────────┐
-│   MONITORING         │ Back to polling
-│   (Sync stopped)     │
-└──────────────────────┘
+│   IDLE               │◄──────────────────────────┐
+│   • Polls every 2 s  │                           │
+└──────┬───────────────┘                           │
+       │                                           │
+       │ detectGaming() true                       │
+       ▼                                           │
+┌──────────────────────┐   false again             │
+│   PENDING START      │───────────────────────────┤
+│   • Waits 6 s        │                           │
+└──────┬───────────────┘                           │
+       │                                           │
+       │ Still true after the delay                │
+       ▼                                           │
+┌──────────────────────┐                           │
+│   GAMING             │ callback(true)            │
+│   • Sync started     │◄──────────┐               │
+│   • Supervisor runs  │           │ true again    │
+└──────┬───────────────┘           │               │
+       │                           │               │
+       │ detectGaming() false      │               │
+       ▼                           │               │
+┌──────────────────────┐           │               │
+│   PENDING STOP       │───────────┘               │
+│   • Waits 6 s        │                           │
+└──────┬───────────────┘                           │
+       │                                           │
+       │ Still false after the delay:              │
+       │ callback(false), sync stopped             │
+       └───────────────────────────────────────────┘
 ```
 
-**Debouncing Prevents:**
-- False positives from a game launched and closed again quickly
-- Rapid sync start/stop cycles
-- Battery drain from unnecessary sync
+`SetGamingMode(false)` returns to DISABLED from any state. It stops the
+detector and the supervisor and leaves a running session running, no longer
+owned by gaming mode.
+
+The tray shows the gaming icon while sync runs and `IsGamingModeActive` is
+true. That method returns the current detection result without the debounce.
 
 ---
 
@@ -1357,107 +1353,66 @@ func (d *Detector) Stop() {
 
 ### Detection Architecture
 
+`detectGaming` runs on the `monitorLoop` goroutine. It calls the enabled checks
+one after another and returns at the first that holds:
+
 ```
-┌────────────────────────────────────────────────────────────────┐
-│                    Gaming Detector                             │
-│                                                                │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐         │
-│  │ Detector 1   │  │ Detector 2   │  │ Detector 3   │         │
-│  │ systemd-     │  │ Power        │  │ Steam        │         │
-│  │ inhibit      │  │ Profile      │  │ AppId        │         │
-│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘         │
-│         │                 │                 │                  │
-│         │ chan bool       │ chan bool       │ chan bool        │
-│         │ (buffered)      │ (buffered)      │ (buffered)       │
-│         └─────────┬───────┴─────────┬───────┘                  │
-│                   │                 │                          │
-│                   ▼                 ▼                          │
-│         ┌──────────────────────────────────┐                   │
-│         │   Aggregator                     │                   │
-│         │   • Collect results              │                   │
-│         │   • Apply logic (AND/OR)         │                   │
-│         │   • Debounce (5 seconds)         │                   │
-│         └────────────┬─────────────────────┘                   │
-│                      │                                         │
-│                      ▼                                         │
-│         ┌──────────────────────────────────┐                   │
-│         │   Callback: onGamingStateChanged │                   │
-│         │   • Start/stop screen sync       │                   │
-│         │   • Update tray icon             │                   │
-│         └──────────────────────────────────┘                   │
-└────────────────────────────────────────────────────────────────┘
+systemdDetector.IsActive()                   true ──► gaming
+powerProfileDetector.IsPerformanceMode()
+  && steamDetector.IsActive()                true ──► gaming
+gameMode.IsActive()                          true ──► gaming
+                                             otherwise not gaming
 ```
+
+Each check execs a command or makes a DBus call, so a poll takes as long as
+the checks it reaches.
 
 ### Detection Methods (Technical Details)
 
-**1. systemd-inhibit (Primary)**
-```bash
-# Check for inhibit locks
-systemd-inhibit --list --no-pager | grep -i "idle"
+**1. systemd-inhibit (Primary)**, `systemd.go`
 
-# Example output when gaming:
-#  WHO           UID USER       PID COMM        WHAT   WHY                     MODE
-#  Steam        1000 user      1234 steam       idle   Steam is running game   block
+`game-performance` runs the game under `systemd-inhibit --why "CachyOS
+game-performance is running"`, which lists as:
+
+```
+WHO        UID  USER PID    COMM            WHAT                WHY                                 MODE
+<command>  1000 user 221404 systemd-inhibit shutdown:sleep:idle CachyOS game-performance is running block
 ```
 
-**Implementation:**
-```go
-func (d *Detector) checkSystemdInhibit() bool {
-    cmd := exec.Command("systemd-inhibit", "--list", "--no-pager")
-    output, err := cmd.Output()
-    if err != nil {
-        return false
-    }
+`IsActive` runs `systemd-inhibit --list` and returns true when:
+- the whole output, lowercased, contains both `cachyos` and `game`
+- the output contains `game-performance`
+- any line, lowercased, contains `game` or `gaming` together with `block`
 
-    // Look for idle inhibitors (games prevent idle)
-    return strings.Contains(string(output), "idle") &&
-           strings.Contains(string(output), "block")
-}
-```
+With `GAME_PERFORMANCE_SCREENSAVER_ON` set, `game-performance` skips the lock
+and only sets the power profile. When `powerprofilesctl list` has no
+`performance` profile, it runs the game with neither.
 
-**2. Power Profile (Secondary)**
-```bash
-# Check power profile
-powerprofilesctl get
+**2. Power Profile (Secondary)**, `powerprofile.go`
 
-# Returns: "performance" when gaming
-```
+`IsPerformanceMode` runs `powerprofilesctl get` and compares the trimmed output
+with `performance`. `game-performance` starts the game under
+`powerprofilesctl launch -p performance`, which holds that profile until the
+game exits. A profile set by hand reads the same, which is why this check only
+counts together with Steam AppId.
 
-**Implementation:**
-```go
-func (d *Detector) checkPowerProfile() bool {
-    cmd := exec.Command("powerprofilesctl", "get")
-    output, err := cmd.Output()
-    if err != nil {
-        return false
-    }
+**3. Steam AppId (Secondary)**, `steam.go`
 
-    return strings.TrimSpace(string(output)) == "performance"
-}
-```
+`IsActive` runs `pgrep -a reaper` and returns true when the output contains
+`AppId=`. Steam starts each game as `reaper SteamLaunch AppId=<id> -- ...`.
+`pgrep` also lists the kernel's `oom_reaper` thread, whose line has no
+`AppId=`.
 
-**3. Steam AppId Detection**
-```bash
-# Check running processes for Steam games
-ps aux | grep -E "steam_app_[0-9]+"
+**4. Feral GameMode (Fallback)**, `gamemode.go`
 
-# Example: steam_app_730 (Counter-Strike: Global Offensive)
-```
-
-**Implementation:**
-```go
-func (d *Detector) checkSteamAppId() bool {
-    cmd := exec.Command("ps", "aux")
-    output, err := cmd.Output()
-    if err != nil {
-        return false
-    }
-
-    // Match pattern: steam_app_NNNNNN
-    matched, _ := regexp.Match(`steam_app_\d+`, output)
-    return matched
-}
-```
+`NewGameModeDetector` connects to the session bus, where gamemoded runs per
+user. `IsActive` calls `com.feralinteractive.GameMode.QueryStatus(0)` on
+`/com/feralinteractive/GameMode` and returns true when the result is above 0,
+which it is while any client holds GameMode. The call passes
+`dbus.FlagNoAutoStart`, so polling never starts gamemoded; with the daemon not
+running the call fails and the check is false. gamemoded drops a client that
+exits without unregistering on its next reaper pass, 5 s apart by default, so
+the check can stay true that long after a game crashes.
 
 ### Aggregation Logic
 
@@ -1473,39 +1428,43 @@ isGaming := systemdInhibit || (powerProfile && steamAppId) || gameMode
 
 ### Debouncing Algorithm
 
+`checkGamingState` keeps the debounce in the detector's own fields, under
+`Detector.mu`:
+
 ```go
-type Debouncer struct {
-    delay       time.Duration // 5 seconds
-    lastState   bool
-    lastChange  time.Time
-    confirmed   bool
-}
+func (d *Detector) checkGamingState() {
+    isGaming := d.detectGaming()
 
-func (db *Debouncer) Update(newState bool) bool {
-    now := time.Now()
+    d.mu.Lock()
+    defer d.mu.Unlock()
 
-    if newState != db.lastState {
-        // State changed - start debounce timer
-        db.lastState = newState
-        db.lastChange = now
-        db.confirmed = false
-        return db.lastConfirmed
+    if isGaming != d.currentState {
+        if isGaming != d.pendingState {
+            d.pendingState = isGaming
+            d.stateChangedAt = time.Now()
+            d.debounceTriggered = false
+            return
+        }
+
+        if !d.debounceTriggered && time.Since(d.stateChangedAt) >= d.debounceDelay {
+            d.currentState = isGaming
+            d.debounceTriggered = true
+            if d.callback != nil {
+                go d.callback(isGaming)
+            }
+        }
+    } else {
+        if d.pendingState != d.currentState {
+            d.pendingState = d.currentState
+            d.debounceTriggered = false
+        }
     }
-
-    if !db.confirmed && now.Sub(db.lastChange) >= db.delay {
-        // State stable for delay duration - confirm change
-        db.confirmed = true
-        return newState
-    }
-
-    return db.lastConfirmed
 }
 ```
 
-**Prevents:**
-- A game launched and closed again quickly triggering sync
-- Rapid start/stop cycles
-- False positives from window manager glitches
+The callback runs on its own goroutine, so a slow `StartSync` doesn't hold up
+polling. Two callbacks can then run at once, and `onGamingStateChanged` is
+written for a game-ended call finishing before the game-started one.
 
 ---
 

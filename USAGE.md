@@ -146,8 +146,10 @@ Gaming Mode uses three detection methods:
 ### Status Indicator
 
 When gaming mode is active and syncing, you'll see:
-- **Control Panel**: "✅ Syncing (Gaming Mode 🎮)"
-- **Backend Logs**: "🎮 Gaming detected - starting screen sync"
+- **Tray Icon**: the gaming icon (`applications-games` by default)
+- **Tooltip**: "Gaming Mode Active - Syncing to screen"
+- **Control Panel**: "Screen sync active  •  30 FPS (Gaming)"
+- **Backend Logs**: "[INFO] Gaming detected - starting screen sync"
 
 ### Configuration Options
 
