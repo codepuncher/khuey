@@ -136,9 +136,9 @@ gamingMode:
   debounceDelay: 5           # Wait N seconds before triggering
 
   # CachyOS-optimized detection (recommended)
-  useSystemdInhibit: true    # PRIMARY: systemd-inhibit check
-  usePowerProfile: true      # SECONDARY: power profile validation
-  useSteamAppId: true        # Steam-specific detection
+  useSystemdInhibit: true    # PRIMARY: systemd-inhibit lock
+  usePowerProfile: true      # SECONDARY: needs useSteamAppId too
+  useSteamAppId: true        # SECONDARY: needs usePowerProfile too
 
   # Legacy detection (fallback)
   useGameMode: false         # Feral GameMode (if installed)
@@ -146,69 +146,79 @@ gamingMode:
 
 ### Detection Methods
 
-#### 1. systemd-inhibit (CachyOS Primary)
-- Detects games via system idle inhibitor locks
-- Most reliable on CachyOS and modern systemd distros
-- Checks `/proc/<pid>/comm` for game processes
+Every `pollInterval` seconds the backend runs the enabled checks and treats the
+system as gaming when this holds:
 
-**Games detected:** Steam games, native Linux games, Wine/Proton games
+```
+systemd-inhibit || (power profile && Steam AppId) || GameMode
+```
 
-#### 2. Power Profile (CachyOS Secondary)
-- Validates gaming state via `power-profiles-daemon`
-- Checks if profile is set to "performance"
-- Works with CachyOS's automatic profile switching
+A check turned off in the config counts as false. Turning off either
+`usePowerProfile` or `useSteamAppId` turns off the second term.
 
-#### 3. Steam AppId Detection
-- Detects Steam games via `STEAM_GAME` environment variable
-- Reads `/proc/<pid>/environ` for Steam processes
-- Catches games launched directly from Steam
+#### 1. systemd-inhibit (Primary)
+- Runs `systemd-inhibit --list` and looks for the lock CachyOS's `game-performance` wrapper takes, or any lock that mentions "game" or "gaming" in `block` mode
+- Start the game through the wrapper: `game-performance <command>`, or `game-performance %command%` as a Steam launch option
+- A game started without a wrapper takes no lock and is not seen by this check
+- `game-performance` takes no lock when `GAME_PERFORMANCE_SCREENSAVER_ON` is set; it still switches the power profile
+- `game-performance` runs the game unchanged, with no lock and no profile switch, when `powerprofilesctl list` has no `performance` profile
 
-#### 4. Feral GameMode (Legacy)
-- Checks if `gamemoded` is running
-- Requires Feral GameMode installed
-- Fallback for non-CachyOS systems
+#### 2. Power Profile + Steam AppId (Secondary)
+- Power profile: `powerprofilesctl get` returns `performance`. `game-performance` sets it for as long as the game runs
+- Steam AppId: `pgrep -a reaper` shows a command line containing `AppId=`. Steam starts each game under `reaper SteamLaunch AppId=<id>`
+- Both have to be true together. A performance profile set by hand, or a Steam game without it, is not enough
+
+#### 3. Feral GameMode (Fallback)
+- Off by default; enable with `useGameMode`
+- Calls `QueryStatus` on gamemoded's session bus interface (`com.feralinteractive.GameMode`) and is true while any client holds GameMode, e.g. a game started with `gamemoderun`
+- Does not start gamemoded; when it isn't running, this check is false
 
 ### How It Works
 
 ```
-Game starts → Detection(s) trigger → Debounce delay (5s) → Screen sync starts
-Game exits  → Detection(s) clear   → Debounce delay (5s) → Screen sync stops
+Game starts → Detection(s) trigger → Debounce delay → Screen sync starts
+Game exits  → Detection(s) clear   → Debounce delay → Screen sync stops
 ```
 
-The debounce delay prevents flickering from brief detection changes.
+The new state has to hold for `debounceDelay` seconds, measured from the first
+poll that sees it and checked on each later poll. With the defaults a change
+takes effect 6 seconds after it is first seen. The delay keeps a brief detection
+change from starting or stopping sync.
 
 ### Testing Detection
 
 ```bash
-# Check current gaming state
+# Current detection result, without the debounce
 dbus-send --session --print-reply --dest=org.kde.plasma.hue \
-  /org/kde/plasma/hue org.kde.plasma.hue.IsGaming
+  /org/kde/plasma/hue org.kde.plasma.hue.IsGamingModeActive
 
-# Check detector status
-journalctl --user -u hue-backend -f | grep "Gaming"
+# Watch state changes
+journalctl --user -u hue-backend -f | grep -i gaming
 ```
 
 **Example log output:**
 ```
-🎮 Gaming state change detected: false → true (waiting for debounce)
-🎮 Gaming state changed: true (debounced after 5.002s)
-🎮 Gaming detected - starting screen sync
-✅ Screen sync enabled for immersive gaming
+[INFO] Gaming state change detected: false → true (waiting for debounce)
+[INFO] Gaming state changed: true (debounced after 6.000392601s)
+[INFO] Gaming detected - starting screen sync
+[INFO] Screen sync enabled for immersive gaming
 ```
 
 ### Manual Override
 
 Gaming Mode respects manual control:
-- If you manually stop sync, it won't auto-start again until you restart the backend
+- If you stop sync by hand while a game is detected, it stays stopped until that game ends; the next game starts it again
 - Manual start sync works even with Gaming Mode disabled
+- If sync is already running when a game is detected, Gaming Mode takes it over and stops it when the game ends
 
-### Troubleshoments
+### Troubleshooting
 
 **Gaming not detected?**
-1. Check detection methods are enabled in config
-2. Enable more detectors (especially systemd-inhibit + Steam AppId)
-3. Check logs: `journalctl --user -u hue-backend -f | grep Gaming`
-4. Verify game is actually running: `ps aux | grep <game-name>`
+1. Check `enabled` and the detection methods in the config
+2. Gaming Mode needs the Entertainment API configured; without it the log shows `Gaming mode requires Entertainment API configuration`
+3. Check the game holds a lock: `systemd-inhibit --list | grep -i game`. If not, start it through `game-performance`, which needs `powerprofilesctl list` to show a `performance` profile
+4. For Steam games without the lock, check `powerprofilesctl get` shows `performance` while the game runs
+5. Check logs: `journalctl --user -u hue-backend -f | grep -i gaming`
 
 **False positives?**
 1. Increase `debounceDelay` to 10+ seconds
@@ -336,13 +346,7 @@ Right-click tray icon → **Settings**
 - Monitor selection
 - Zone mapping configuration
 - Test sync button
-
-#### Gaming Mode Tab
-- Enable/disable Gaming Mode
-- Poll interval configuration
-- Debounce delay setting
-- Detection method toggles
-- Test detection button
+- Gaming Mode checkbox (the other `gamingMode` settings are config-file only)
 
 #### Icon Theme Tab
 - Gaming icon selector
