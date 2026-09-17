@@ -8,8 +8,12 @@ on:
 jobs:
   build-release:
     name: Build Release Binaries
-    runs-on: ubuntu-latest
-    
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    container:
+      image: ubuntu:25.04
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v7
@@ -18,11 +22,14 @@ jobs:
       uses: actions/setup-go@v7
       with:
         go-version: '1.25'
+        cache: false
         
     - name: Install dependencies
       run: |
-        sudo apt-get update
-        sudo apt-get install -y \
+        apt-get update
+        DEBIAN_FRONTEND=noninteractive apt-get install -y \
+          build-essential \
+          ca-certificates \
           libpipewire-0.3-dev \
           pkg-config \
           cmake \
@@ -30,9 +37,11 @@ jobs:
           qt6-base-dev \
           qt6-base-private-dev \
           libkf6statusnotifieritem-dev \
+          libkf6notifications-dev \
+          libkf6iconthemes-dev \
           qt6-tools-dev \
           qt6-tools-dev-tools
-          
+
     - name: Build backend
       working-directory: backend
       run: CGO_CFLAGS_ALLOW='-fno-strict-overflow' go build -v -o hue-sync ./cmd/hue-sync
@@ -40,14 +49,14 @@ jobs:
     - name: Build tray app
       working-directory: trayapp
       run: |
-        cmake .
-        make
+        cmake -S . -B build
+        make -C build
         
     - name: Create release archive
       run: |
         mkdir -p release/khuey
         cp backend/hue-sync release/khuey/
-        cp trayapp/hue-tray release/khuey/
+        cp trayapp/build/hue-tray release/khuey/
         cp systemd/hue-backend.service release/khuey/
         cp systemd/hue-tray.desktop release/khuey/
         cp README.md USAGE.md FEATURES.md LICENSE release/khuey/
