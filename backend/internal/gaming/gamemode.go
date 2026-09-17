@@ -13,8 +13,8 @@ type GameModeDetector struct {
 
 // NewGameModeDetector creates a new GameMode detector
 func NewGameModeDetector() (*GameModeDetector, error) {
-	// Connect to system bus (GameMode runs as system service)
-	conn, err := dbus.ConnectSystemBus()
+	// gamemoded is a per-user daemon on the session bus.
+	conn, err := dbus.ConnectSessionBus()
 	if err != nil {
 		return nil, err
 	}
@@ -31,12 +31,10 @@ func (g *GameModeDetector) IsActive() bool {
 		return false
 	}
 
-	// Call GameMode DBus API: org.gamemode.QueryStatus
-	// Method signature: QueryStatus(int32 pid) -> int32 status
-	// Status: 0 = inactive, 1 = active, 2 = active (client registered)
-	// We use pid=0 to check global status (any client active)
-	obj := g.conn.Object("org.froggi.gamemode", "/org/froggi/gamemode")
-	call := obj.Call("org.froggi.gamemode.QueryStatus", 0, int32(0))
+	// QueryStatus is non-zero while any client holds GameMode.
+	obj := g.conn.Object("com.feralinteractive.GameMode", "/com/feralinteractive/GameMode")
+	// NoAutoStart keeps polling from launching a gamemoded that outlives hue-sync.
+	call := obj.Call("com.feralinteractive.GameMode.QueryStatus", dbus.FlagNoAutoStart, int32(0))
 
 	if call.Err != nil {
 		// GameMode not available or error occurred
