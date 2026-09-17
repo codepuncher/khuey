@@ -63,8 +63,8 @@ sudo pacman -S pipewire
 # 1. Qt6 not found
 pkg-config --modversion Qt6Core Qt6Widgets Qt6DBus
 
-# 2. KF6StatusNotifierItem missing
-pkg-config --modversion KF6StatusNotifierItem
+# 2. KF6StatusNotifierItem missing (it has no pkg-config file)
+pacman -Q kstatusnotifieritem
 
 # Install if missing
 sudo pacman -S kstatusnotifieritem
