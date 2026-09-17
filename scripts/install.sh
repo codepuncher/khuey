@@ -93,12 +93,6 @@ if ! pkg-config --exists Qt6Core 2>/dev/null; then
     MISSING_DEPS+=("qt6")
 fi
 
-# Check for KF6
-if ! pkg-config --exists KF6StatusNotifierItem 2>/dev/null; then
-    print_warning "KF6StatusNotifierItem not found. Install with: sudo pacman -S kstatusnotifieritem"
-    print_warning "Tray app may not build without this."
-fi
-
 if [ ${#MISSING_DEPS[@]} -gt 0 ]; then
     echo ""
     print_error "Missing required dependencies: ${MISSING_DEPS[*]}"
