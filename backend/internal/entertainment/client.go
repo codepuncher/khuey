@@ -164,7 +164,7 @@ func (c *Client) buildPacket(colors []ChannelColor) []byte {
 	//   - Reserved (2 bytes): 0x0000
 	//   - Color space (1 byte): 0x00 (RGB)
 	//   - Reserved (1 byte): 0x00
-	//   - Entertainment Configuration ID (36 bytes): UUID without hyphens
+	//   - Entertainment Configuration ID (36 bytes): UUID with hyphens
 	// Body: 7 bytes per channel
 	//   - Channel ID (1 byte)
 	//   - R (2 bytes, big-endian)

@@ -235,7 +235,7 @@ type ChannelConfig struct {
 - All exported methods are goroutine-safe
 
 **Key Functions:**
-- `Load()` - Read config from `~/.openhue/config.yaml`
+- `Load()` - Read `config.yaml` from the directory `getConfigPath` returns (see [Config File Structure](#config-file-structure))
 - `Save()` - Write config with secure permissions (0600)
 - `Validate()` - Validate all fields with helpful error messages
 - `IsConfigured()` - Check if basic setup is complete
@@ -1472,7 +1472,7 @@ written for a game-ended call finishing before the game-started one.
 
 ### Config File Structure
 
-**Location:** `~/.openhue/config.yaml`
+**Location:** `$XDG_CONFIG_HOME/openhue/config.yaml` when `XDG_CONFIG_HOME` is set, otherwise `~/.openhue/config.yaml`. See [Configuration File Location](CONFIGURATION.md#configuration-file-location).
 
 **Format:**
 ```yaml
@@ -1487,7 +1487,7 @@ Key: "your-api-key-here"
 clientkey: "client-key-for-dtls"
 
 # Entertainment area ID (optional)
-entertainmentConfigurationId: "abc-123-def-456"
+entertainmentConfigurationId: "550e8400-e29b-41d4-a716-446655440000"
 
 # Grouped light for power/brightness control (optional)
 grouped_light_id: "room-uuid-here"
