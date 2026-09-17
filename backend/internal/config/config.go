@@ -389,10 +389,20 @@ func (c *Config) Validate() error {
 	}
 
 	// Validate channels if configured
+	activeIDs := make(map[uint8]int, len(c.Channels))
 	for i, ch := range c.Channels {
 		if err := validateChannel(i, ch); err != nil {
 			return err
 		}
+		if !ch.Active {
+			continue
+		}
+		// A shared ID drives one light from two zones.
+		if first, ok := activeIDs[ch.ID]; ok {
+			return fmt.Errorf("channels %d and %d: both active with id %d\n"+
+				"  → Each active channel needs its own id from the entertainment configuration", first, i, ch.ID)
+		}
+		activeIDs[ch.ID] = i
 	}
 
 	return nil
