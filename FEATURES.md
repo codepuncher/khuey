@@ -9,6 +9,7 @@ Complete feature documentation for KDE Hue Control.
 - [Gaming Mode](#gaming-mode)
 - [Restore Token](#restore-token)
 - [Settings Dialog](#settings-dialog)
+- [Advanced Usage](#advanced-usage)
 
 ---
 
@@ -319,52 +320,46 @@ Restore tokens are:
 
 ## Settings Dialog
 
-GUI configuration interface for all features.
+GUI for the settings the tray app can change. Everything else is set in the config file.
 
 ### Access
 
-Right-click tray icon → **Settings**
+Right-click tray icon → **Settings...**
 
-### Features
+### Tabs
 
-#### Bridge Configuration Tab
-- Bridge IP address input
-- API key management
-- Connection test button
-- Entertainment API status
-
-#### Room Selection Tab
-- List of available rooms
-- Entertainment Area selection
-- Grouped light selection
-- Apply button to save
-
-#### Screen Sync Tab
-- Enable/disable screen sync
-- FPS slider (10-60)
-- Subsample width input
-- Monitor selection
-- Zone mapping configuration
-- Test sync button
+#### Screen Sync
+- Frame Rate: FPS slider and spin box (10-60)
+- Processing Quality: subsample width slider and spin box (16-256)
+- Monitor: disabled, fixed to "All monitors"; the backend saves a monitor but always captures all of them. A monitor set in the config file shows as "(not applied yet)"
 - Gaming Mode checkbox (the other `gamingMode` settings are config-file only)
 
-#### Icon Theme Tab
-- Gaming icon selector
-- Syncing icon selector
-- Idle icon selector
-- Preview of current icons
+#### Light Control
+- Room/Zone: the rooms and zones from the bridge, with a **Refresh** button. Power and brightness controls act on the selected one. Activating a scene from the tray selects that scene's room
+- Login Behavior: a scene to activate each time the backend starts, or "(Disabled)"
+
+#### Connection
+- Bridge IP, read-only; the tab points to the config file for changing the IP or API key
+- Connection status and the last error
+- **Test Connection** and **Reconnect** buttons, which both check the bridge is reachable
+
+#### Appearance
+- Tray icon pickers for three states: Gaming + Sync, Sync Active and Idle
+- **Reset to Defaults**: `applications-games`, `media-record` and `preferences-desktop-display-color`
 
 ### Saving Changes
 
-Click **Apply** or **OK** to save changes. Backend automatically reloads configuration.
+**Apply** or **OK** saves the Screen Sync, Light Control and Appearance tabs through the backend's DBus setters, one at a time, and stops at the first one that fails. Each setting takes effect at a different point:
+- FPS: immediately, including a running sync
+- Subsample width: the next time sync starts
+- Gaming Mode: immediately
+- Room/Zone: the next power or brightness change
+- Login scene: the next backend start
+- Tray icons: when the dialog closes
 
 ### Validation
 
-Dialog validates inputs:
-- IP addresses must be valid IPv4 format
-- FPS must be 10-60
-- Subsample width must be 16-512
-- UV coordinates must be 0.0-1.0
+The spin boxes only accept FPS 10-60 and subsample width 16-256, and the backend rejects values outside the same ranges.
 
 ---
 
@@ -372,38 +367,56 @@ Dialog validates inputs:
 
 ### DBus Interface
 
-Full DBus interface for scripting and automation.
+The backend's DBus interface, for scripting and automation.
 
 **Service**: `org.kde.plasma.hue`
 **Path**: `/org/kde/plasma/hue`
 **Interface**: `org.kde.plasma.hue`
 
+Only callers running as the backend's user can use any method except `GetStatus`, `IsSyncing`, `GetSyncSettings`, `IsGamingModeEnabled`, `IsGamingModeActive` and `GetTrayIcons`, which anyone on the session bus can call. A failed call returns a DBus error.
+
 #### Methods
 
-```bash
-# Get status
-GetStatus() → string
+```
+# Status
+GetStatus() → string                          # "Ready" or "Not configured"
+GetState() → (bool power, int brightness, bool success)
+GetConnectionStatus() → dict                  # connected, lastError, bridgeIP, lastAttempt
+RetryConnection() → bool
+TestBridgeConnection() → bool
 
-# Scene control
-GetScenes() → array of Scene
-ActivateScene(string sceneId) → (string result, error)
+# Scenes
+GetScenes() → array of string                 # "Room Name - Scene Name", or the bare name without a room; sorted by room, then scene
+ActivateScene(string sceneName) → string      # a name from GetScenes or a bare scene name; selects the scene's room
 
-# Power control
-SetPower(bool on) → (bool success, error)
+# Lights (the selected room or zone)
+SetPower(bool on) → bool
+SetBrightness(int brightness) → bool          # 0-100
+GetGroupedLights() → array of (string id, string name, string type)
+GetSelectedRoom() → string
+SetSelectedRoom(string roomID) → bool
+SetGroupedLight(string groupedLightID) → bool
 
-# Brightness control (1-100)
-SetBrightness(int value) → (bool success, error)
+# Startup scene
+GetStartupScene() → string
+SetStartupScene(string sceneName) → bool      # "" clears it
 
 # Screen sync
-StartSync() → error
-StopSync() → error
+StartSync() → bool
+StopSync() → bool
 IsSyncing() → bool
+GetSyncSettings() → dict                      # fps, subsampleWidth, monitor, enabled
+SetSyncSettings(int fps, int subsampleWidth, string monitor) → bool
 
 # Gaming mode
-IsGaming() → bool
-GetGamingDetectionMethods() → array of string
+SetGamingMode(bool enabled) → bool
+IsGamingModeEnabled() → bool
+IsGamingModeActive() → bool                   # current detection result, without the debounce; false while gaming mode is off
 
-# Configuration
-GetConfig() → Config struct
-UpdateConfig(Config config) → error
-ReloadConfig() → error
+# Bridge and tray
+GetBridgeSettings() → dict                    # bridgeIP, connected, lastError, configFile
+GetTrayIcons() → (string gaming, string syncing, string idle)
+SetTrayIcons(string gaming, string syncing, string idle) → bool
+```
+
+`StartSync` waits for the screen-share dialog when there is no valid restore token, and `dbus-send` gives up after 25 seconds while the backend keeps waiting.
