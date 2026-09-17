@@ -2,10 +2,15 @@ package main
 
 import (
 	"context"
+	"errors"
+	"flag"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/signal"
+	"runtime/debug"
+	"strings"
 	"syscall"
 
 	"github.com/codepuncher/khuey/internal/config"
@@ -13,10 +18,87 @@ import (
 	"github.com/codepuncher/khuey/internal/hue"
 )
 
-const version = "0.1.0"
+// Release builds set this with -ldflags "-X main.version=...".
+var version = "dev"
+
+// versionString returns version, or for an unstamped build, "dev" plus the
+// commit Go embeds when building inside a git checkout.
+func versionString() string {
+	if version != "dev" {
+		return version
+	}
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return version
+	}
+	var revision string
+	modified := false
+	for _, setting := range info.Settings {
+		switch setting.Key {
+		case "vcs.revision":
+			revision = setting.Value
+		case "vcs.modified":
+			modified = setting.Value == "true"
+		}
+	}
+	if revision == "" {
+		return version
+	}
+	if len(revision) > 12 {
+		revision = revision[:12]
+	}
+	if modified {
+		revision += "-dirty"
+	}
+	return version + "-" + revision
+}
+
+func usage(flags *flag.FlagSet) string {
+	var defaults strings.Builder
+	flags.SetOutput(&defaults)
+	flags.PrintDefaults()
+	flags.SetOutput(io.Discard)
+	return fmt.Sprintf("Usage: %s [--help] [--version]\n\n"+
+		"Runs the khuey backend on the DBus session bus as org.kde.plasma.hue.\n\n"+
+		"Options:\n%s", flags.Name(), defaults.String())
+}
+
+// parseArgs exits for --help, --version and invalid input so none of them
+// load the config or touch the bridge or DBus.
+func parseArgs() {
+	flags := flag.NewFlagSet("hue-sync", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	showVersion := flags.Bool("version", false, "print the version and exit")
+
+	err := flags.Parse(os.Args[1:])
+	if errors.Is(err, flag.ErrHelp) {
+		fmt.Print(usage(flags))
+		os.Exit(0)
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s: %v\n", flags.Name(), err)
+		fmt.Fprint(os.Stderr, usage(flags))
+		os.Exit(2)
+	}
+	if flags.NArg() > 0 {
+		fmt.Fprintf(os.Stderr, "%s: unexpected argument %q\n", flags.Name(), flags.Arg(0))
+		fmt.Fprint(os.Stderr, usage(flags))
+		os.Exit(2)
+	}
+	if *showVersion {
+		fmt.Printf("%s %s\n", flags.Name(), versionString())
+		os.Exit(0)
+	}
+}
 
 func main() {
-	log.Printf("KDE Hue Control backend v%s starting...", version)
+	parseArgs()
+
+	logVersion := versionString()
+	if version != "dev" {
+		logVersion = "v" + logVersion
+	}
+	log.Printf("KDE Hue Control backend %s starting...", logVersion)
 
 	// Create cancellable context for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
