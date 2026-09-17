@@ -151,7 +151,20 @@ echo ""
 # KDE Dependencies
 print_section "Checking KDE dependencies..."
 
-if pkg-config --exists KF6StatusNotifierItem 2>/dev/null; then
+# KF6StatusNotifierItem ships no pkg-config file, so ask the package manager.
+kf6_sni_installed() {
+    if command -v pacman &> /dev/null; then
+        pacman -Q kstatusnotifieritem &> /dev/null
+        return
+    fi
+    if command -v apt &> /dev/null; then
+        dpkg -s libkf6statusnotifieritem-dev 2>/dev/null | grep -q '^Status: .* installed$'
+        return
+    fi
+    return 1
+}
+
+if kf6_sni_installed; then
     print_success "KF6StatusNotifierItem installed"
 else
     print_warning "KF6StatusNotifierItem not found"
