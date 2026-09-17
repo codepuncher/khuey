@@ -10,6 +10,7 @@
 #include <QMessageBox>
 #include <QVBoxLayout>
 #include <QVariantMap>
+#include <tuple>
 
 SettingsDialog::SettingsDialog(QWidget* parent)
     : QDialog(parent), backend(new HueBackend(this)), currentFPS(30), currentSubsample(64) {
@@ -73,8 +74,9 @@ void SettingsDialog::setupUI() {
     connect(subsampleSpinBox, QOverload<int>::of(&QSpinBox::valueChanged), subsampleSlider,
             &QSlider::setValue);
 
-    QLabel* subsampleHint =
-        new QLabel("Lower values = better performance, less color precision", subsampleGroup);
+    QLabel* subsampleHint = new QLabel("Lower values = better performance, less color precision\n"
+                                       "Applies the next time Screen Sync starts.",
+                                       subsampleGroup);
     subsampleHint->setStyleSheet("QLabel { color: gray; font-size: 10pt; }");
     subsampleLayout->addWidget(subsampleHint, 1, 0, 1, 3);
 
@@ -118,14 +120,6 @@ void SettingsDialog::setupUI() {
     gamingLayout->addWidget(gamingHint);
 
     syncLayout->addWidget(gamingGroup);
-
-    // Info label
-    QLabel* infoLabel =
-        new QLabel("ℹ️  Note: Screen Sync must be restarted for changes to take effect.", syncTab);
-    infoLabel->setWordWrap(true);
-    infoLabel->setStyleSheet(
-        "QLabel { color: #3584e4; background-color: #e5f2ff; padding: 8px; border-radius: 4px; }");
-    syncLayout->addWidget(infoLabel);
 
     syncLayout->addStretch();
     tabWidget->addTab(syncTab, "Screen Sync");
@@ -305,10 +299,9 @@ void SettingsDialog::setupUI() {
     connect(idleIconButton, &KIconButton::iconChanged, this,
             [this](const QString& icon) { idleIconNameLabel->setText(icon); });
 
-    QLabel* iconHint =
-        new QLabel("ℹ️  Click icon buttons to browse and choose from available icons\n"
-                   "Changes apply after restarting the tray app.",
-                   iconGroup);
+    QLabel* iconHint = new QLabel("Click icon buttons to browse and choose from available icons\n"
+                                  "Saved changes apply when this dialog closes.",
+                                  iconGroup);
     iconHint->setWordWrap(true);
     iconHint->setStyleSheet("QLabel { color: gray; font-size: 10pt; margin-top: 8px; }");
     iconLayout->addWidget(iconHint, 3, 0, 1, 3);
@@ -321,6 +314,7 @@ void SettingsDialog::setupUI() {
         gamingIconNameLabel->setText("applications-games");
         syncingIconNameLabel->setText("media-record");
         idleIconNameLabel->setText("preferences-desktop-display-color");
+        updateInputState();
     });
     iconLayout->addWidget(resetIconsButton, 4, 0, 1, 3);
 
@@ -347,6 +341,19 @@ void SettingsDialog::setupUI() {
     buttonLayout->addWidget(cancelButton);
 
     mainLayout->addLayout(buttonLayout);
+
+    // Connected last: updateInputState reads every control and both buttons.
+    const auto onFormChanged = [this]() { updateInputState(); };
+    connect(fpsSpinBox, QOverload<int>::of(&QSpinBox::valueChanged), this, onFormChanged);
+    connect(subsampleSpinBox, QOverload<int>::of(&QSpinBox::valueChanged), this, onFormChanged);
+    connect(monitorCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, onFormChanged);
+    connect(gamingModeCheckbox, &QCheckBox::toggled, this, onFormChanged);
+    connect(roomCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, onFormChanged);
+    connect(startupSceneCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+            onFormChanged);
+    connect(gamingIconButton, &KIconButton::iconChanged, this, onFormChanged);
+    connect(syncingIconButton, &KIconButton::iconChanged, this, onFormChanged);
+    connect(idleIconButton, &KIconButton::iconChanged, this, onFormChanged);
 }
 
 void SettingsDialog::loadSettings() {
@@ -455,6 +462,15 @@ void SettingsDialog::loadSettings() {
             idleIconNameLabel->setText(currentIdleIcon);
         }
 
+        /**
+         * A failed read leaves a widget default the backend may not hold, so
+         * the next save writes everything.
+         */
+        if (syncReply.isValid() && roomReply.isValid() && gamingReply.isValid() &&
+            startupSceneReply.isValid() && !iconsReply.isError()) {
+            savedValues = formValues();
+            savedValues->roomID = currentRoomID;
+        }
         loading = false;
         updateInputState();
         if (closing) {
@@ -490,7 +506,7 @@ void SettingsDialog::updateInputState() {
     const bool busy = loading || saving || readsInFlight > 0;
     tabWidget->setEnabled(!loading && !saving);
     okButton->setEnabled(!busy);
-    applyButton->setEnabled(!busy);
+    applyButton->setEnabled(!busy && !(formValues() == savedValues));
     /**
      * A second bridge call started under the first would report its result
      * over the newer one's.
@@ -503,9 +519,8 @@ void SettingsDialog::updateInputState() {
 void SettingsDialog::reportSaveComplete(const std::function<void()>& onSaved) {
     QMessageBox::information(this, "Settings Saved",
                              "Settings saved successfully!\n\n"
-                             "Note: Restart the tray app for icon changes to take effect.\n"
-                             "FPS applies immediately. If Screen Sync is running, restart it for\n"
-                             "quality changes to take effect.");
+                             "Subsample width applies the next time Screen Sync starts.\n"
+                             "Icons change when this dialog closes.");
     onSaved();
 }
 
@@ -537,41 +552,64 @@ void SettingsDialog::reject() {
     QDialog::reject();
 }
 
-void SettingsDialog::saveSettings(std::function<void()> onSaved) {
-    int fps = fpsSpinBox->value();
-    int subsample = subsampleSpinBox->value();
-    QString monitor = monitorCombo->currentData().toString();
-    bool gamingMode = gamingModeCheckbox->isChecked();
-    QString roomID = roomCombo->currentData().toString();
-    QString startupScene = startupSceneCombo->currentData().toString();
+bool SettingsDialog::FormValues::operator==(const FormValues& other) const {
+    return std::tie(fps, subsample, monitor, gamingMode, roomID, startupScene, gamingIcon,
+                    syncingIcon, idleIcon) ==
+           std::tie(other.fps, other.subsample, other.monitor, other.gamingMode, other.roomID,
+                    other.startupScene, other.gamingIcon, other.syncingIcon, other.idleIcon);
+}
 
-    QString gamingIcon = gamingIconButton->icon();
-    QString syncingIcon = syncingIconButton->icon();
-    QString idleIcon = idleIconButton->icon();
+SettingsDialog::FormValues SettingsDialog::formValues() const {
+    FormValues values;
+    values.fps = fpsSpinBox->value();
+    values.subsample = subsampleSpinBox->value();
+    values.monitor = monitorCombo->currentData().toString();
+    values.gamingMode = gamingModeCheckbox->isChecked();
+    values.roomID = roomCombo->currentData().toString();
+    if (values.roomID.isEmpty()) {
+        // No rooms loaded, so the room read at load stands.
+        values.roomID = currentRoomID;
+    }
+    values.startupScene = startupSceneCombo->currentData().toString();
+
+    values.gamingIcon = gamingIconButton->icon();
+    values.syncingIcon = syncingIconButton->icon();
+    values.idleIcon = idleIconButton->icon();
 
     // Use defaults if empty
-    if (gamingIcon.isEmpty()) {
-        gamingIcon = "applications-games";
+    if (values.gamingIcon.isEmpty()) {
+        values.gamingIcon = "applications-games";
     }
-    if (syncingIcon.isEmpty()) {
-        syncingIcon = "media-record";
+    if (values.syncingIcon.isEmpty()) {
+        values.syncingIcon = "media-record";
     }
-    if (idleIcon.isEmpty()) {
-        idleIcon = "preferences-desktop-display-color";
+    if (values.idleIcon.isEmpty()) {
+        values.idleIcon = "preferences-desktop-display-color";
     }
+    return values;
+}
 
+void SettingsDialog::saveSettings(const FormValues& values, std::function<void()> onSaved) {
     auto queue = std::make_shared<QList<Setter>>();
-    queue->append({"SetSyncSettings", {fps, subsample, monitor}, "Screen Sync settings"});
-    queue->append({"SetGamingMode", {gamingMode}, "gaming mode setting"});
-    if (!roomID.isEmpty()) {
-        queue->append({"SetSelectedRoom", {roomID}, "room selection"});
+    queue->append({"SetSyncSettings",
+                   {values.fps, values.subsample, values.monitor},
+                   "Screen Sync settings"});
+    queue->append({"SetGamingMode", {values.gamingMode}, "gaming mode setting"});
+    if (!values.roomID.isEmpty()) {
+        queue->append({"SetSelectedRoom", {values.roomID}, "room selection"});
     }
-    queue->append({"SetStartupScene", {startupScene}, "startup scene selection"});
-    queue->append({"SetTrayIcons", {gamingIcon, syncingIcon, idleIcon}, "tray icon settings"});
+    queue->append({"SetStartupScene", {values.startupScene}, "startup scene selection"});
+    queue->append({"SetTrayIcons",
+                   {values.gamingIcon, values.syncingIcon, values.idleIcon},
+                   "tray icon settings"});
 
     saving = true;
     updateInputState();
-    runSetters(queue, onSaved);
+    runSetters(queue, [this, values, onSaved]() {
+        savedValues = values;
+        updateInputState();
+        onSaved();
+    });
 }
 
 /**
@@ -600,6 +638,7 @@ void SettingsDialog::runSetters(std::shared_ptr<QList<Setter>> queue,
         QDBusReply<bool> reply = call;
         if (!reply.isValid() || !reply.value()) {
             QString errorMsg = reply.isValid() ? "unknown error" : reply.error().message();
+            savedValues.reset();
             saving = false;
             updateInputState();
             const QString message = "Failed to save " + setter.label + ": " + errorMsg;
@@ -612,6 +651,10 @@ void SettingsDialog::runSetters(std::shared_ptr<QList<Setter>> queue,
             }
             QMessageBox::warning(this, "Settings Error", message);
             return;
+        }
+        if (setter.method == "SetSelectedRoom") {
+            // formValues falls back to it, and a later setter can still fail.
+            currentRoomID = setter.args.at(0).toString();
         }
         runSetters(queue, onSaved);
     });
@@ -640,15 +683,23 @@ bool SettingsDialog::validateSettings() {
 }
 
 void SettingsDialog::onApplyClicked() {
-    if (validateSettings()) {
-        saveSettings([]() {});
+    const FormValues values = formValues();
+    if (values == savedValues || !validateSettings()) {
+        return;
     }
+    saveSettings(values, []() {});
 }
 
 void SettingsDialog::onOkClicked() {
-    if (validateSettings()) {
-        saveSettings([this]() { accept(); });
+    const FormValues values = formValues();
+    if (values == savedValues) {
+        accept();
+        return;
     }
+    if (!validateSettings()) {
+        return;
+    }
+    saveSettings(values, [this]() { accept(); });
 }
 
 void SettingsDialog::onCancelClicked() { reject(); }

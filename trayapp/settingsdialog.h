@@ -16,6 +16,7 @@
 #include <QVariantList>
 #include <functional>
 #include <memory>
+#include <optional>
 
 class SettingsDialog : public QDialog {
     Q_OBJECT
@@ -45,7 +46,21 @@ class SettingsDialog : public QDialog {
         QVariantList args;
         QString label;
     };
-    void saveSettings(std::function<void()> onSaved);
+    struct FormValues {
+        int fps = 0;
+        int subsample = 0;
+        QString monitor;
+        bool gamingMode = false;
+        QString roomID;
+        QString startupScene;
+        QString gamingIcon;
+        QString syncingIcon;
+        QString idleIcon;
+
+        bool operator==(const FormValues& other) const;
+    };
+    FormValues formValues() const;
+    void saveSettings(const FormValues& values, std::function<void()> onSaved);
     void reportSaveComplete(const std::function<void()>& onSaved);
     void runSetters(std::shared_ptr<QList<Setter>> queue, std::function<void()> onSaved);
     bool validateSettings();
@@ -121,6 +136,13 @@ class SettingsDialog : public QDialog {
      */
     QString pendingSaveError;
     std::function<void()> pendingSaveDone;
+
+    /**
+     * The form as last loaded or saved, so Apply and OK only write, and only
+     * confirm, when something changed. Empty after a failed save, whose earlier
+     * setters may have landed.
+     */
+    std::optional<FormValues> savedValues;
 
     // Current values
     int currentFPS;
