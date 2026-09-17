@@ -521,10 +521,12 @@ func (e *Engine) streamFrames(ctx context.Context) error {
 
 	// Copied once per session rather than read per frame, where View would
 	// wait out every Save's disk write.
-	var subsampleWidth int
+	var subsampleWidth, metricsInterval int
 	e.config.View(func(c *config.Config) {
 		subsampleWidth = c.Sync.SubsampleWidth
+		metricsInterval = c.Sync.MetricsInterval
 	})
+	metricsEvery := time.Duration(metricsInterval) * time.Second
 
 	extractor, err := color.NewExtractor(subsampleWidth, 2.2)
 	if err != nil {
@@ -551,7 +553,7 @@ func (e *Engine) streamFrames(ctx context.Context) error {
 				// Throttled: a machine too slow to keep up drops on every
 				// frame, so an unthrottled line here costs it the frame rate
 				// in log writes when it can least afford them.
-				// logPerformanceMetrics carries the totals every 5s.
+				// logPerformanceMetrics carries the running totals.
 				if time.Since(lastDropLog) >= dropLogInterval {
 					log.Printf("[WARN] Frame skip: dropped %d frames (processing too slow for %d FPS)", dropped, lastFPS)
 					lastDropLog = time.Now()
@@ -624,13 +626,14 @@ func (e *Engine) streamFrames(ctx context.Context) error {
 			frameTime := time.Since(frameStart)
 			e.updateMetrics(frameTime, captureTime, extractTime, streamTime)
 
-			// Log metrics every 5 seconds
-			e.metrics.mu.RLock()
-			timeSinceLog := time.Since(e.metrics.lastLogTime)
-			e.metrics.mu.RUnlock()
+			if metricsEvery > 0 {
+				e.metrics.mu.RLock()
+				timeSinceLog := time.Since(e.metrics.lastLogTime)
+				e.metrics.mu.RUnlock()
 
-			if timeSinceLog >= 5*time.Second {
-				e.logPerformanceMetrics()
+				if timeSinceLog >= metricsEvery {
+					e.logPerformanceMetrics()
+				}
 			}
 
 		}
@@ -789,17 +792,17 @@ func (e *Engine) logPerformanceMetrics() {
 	p95 := e.metrics.calculatePercentile(95)
 	p99 := e.metrics.calculatePercentile(99)
 
-	dropRate := float64(e.metrics.framesDropped) / float64(e.metrics.frameCount+e.metrics.framesDropped) * 100
-
-	log.Printf("[INFO] Performance Metrics (%.1fs elapsed, %d frames):", elapsed.Seconds(), e.metrics.frameCount)
-	log.Printf("   FPS: %.1f actual / %d target", actualFPS, targetFPS)
-	log.Printf("   Frame Time: avg=%.2fms p50=%.0fms p95=%.0fms p99=%.0fms",
-		avgFrameTime.Seconds()*1000, p50, p95, p99)
-	log.Printf("   Pipeline: capture=%.2fms extract=%.2fms stream=%.2fms",
-		avgCaptureTime.Seconds()*1000, avgExtractTime.Seconds()*1000, avgStreamTime.Seconds()*1000)
+	dropped := fmt.Sprintf("%d dropped", e.metrics.framesDropped)
 	if e.metrics.framesDropped > 0 {
-		log.Printf("   [WARN] Dropped: %d frames (%.1f%% drop rate)", e.metrics.framesDropped, dropRate)
+		dropRate := float64(e.metrics.framesDropped) / float64(e.metrics.frameCount+e.metrics.framesDropped) * 100
+		dropped = fmt.Sprintf("%d dropped, %.1f%% drop rate", e.metrics.framesDropped, dropRate)
 	}
+
+	log.Printf("[INFO] Sync: %.1f/%d fps, frame avg=%.2fms p50=%.0f p95=%.0f p99=%.0f, capture=%.2fms extract=%.2fms stream=%.2fms, %s (%.1fs, %d frames)",
+		actualFPS, targetFPS,
+		avgFrameTime.Seconds()*1000, p50, p95, p99,
+		avgCaptureTime.Seconds()*1000, avgExtractTime.Seconds()*1000, avgStreamTime.Seconds()*1000,
+		dropped, elapsed.Seconds(), e.metrics.frameCount)
 
 	e.metrics.lastLogTime = time.Now()
 }

@@ -35,6 +35,12 @@ const (
 	legacyMinFPS = 1
 
 	DefaultSubsampleWidth = 64
+
+	// Seconds between the sync engine's metrics line. journald caps the
+	// journal on disk, so a frequent line shortens how far back every other
+	// message survives.
+	DefaultMetricsInterval = 60
+	MaxMetricsInterval     = 3600
 )
 
 // Config represents the application configuration.
@@ -103,6 +109,8 @@ type SyncConfig struct {
 	SubsampleWidth int    `mapstructure:"subsampleWidth"`
 	Monitor        string `mapstructure:"monitor"`      // Monitor to capture (empty = default)
 	RestoreToken   string `mapstructure:"restoreToken"` // Portal session restore token (eliminates permission dialog)
+
+	MetricsInterval int `mapstructure:"metricsInterval"` // Seconds between metrics lines while syncing (0 = off)
 }
 
 // GamingModeConfig represents gaming mode auto-sync settings
@@ -138,11 +146,12 @@ func DefaultConfig() *Config {
 		Version:      ConfigVersion,
 		StartupScene: "", // Disabled by default
 		Sync: SyncConfig{
-			Enabled:        false,
-			FPS:            DefaultFPS,
-			SubsampleWidth: DefaultSubsampleWidth,
-			Monitor:        "",
-			RestoreToken:   "", // Empty on first run
+			Enabled:         false,
+			FPS:             DefaultFPS,
+			SubsampleWidth:  DefaultSubsampleWidth,
+			Monitor:         "",
+			RestoreToken:    "", // Empty on first run
+			MetricsInterval: DefaultMetricsInterval,
 		},
 		GamingMode: GamingModeConfig{
 			Enabled:           false, // Disabled by default (opt-in)
@@ -386,6 +395,12 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("sync.subsampleWidth must be between %d and %d (got %d)\n"+
 			"  → Update 'sync.subsampleWidth' in config.yaml\n"+
 			"  → Recommended: %d for good balance", color.MinSubsampleWidth, color.MaxSubsampleWidth, c.Sync.SubsampleWidth, DefaultSubsampleWidth)
+	}
+
+	if c.Sync.MetricsInterval < 0 || c.Sync.MetricsInterval > MaxMetricsInterval {
+		return fmt.Errorf("sync.metricsInterval must be between 0 and %d seconds (got %d)\n"+
+			"  → Update 'sync.metricsInterval' in config.yaml\n"+
+			"  → 0 turns the periodic metrics line off", MaxMetricsInterval, c.Sync.MetricsInterval)
 	}
 
 	// Validate channels if configured

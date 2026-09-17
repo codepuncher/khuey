@@ -33,11 +33,18 @@ KDE Hue Control uses a YAML configuration file that is **shared with openhue-cli
 - **UI Customization**: Tray icon themes
 - **Logging**: Debug and diagnostic output
 
-**Configuration changes take effect:**
-- Immediately: UI settings, log level
-- After restart: Gaming mode detection methods
-- After sync restart: Screen sync FPS, subsample width, monitor selection
-- After backend restart: Bridge IP, API keys, Entertainment Area ID
+**When configuration changes take effect:**
+
+The backend reads this file once at startup, so an edit made by hand applies on
+the next backend restart (`systemctl --user restart hue-backend`).
+
+Some settings changed in the tray settings dialog, which writes this file for
+you, apply sooner:
+- Immediately: tray icons, selected room, gaming mode on or off
+- While sync runs: screen sync FPS
+- On the next sync: subsample width
+- On the next backend start: startup scene
+- Never: `sync.monitor`, which is stored but not yet applied
 
 ---
 
@@ -120,6 +127,7 @@ sync:                                   # Screen sync settings
   subsampleWidth: 64
   monitor: ""
   restoreToken: ""
+  metricsInterval: 60
 
 gamingMode:                             # Gaming mode settings
   enabled: false
@@ -309,6 +317,7 @@ Configuration for real-time screen-to-lights synchronization.
 | `sync.subsampleWidth` | int | `64` | `16` - `256` | Resize width for processing (performance tuning) |
 | `sync.monitor` | string | `""` | Monitor name or empty | Persisted but not yet applied; capture always uses all monitors |
 | `sync.restoreToken` | string | `""` | Portal token | XDG Portal restore token (auto-generated) |
+| `sync.metricsInterval` | int | `60` | `0` - `3600` | Seconds between performance metrics log lines while syncing (`0` turns them off) |
 
 #### sync.enabled
 
@@ -490,6 +499,44 @@ sync:
 - Token grants screen capture permission
 - Stored in config file (should be 0600 permissions)
 - Portal manages token expiration and revocation
+
+#### sync.metricsInterval
+
+**Type:** Integer
+**Default:** `60`
+**Range:** `0` - `3600` seconds
+
+How often the sync engine logs its performance line while syncing. `0` turns
+the line off; other values are a lower bound, since the line is emitted from the
+capture loop and only when a frame has been processed.
+
+One line per interval, for example:
+
+```text
+[INFO] Sync: 30.0/30 fps, frame avg=4.21ms p50=4 p95=7 p99=12, capture=2.10ms extract=1.05ms stream=1.02ms, 0 dropped (60.0s, 1800 frames)
+```
+
+The counters are cumulative for the sync session, not per interval, and reset
+when sync starts. Dropped frames also get their own throttled `[WARN] Frame
+skip` line, so setting this to `0` does not hide them.
+
+The backend reads this file at startup only, so an edit here takes effect when
+the backend restarts.
+
+**Example:**
+```yaml
+sync:
+  metricsInterval: 60  # Default
+  # metricsInterval: 0     # Off
+  # metricsInterval: 300   # Once every five minutes
+```
+
+**Recommendations:**
+- Lower it while tuning `fps` or `subsampleWidth`, then put it back. Each change
+  needs a backend restart
+- Raise it or set `0` if the backend dominates your journal. journald bounds the
+  journal on disk with `SystemMaxUse`, so a busy sync log shortens how far back
+  every other message survives
 
 ---
 
@@ -1240,8 +1287,10 @@ go run ./cmd/test-zones-visual
 
 **Interactive adjustment:**
 1. Edit config UV values
-2. Restart sync
-3. Observe light colors
+2. Restart the backend (`systemctl --user restart hue-backend`). Zones are built
+   once when the sync engine is created, so restarting sync alone keeps the old
+   coordinates
+3. Start sync and observe light colors
 4. Iterate until satisfied
 
 **Tips:**
@@ -1949,12 +1998,15 @@ openhue setup
 | FPS > 60 | `sync.fps must be between 10 and 60 (got X)` |
 | SubsampleWidth < 16 | `sync.subsampleWidth must be between 16 and 256 (got X)` |
 | SubsampleWidth > 256 | `sync.subsampleWidth must be between 16 and 256 (got X)` |
+| MetricsInterval < 0 | `sync.metricsInterval must be between 0 and 3600 seconds (got X)` |
+| MetricsInterval > 3600 | `sync.metricsInterval must be between 0 and 3600 seconds (got X)` |
 
 **How to fix:**
 ```yaml
 sync:
   fps: 30              # Must be 10-60
   subsampleWidth: 64   # Must be 16-256
+  metricsInterval: 60  # Must be 0-3600
 ```
 
 ### Channel Validation
