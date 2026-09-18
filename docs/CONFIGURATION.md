@@ -2244,8 +2244,8 @@ deviceName: "Left \"Main\" Light"
    ```bash
    journalctl --user -u hue-backend -f
    # Look for:
-   # "🎮 Gaming detected"
-   # "❌ No gaming detectors available"
+   # "Gaming detected"
+   # "No gaming detection methods available"
    ```
 
 ### Lights Show Wrong Colors

@@ -1107,13 +1107,11 @@ func (s *Service) initGamingModeLocked() {
 	}
 
 	if detector == nil {
-		log.Println("[WARN] No gaming detection methods available")
 		return
 	}
 
 	s.gamingDetector = detector
 	s.gamingDetector.Start()
-	log.Println("[INFO] Gaming mode detector started")
 
 	// Seeded mid-game, the detector reports nothing while that game goes on,
 	// so the supervisor the old detector's game had is recreated here rather
@@ -1138,7 +1136,6 @@ func (s *Service) stopGamingModeLocked() {
 	if s.gamingDetector != nil {
 		s.gamingDetector.Close()
 		s.gamingDetector = nil
-		log.Println("[INFO] Gaming mode detector stopped")
 	}
 
 	// The session and gamingModeActive are left as they are: gaming mode

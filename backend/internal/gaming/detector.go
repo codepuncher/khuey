@@ -117,7 +117,7 @@ func NewDetector(cfg Config, callback StateChangeCallback) (*Detector, error) {
 	// Check if at least one detector is available
 	if d.systemdDetector == nil && d.powerProfileDetector == nil && d.steamDetector == nil &&
 		d.gameMode == nil {
-		log.Println("[ERROR] No gaming detectors available - feature disabled")
+		log.Println("[WARN] No gaming detection methods available, gaming mode disabled")
 		return nil, nil
 	}
 
