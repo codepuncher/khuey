@@ -66,6 +66,8 @@ width applies the next time Screen Sync starts.
 - **Room/Zone Selection**: Choose which room or zone to control with power and brightness buttons
 - **Refresh**: Reload available rooms/zones from the bridge
 - Shows format: "Room Name (room)" or "Zone Name (zone)"
+- **Activate scene on login**: Scene the backend activates each time it starts,
+  or "(Disabled)". Saved as `startupScene` in the config file
 
 #### Connection Settings
 - **Bridge IP**: View your current bridge IP address
