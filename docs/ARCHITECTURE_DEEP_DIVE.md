@@ -207,10 +207,11 @@ type Config struct {
     Version                      int               // Config format version
     Bridge                       string            // Bridge IP address
     Key                          string            // API key
+    GroupedLightID               string            // Room/zone for control
     ClientKey                    string            // Entertainment API client key
     EntertainmentConfigurationID string            // Entertainment area ID
-    GroupedLightID               string            // Room/zone for control
     Channels                     []ChannelConfig   // Light channel mapping
+    StartupScene                 string            // Scene activated at backend start
     Sync                         SyncConfig        // Screen sync settings
     GamingMode                   GamingModeConfig  // Gaming mode settings
     UI                           UIConfig          // UI preferences
@@ -1491,6 +1492,9 @@ entertainmentConfigurationId: "550e8400-e29b-41d4-a716-446655440000"
 
 # Grouped light for power/brightness control (optional)
 grouped_light_id: "room-uuid-here"
+
+# Scene activated each time the backend starts (optional, empty disables)
+startupScene: ""
 
 # Screen sync settings
 sync:

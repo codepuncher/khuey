@@ -118,6 +118,7 @@ Key: "YOUR-API-KEY"                     # API key
 grouped_light_id: "room-1"              # Default room/zone for controls
 clientkey: "CLIENT-KEY"                 # Entertainment API key
 entertainmentConfigurationId: "550e8400-e29b-41d4-a716-446655440000"  # Entertainment Area ID
+startupScene: ""                        # Scene activated when the backend starts
 log_level: "info"                       # Logging verbosity
 
 sync:                                   # Screen sync settings
@@ -176,6 +177,7 @@ Core settings for bridge connection and basic operation.
 | `clientkey` | string | No* | `""` | Client key for Entertainment API (required for screen sync) |
 | `entertainmentConfigurationId` | string | No* | `""` | Entertainment Area ID (required for screen sync) |
 | `grouped_light_id` | string | No | `""` | Room or zone ID for power/brightness controls |
+| `startupScene` | string | No | `""` | Scene activated each time the backend starts (empty disables) |
 
 **\*Required for Screen Sync feature**
 
@@ -299,6 +301,47 @@ openhue get /clip/v2/resource/zone
 - Required for power on/off button to work
 - Required for brightness slider to work
 - Optional if you only use scene control
+
+---
+
+### Startup Scene
+
+#### startupScene
+
+**Type:** String (scene display name)
+**Default:** `""` (disabled)
+**Format:** `"Room - Scene"`, or a bare scene name
+**Example:** `"Living Room - Relax"`
+
+The scene to activate each time the backend starts, which includes login and
+every `systemctl --user restart hue-backend`. An empty string turns the feature
+off, and the lights are left as they are.
+
+The name is matched against the scenes on the bridge, against the full
+`"Room - Scene"` display name and against the bare scene name. Nothing checks
+that the scene exists when it is saved, so a name matching none of them fails at
+the next start: the backend logs `Scene not found: <name>` and leaves the lights
+alone.
+
+**How to set:**
+```bash
+# Via Settings Dialog
+# Right-click tray icon → Settings → Light Control tab → Activate scene on login
+
+# Via DBus
+dbus-send --session --print-reply \
+  --dest=org.kde.plasma.hue /org/kde/plasma/hue \
+  org.kde.plasma.hue.SetStartupScene string:"Living Room - Relax"
+
+# Scene names come from GetScenes, in the same format
+dbus-send --session --print-reply \
+  --dest=org.kde.plasma.hue /org/kde/plasma/hue \
+  org.kde.plasma.hue.GetScenes
+```
+
+Activation runs in the background, so a slow bridge does not hold up startup.
+`grouped_light_id` is left alone, so the room picked for power and brightness
+does not follow the startup scene.
 
 ---
 
@@ -2323,6 +2366,7 @@ KDE Hue Control config is **fully compatible** with openhue-cli:
 - `version`
 - `grouped_light_id`
 - `entertainmentConfigurationId`
+- `startupScene`
 - `sync`
 - `gamingMode`
 - `ui`
