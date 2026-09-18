@@ -38,7 +38,7 @@ KDE Hue Control is a **three-component distributed system** that bridges KDE Pla
 │  │   (hue-tray)        │  org.kde.plasma.hue       │                 │
 │  │                     │                            │                 │
 │  │  • KStatusNotifier  │                            ▼                 │
-│  │  • QDBusInterface   │              ┌─────────────────────────┐    │
+│  │  • HueBackend proxy │              ┌─────────────────────────┐    │
 │  │  • KNotification    │              │   Go Backend            │    │
 │  │  • Menu/Controls    │              │   (hue-sync)            │    │
 │  └─────────────────────┘              │                         │    │
@@ -113,85 +113,88 @@ KDE Hue Control is a **three-component distributed system** that bridges KDE Pla
 
 The Go backend is organized as a modular service with clean separation of concerns:
 
+Most packages are a single file; `capture/`, `gaming/` and `testutil/` are the
+exceptions. The layout below is every non-test file, with `_test.go` files left
+out.
+
 ```
 backend/
 ├── cmd/
-│   ├── hue-sync/           # Main service entry point
-│   ├── profile-sync/       # Performance profiling tool
-│   ├── test-capture/       # Screen capture testing
-│   ├── test-entertainment/ # Entertainment API testing
-│   └── test-zones-visual/  # Zone mapping visualization
+│   ├── hue-sync/               # The daemon
+│   ├── profile-sync/           # CPU/memory profiling of a sync session
+│   ├── get-entertainment-info/ # Lists the bridge's entertainment areas
+│   ├── register-entertainment/ # Link-button pairing, prints Key and clientkey
+│   ├── test-capture/           # Screen capture
+│   ├── test-color/             # Color extraction
+│   ├── test-entertainment/     # Entertainment API streaming
+│   ├── test-gaming-detection/  # Gaming detector
+│   └── test-zones-visual/      # Zone mapping visualization
 │
-├── internal/
-│   ├── config/            # Configuration management
-│   │   ├── config.go        # Config struct and loading
-│   │   ├── validation.go    # Config validation
-│   │   └── config_test.go   # Unit tests
-│   │
-│   ├── hue/               # Hue API client
-│   │   ├── client.go        # REST API wrapper
-│   │   ├── scenes.go        # Scene management
-│   │   ├── lights.go        # Light control
-│   │   └── connection.go    # Connection management
-│   │
-│   ├── dbus/              # DBus service
-│   │   ├── service.go       # Service implementation
-│   │   ├── introspection.go # Introspection data
-│   │   └── access_control.go # UID-based security
-│   │
-│   ├── sync/              # Screen sync engine
-│   │   ├── engine.go        # Main sync loop
-│   │   ├── performance.go   # Metrics and monitoring
-│   │   └── circuit_breaker.go # Error recovery
-│   │
-│   ├── capture/           # Screen capture
-│   │   ├── pipewire.go      # Native PipeWire integration
-│   │   ├── portal.go        # XDG Desktop Portal
-│   │   ├── buffer.go        # Reusable RGBA buffer
-│   │   └── pipewire_native.c # CGo PipeWire bindings
-│   │
-│   ├── entertainment/     # Entertainment API
-│   │   ├── client.go        # DTLS streaming client
-│   │   ├── protocol.go      # HueStream v2 protocol
-│   │   └── activation.go    # Entertainment area activation
-│   │
-│   ├── color/             # Color processing
-│   │   ├── extractor.go     # UV-based color extraction
-│   │   ├── gamma.go         # Gamma correction
-│   │   └── sampling.go      # Stride-based sampling
-│   │
-│   ├── gaming/            # Gaming mode detection
-│   │   ├── detector.go      # Game process detection
-│   │   ├── cachyos.go       # CachyOS game database
-│   │   └── detection_methods.go # Multiple detection strategies
-│   │
-│   ├── common/            # Common utilities
-│   │   └── validation.go    # Input validation
-│   │
-│   └── testutil/          # Testing utilities
-│       ├── mock_bridge.go   # Mock Hue bridge
-│       └── helpers.go       # Test helpers
-│
-└── vendor/                 # Vendored dependencies
+└── internal/
+    ├── config/
+    │   └── config.go            # Config struct, load, save, validation
+    │
+    ├── hue/
+    │   └── client.go            # REST wrapper: scenes, power, brightness, rooms
+    │
+    ├── dbus/
+    │   └── service.go           # Methods, introspection and access control
+    │
+    ├── sync/
+    │   └── engine.go            # Sync loop, metrics, area activation
+    │
+    ├── capture/
+    │   ├── capture.go           # ScreenCapture, frame reader loop, buffer pool
+    │   ├── portal.go            # XDG Desktop Portal
+    │   ├── pipewire_native.go   # CGo bindings, format conversion, stream health
+    │   ├── pipewire_native.c    # libpipewire-0.3 stream and frame handler
+    │   └── pipewire_native.h    # The C interface Go calls
+    │
+    ├── entertainment/
+    │   └── client.go            # DTLS client and HueStream v2 packets
+    │
+    ├── color/
+    │   └── extractor.go         # UV zones, stride sampling, gamma
+    │
+    ├── gaming/
+    │   ├── detector.go          # Aggregation, polling, debounce
+    │   ├── systemd.go           # systemd-inhibit check
+    │   ├── powerprofile.go      # powerprofilesctl check
+    │   ├── steam.go             # Steam AppId check
+    │   └── gamemode.go          # Feral GameMode check
+    │
+    ├── common/
+    │   └── utils.go             # HTTP client, DBus string validation, log sanitising
+    │
+    └── testutil/
+        ├── mock_bridge.go        # Mock Hue bridge
+        └── mock_entertainment.go # Mock Entertainment API endpoint
 ```
+
+Dependencies are not vendored; the build resolves them from the module cache.
 
 ### Tray Application Structure
 
 ```
 trayapp/
-├── main.cpp               # Entry point
+├── main.cpp               # Entry point, tray icon, menu
 │   ├── KStatusNotifierItem setup
-│   ├── QDBusInterface creation
+│   ├── HueBackend proxy
 │   ├── Menu population
 │   └── Signal/slot connections
 │
-├── CMakeLists.txt         # Build configuration
-│   ├── Qt6 dependencies
-│   ├── KF6 StatusNotifierItem
-│   └── DBus XML generation
+├── settingsdialog.h       # Settings GUI
+├── settingsdialog.cpp     # Holds its own HueBackend proxy
 │
-└── (Future: Additional dialogs/windows)
+├── huebackend.h           # Hand-written DBus proxy, header only
+│
+└── CMakeLists.txt         # Qt6 Core/Widgets/DBus, KF6 StatusNotifierItem,
+                           # Notifications and IconThemes; C++17; AUTOMOC
 ```
+
+There is no generated DBus interface: `huebackend.h` is written by hand because
+`QDBusInterface` introspects the service in its constructor, and that call
+blocks until the DBus timeout when the backend is hung.
 
 ---
 
@@ -231,9 +234,11 @@ type ChannelConfig struct {
 ```
 
 **Thread Safety:**
-- Uses `sync.Mutex` for concurrent access protection
+- One `sync.Mutex` taken by `View`, `Update` and `Save`
 - Non-global Viper instance (prevents global state contamination)
-- All exported methods are goroutine-safe
+- `IsConfigured`, `HasEntertainmentConfig` and `Validate` take no lock: they
+  read fields directly and are meant to be called from inside `View` or
+  `Update`, which already hold it
 
 **Key Functions:**
 - `Load()` - Read `config.yaml` from the directory `getConfigPath` returns (see [Config File Structure](#config-file-structure))
@@ -242,10 +247,13 @@ type ChannelConfig struct {
 - `IsConfigured()` - Check if basic setup is complete
 - `HasEntertainmentConfig()` - Check if Entertainment API is ready
 
-**Performance:**
-- Fast path for defaults (no disk I/O)
-- Config caching (loaded once, reused)
-- Lazy validation (only when accessing)
+**Load Behavior:**
+- Creates the config directory and attempts a read every time; a missing file
+  returns the defaults rather than an error (first run)
+- Validation is eager, at the end of `Load`, so a bad file stops the daemon at
+  startup instead of surfacing on first access
+- The package holds no cache: `main` calls `Load` once and every component
+  shares that one `*Config`
 
 ---
 
@@ -256,33 +264,36 @@ type ChannelConfig struct {
 **Key Types:**
 ```go
 type Client struct {
-    client       *openhue.Client // Underlying openhue client
-    bridgeAddr   string           // Bridge IP
-    apiKey       string           // API key
-    connStatus   ConnectionStatus // Connection state
-    mu           sync.RWMutex     // Protects connStatus
-    rateLimiter  *rate.Limiter    // Rate limiting (10 req/sec)
+    client     *openhue.ClientWithResponses
+    bridgeAddr string
+    apiKey     string
+    ctx        context.Context
+    connStatus ConnectionStatus
+    connMutex  sync.RWMutex  // Protects connStatus
+    limiter    *rate.Limiter // rate.NewLimiter(10, 20): 10 req/sec, burst 20
 }
 
 type ConnectionStatus struct {
     Connected   bool      // Is bridge reachable?
     LastError   string    // Last error message
-    BridgeAddr  string    // Bridge IP
     LastAttempt time.Time // Last connection attempt
+    BridgeAddr  string    // Bridge IP
 }
 
 type Scene struct {
-    ID       string // Scene UUID
-    Name     string // Scene name
-    RoomName string // Room name (for display)
+    ID             string // Scene UUID
+    Name           string // Scene name
+    Room           string // Room UUID
+    RoomName       string // Room name (for display)
+    GroupedLightID string // The room's grouped light, for power and brightness
 }
 ```
 
 **Connection Management:**
-- Lazy connection (connects on first use)
-- Automatic error tracking
-- Connection status exposed via DBus
-- Rate limiting to prevent bridge overload (10 req/sec)
+- `NewClient` builds the client and records a first reachability result; there
+  is no separate connect step
+- Every call updates `connStatus`, which `GetConnectionStatus` exposes over DBus
+- Rate limiting to prevent bridge overload (10 req/sec, burst 20)
 
 **Key Functions:**
 - `GetScenes()` - Fetch all scenes with room names
@@ -293,8 +304,9 @@ type Scene struct {
 - `IsReachable()` - Test bridge connectivity
 
 **Error Handling:**
-- Network errors captured and stored
-- Automatic retry on transient failures
+- Network errors are captured into `connStatus` and returned to the caller
+- No retry: a failed REST call fails. `RetryConnection` and
+  `TestBridgeConnection` are the DBus methods that re-probe on demand
 - Clear error messages for users
 
 ---
@@ -312,9 +324,17 @@ type Service struct {
     syncEngine       *syncengine.Engine // Sync engine
     gamingDetector   *gaming.Detector   // Gaming detector
     gamingModeActive bool               // Gaming state
-    mu               sync.RWMutex       // Guards the gaming state; config has its own lock
-    ownerUID         uint32             // Service owner UID
-    callerUID        func(dbus.Sender) (uint32, error) // Resolves sender to UID; nil fails closed
+
+    // Cancels the supervisor watching the session gaming mode started. Only
+    // set while gamingModeActive, cleared whenever that goes false, all under
+    // mu, so a supervisor never outlives its game.
+    stopGamingSupervisor context.CancelCauseFunc
+
+    mu sync.RWMutex // Guards the gaming state; config has its own lock
+
+    setGamingModeMu sync.Mutex // Serialises SetGamingMode's write with its detector transition
+    ownerUID        uint32     // Service owner UID
+    callerUID       func(dbus.Sender) (uint32, error) // Resolves sender to UID; nil fails closed
 }
 ```
 
@@ -324,18 +344,21 @@ type Service struct {
 - Reads that return bridge or bridge-derived data require owner; local config/state reads that expose no bridge resource identifiers or bridge state (e.g. GetStatus, GetSyncSettings) do not - GetStatus additionally reveals only whether bridge credentials are configured
 - Write methods require owner UID match
 
-**Method Categories:**
-1. **Status:** GetStatus, GetConnectionStatus
-2. **Scenes:** GetScenes, ActivateScene
-3. **Lights:** SetPower, SetBrightness, GetState
-4. **Sync:** StartSync, StopSync, IsSyncing
+**Method Categories** (27 methods; see `API_REFERENCE.md` for signatures):
+1. **Status:** GetStatus, GetConnectionStatus, RetryConnection, TestBridgeConnection
+2. **Scenes:** GetScenes, ActivateScene, GetStartupScene, SetStartupScene
+3. **Lights:** SetPower, SetBrightness, GetState, GetGroupedLights
+4. **Sync:** StartSync, StopSync, IsSyncing, GetSyncSettings, SetSyncSettings, ResetCaptureSource
 5. **Gaming:** SetGamingMode, IsGamingModeEnabled, IsGamingModeActive
-6. **Config:** SetGroupedLight, SetSyncSettings, ResetCaptureSource, GetBridgeSettings
+6. **Config:** SetGroupedLight, GetBridgeSettings, GetSelectedRoom, SetSelectedRoom
+7. **Tray:** GetTrayIcons, SetTrayIcons
 
 **Introspection:**
-- Full introspection data exposed
+- `introspectionMethods()` in the same file returns a `[]introspect.Method`
+  literal; godbus renders the XML at call time. There is no XML in the tree
 - Compatible with d-feet and dbus-send
-- Type-safe method signatures
+- A new method has to be added there as well as implemented, or it works over
+  dbus-send and is invisible to introspection
 
 ---
 
@@ -346,84 +369,126 @@ type Service struct {
 **Key Types:**
 ```go
 type Engine struct {
-    cfg              *config.Config
-    capture          *capture.Capturer
-    entertainClient  *entertainment.Client
-    running          bool
-    stopChan         chan struct{}
-    metrics          PerformanceMetrics
-    mu               sync.RWMutex
-    circuitBreaker   *CircuitBreaker // Error recovery
+    config   *config.Config
+    capturer *capture.ScreenCapture
+    client   *entertainment.Client
+
+    mu      sync.RWMutex
+    running bool
+    cancel  context.CancelFunc
+
+    // Bumped per session so a loop winding down can only stop the session it
+    // belongs to, never one started while it was stopping.
+    generation uint64
+
+    // The next session reuses the capturer and client, so a stop waits for
+    // the loop to leave them before tearing them down.
+    syncLoopWg sync.WaitGroup
+
+    // Why the last session ended, or nil if it was stopped deliberately. A
+    // caller that restarts sync needs the two apart.
+    lastFailure error
+
+    // Atomic so a settings change never blocks on e.mu, which Start holds
+    // across the portal dialog and the DTLS connect.
+    fps        atomic.Int64
+    zones      []color.Zone
+    httpClient *http.Client
+
+    metrics PerformanceMetrics
 }
 
+// Counters, not a snapshot: percentiles are derived from the histogram when a
+// metrics line is logged, and nothing exposes them as fields.
 type PerformanceMetrics struct {
-    FramesProcessed  uint64
-    FramesDropped    uint64
-    AvgFrameTime     time.Duration
-    P50Latency       time.Duration
-    P95Latency       time.Duration
-    P99Latency       time.Duration
+    mu sync.RWMutex
+    metricsData
+}
+
+type metricsData struct {
+    frameCount       uint64
+    startTime        time.Time
+    lastLogTime      time.Time
+    totalFrameTime   time.Duration
+    totalCaptureTime time.Duration
+    totalExtractTime time.Duration
+    totalStreamTime  time.Duration
+    framesDropped    uint64
+    frameTimes       [100]int // 0-99ms buckets
 }
 ```
 
-**Sync Loop:**
+**Sync Loop** (`streamFrames`, abridged):
 ```go
-// Simplified sync loop structure
-func (e *Engine) syncLoop(ctx context.Context) {
-    ticker := time.NewTicker(time.Second / time.Duration(e.cfg.Sync.FPS))
+func (e *Engine) streamFrames(ctx context.Context) error {
+    ticker := time.NewTicker(time.Second / time.Duration(e.fps.Load()))
     defer ticker.Stop()
+
+    // Copied once per session rather than read per frame, where View would
+    // wait out every Save's disk write.
+    var subsampleWidth, metricsInterval int
+    e.config.View(func(c *config.Config) {
+        subsampleWidth = c.Sync.SubsampleWidth
+        metricsInterval = c.Sync.MetricsInterval
+    })
+
+    // One extractor per session. The gamma is hardcoded here; see
+    // channels[].gammaFactor under Validation Rules.
+    extractor, err := color.NewExtractor(subsampleWidth, 2.2)
+    if err != nil {
+        return err
+    }
 
     for {
         select {
-        case <-ticker.C:
-            start := time.Now()
-
-            // 1. Capture frame from PipeWire
-            frame, err := e.capture.CaptureFrame()
-            if err != nil {
-                e.handleCaptureError(err)
-                continue
-            }
-
-            // 2. Extract colors for each channel
-            colors := make([]entertainment.RGBColor, len(e.cfg.Channels))
-            for i, ch := range e.cfg.Channels {
-                if !ch.Active {
-                    continue
-                }
-                colors[i] = color.ExtractZone(frame, ch.UVA, ch.UVB, ch.GammaFactor)
-            }
-
-            // 3. Stream to Entertainment API
-            err = e.entertainClient.Stream(colors)
-            if err != nil {
-                e.handleStreamError(err)
-                continue
-            }
-
-            // 4. Update metrics
-            e.metrics.RecordFrame(time.Since(start))
-
-        case <-e.stopChan:
-            return
         case <-ctx.Done():
-            return
+            return nil
+        case <-ticker.C:
+            // An FPS change resets the ticker before the error paths below,
+            // so a settings change lands even while capture is failing.
+
+            frame, err := e.capturer.CaptureFrame()
+            if err != nil {
+                // Capture is over: every later tick would stream the same
+                // frozen frame while IsRunning reported a live session.
+                if errors.Is(err, capture.ErrCaptureStopped) {
+                    return err
+                }
+                // Logged at most once every 5s, then keep going.
+                continue
+            }
+
+            zoneColors, err := extractor.ExtractColors(frame, e.zones)
+            capture.PutImageBuffer(frame) // Straight back to the pool
+            if err != nil {
+                continue
+            }
+
+            // 8-bit means times 257, not shifted: 255 has to reach 65535.
+            channelColors := ...
+            if err := e.client.StreamColors(channelColors); err != nil {
+                // Logged and dropped. There is no reconnect.
+            }
+
+            e.updateMetrics(frameTime, captureTime, extractTime, streamTime)
         }
     }
 }
 ```
 
-**Circuit Breaker:**
-- Stops after 30 consecutive errors
-- Prevents infinite error loops
-- Logs clear message on circuit trip
-- Manual restart required
+**Giving Up:** the engine has no breaker of its own. Capture owns that decision
+(see [internal/capture](#internalcapture---screen-capture)) and reports it as
+`capture.ErrCaptureStopped`, which is the one error that ends the session here.
+Every other error is logged and the loop continues.
 
 **Performance Monitoring:**
-- Frame time tracking
-- Latency percentiles (P50, P95, P99)
-- Dropped frame counting
-- Metrics exposed via logs
+- Frame time tracking, split into capture, extract and stream
+- Latency percentiles (p50, p95, p99), computed from a 100-bucket millisecond
+  histogram when a line is logged, not stored
+- Dropped frames counted from elapsed wall-clock time against the target
+  interval, because `time.Ticker` buffers only one pending tick
+- Logged every `sync.metricsInterval` seconds (default 60, 0 turns it off) and
+  once more when a session stops
 
 ---
 
@@ -433,46 +498,104 @@ func (e *Engine) syncLoop(ctx context.Context) {
 
 **Key Types:**
 ```go
-type Capturer struct {
-    portalSession  *PortalSession
-    pipewireNode   uint32
-    pipewireStream *PipeWireStream
-    rgbaBuffer     *RGBABuffer // Reusable buffer
-    mu             sync.Mutex
-}
+// The portal session is not a type of its own; its state lives here.
+type ScreenCapture struct {
+    conn          *dbus.Conn // Session bus, for the portal
+    sessionHandle string     // Portal session object path
+    streamNode    uint32     // PipeWire node ID
+    fps           int
+    fpsMutex      sync.RWMutex
+    ctx           context.Context
+    cancel        context.CancelFunc
 
-type PortalSession struct {
-    sessionPath string // DBus object path
-    streamNode  uint32 // PipeWire node ID
-    restoreToken string // Session restoration token
+    gstCmd           *exec.Cmd
+    nativeCapture    *NativePipeWireCapture
+    frameBuffer      *image.RGBA  // The published frame, replaced by publishFrame
+    frameMutex       sync.RWMutex // Write side drains readers before recycling
+    useMockFrames    bool
+    useNativeCapture bool
+    frameReaderWg    sync.WaitGroup
+    consecutiveErrs  int   // Attempts in the current failure streak
+    captureErr       error // Why capture gave up; cleared by Start
+
+    useScreenshot  bool
+    screenshotTool string
+    captureWidth   int
+    captureHeight  int
+
+    restoreToken string
+    tokenMutex   sync.Mutex
+
+    // Bumped by ClearRestoreToken so a start already waiting on the portal
+    // dialog cannot save its grant over a reset the user was told had worked.
+    tokenGeneration uint64
+
+    onTokenUpdate func(newToken string)
 }
 ```
+
+The sync engine always asks for native PipeWire at full resolution. `Config`
+also selects a mock gradient, a screenshot tool (spectacle, grim or import) and
+a GStreamer path, which only the `cmd/test-*` tools reach.
 
 **Native PipeWire Integration (CGo):**
 ```c
-// pipewire_native.c
-// Direct libpipewire-0.3 integration for zero-copy capture
-pw_stream* create_pipewire_stream(uint32_t node_id);
-int capture_frame_to_buffer(pw_stream *stream, uint8_t *buffer, size_t size);
+// pipewire_native.h - the whole C interface
+struct user_data *pw_stream_connect_to_node(uint32_t node_id);
+int pw_start_loop(struct user_data *ud);
+void pw_stop_loop(struct user_data *ud);
+void pw_cleanup(struct user_data *ud);
+int pw_get_frame(struct user_data *ud, uint8_t **data, int *width, int *height,
+                 int *stride, uint32_t *format, struct frame_status *status);
 ```
 
 **XDG Desktop Portal Flow:**
-1. Request screen sharing permission
-2. User approves via GUI dialog
+1. Request screen sharing permission, passing any saved restore token
+2. User approves via GUI dialog, or the token skips it
 3. Portal returns PipeWire node ID
 4. Connect to PipeWire stream
 5. Capture frames via native CGo
 
+The stream is connected with `PW_STREAM_FLAG_MAP_BUFFERS` and each frame is
+copied out of the mapped buffer. DmaBuf buffers arrive unmapped unless the
+producer marks them mappable, and the handler rejects those rather than reading
+them, so this path is not zero-copy.
+
 **Buffer Reuse:**
-- Single RGBA buffer allocated once
-- Reused for all frames (eliminates 28MB/frame allocation)
-- 91% reduction in memory allocations
-- Prevents GC pressure
+- A `sync.Pool` of RGBA buffers (`GetImageBuffer`/`PutImageBuffer`), not one
+  persistent buffer. A single buffer was published to another goroutine while
+  being rewritten and was removed as a data race
+- `GetImageBuffer` allocates when the pooled buffer is the wrong bounds, so a
+  resolution change costs one allocation rather than corrupting a frame
+- 91% reduction in memory allocations; prevents GC pressure
+- Keep the Get/Put pairs balanced. `sync/engine.go` puts each frame back as
+  soon as extraction is done with it
+
+**Giving Up on Capture:**
+- `captureBreakerTripped(firstErrAt, now, grace)` is a deadline, not an error
+  count: this loop's period follows the configured FPS, so counting ticks would
+  give 0.5s of grace at 60 FPS and 3s at 10
+- `captureGrace`, 5s, measured from the first error of the current streak,
+  whether or not a frame has ever arrived. A frame clears the streak, and so do
+  `ErrNoNewFrame` (a still screen publishes nothing, which is not a fault) and
+  `ErrAwaitingFirstFrame`
+- `firstFrameGrace`, 6s, measured from the start of the loop and only checked
+  while no frame has arrived yet. It is the backstop for the paths that keep
+  clearing the streak: a stream that sits in awaiting-first-frame, or one
+  bouncing between that and hard errors, would otherwise never accumulate 5s of
+  continuous failure however long the dead air ran
+- Continuous hard errors from startup therefore stop capture at 5s, not 6s
+- `ErrStreamFailed` skips the deadline and stops immediately, since a failed
+  stream never recovers
+- Each of those records why through `failCapture`, behind `ErrCaptureStopped`,
+  which is what ends the sync session. A plain `Stop` cancels the context and
+  records nothing, which is why `Start` clears `captureErr`
 
 **Portal Timeout:**
 - 2-minute timeout on permission dialog
 - Prevents indefinite hangs
-- Returns `PortalError:Timeout` if exceeded
+- The DBus service formats portal failures as `PortalError:<type>:<hint>`, so a
+  timeout reaches the tray as `PortalError:timeout:...`
 
 ---
 
@@ -483,12 +606,17 @@ int capture_frame_to_buffer(pw_stream *stream, uint8_t *buffer, size_t size);
 **Key Types:**
 ```go
 type Client struct {
-    bridgeAddr   string
-    clientKey    string
-    areaID       string
-    dtlsConn     *dtls.Conn
-    isActive     bool
-    mu           sync.Mutex
+    bridgeIP        string
+    username        string // The API key, sent as the PSK identity hint
+    clientKey       string // Hex; decoded to the PSK bytes
+    entertainmentID string // Goes in every packet header
+
+    conn         net.Conn
+    sequenceID   uint8
+    channelCount int
+
+    mu        sync.RWMutex
+    connected bool
 }
 ```
 
@@ -501,11 +629,15 @@ type Client struct {
 **Packet Format:**
 ```
 ┌──────────────────────────────────────────────┐
-│ Header (9 bytes)                             │
-│  - Protocol name: "HueStream"                │
-│  - Version: 2.0                              │
-│  - Sequence number                           │
-│  - Reserved bytes                            │
+│ Header (52 bytes)                            │
+│  - Protocol name: "HueStream" (9 bytes)      │
+│  - Version: 0x02 0x00 (2 bytes)              │
+│  - Sequence number (1 byte)                  │
+│  - Reserved (2 bytes)                        │
+│  - Color space: 0x00 = RGB (1 byte)          │
+│  - Reserved (1 byte)                         │
+│  - Entertainment configuration ID (36 bytes, │
+│    the UUID as ASCII, hyphens included)      │
 ├──────────────────────────────────────────────┤
 │ Color Data (7 bytes per channel)             │
 │  - Channel ID (1 byte)                       │
@@ -517,17 +649,27 @@ type Client struct {
 └──────────────────────────────────────────────┘
 ```
 
-**Activation Flow:**
-1. PUT `/clip/v2/entertainment_configuration/{id}`
-2. Wait for bridge response
-3. Establish DTLS connection
+**Activation Flow** (`connectStream` in `sync/engine.go`):
+1. PUT `/clip/v2/resource/entertainment_configuration/{id}` with
+   `{"action":"start"}`. Errors are read from the response body's `errors`
+   array, not from the HTTP status
+2. Wait 100ms for the bridge to open UDP 2100
+3. Establish the DTLS connection
 4. Stream color packets at target FPS
-5. Deactivate on stop
+
+An activation the bridge rejected is logged and the connect is tried anyway,
+once. A connect refused after an activation the bridge accepted is retried every
+500ms for up to 10s, re-activating the area each time, since only an accepted
+activation reopens the port.
+
+Stopping sync closes the DTLS connection and stops sending. It does not PUT
+`{"action":"stop"}`: nothing in the tree does. The bridge drops out of streaming
+mode on its own once the packets stop.
 
 **Error Handling:**
-- Automatic reconnection on DTLS errors
-- Validates bridge response codes
-- Logs detailed error information
+- Once connected there is no reconnect: a failed write is logged by the sync
+  loop and that frame is dropped
+- `Close` is the only teardown; the area is left to time out
 
 ---
 
@@ -538,7 +680,22 @@ type Client struct {
 **Key Types:**
 ```go
 type Extractor struct {
-    gammaTable []uint8 // Pre-computed gamma correction
+    subsampleWidth  int     // Target samples across a zone (16-256, default 64)
+    gammaCorrection float64 // One value for every zone
+}
+
+type Zone struct {
+    ID   int     // Becomes the Entertainment API channel ID
+    U1   float64 // Left   (0.0-1.0)
+    V1   float64 // Top
+    U2   float64 // Right
+    V2   float64 // Bottom
+    Name string
+}
+
+type ZoneColor struct {
+    ZoneID  int
+    R, G, B uint8
 }
 ```
 
@@ -558,58 +715,45 @@ Screen (any resolution):
 Resolution-agnostic: Works on 1080p, 1440p, 4K, etc.
 ```
 
-**Stride-Based Sampling:**
+**Stride-Based Sampling** (`extractZoneColor`, abridged):
 ```go
-// Extract mean color from zone without resampling
-func ExtractZone(img image.Image, uvA, uvB UV, gamma float32) RGBColor {
+func (e *Extractor) extractZoneColor(img image.Image, zone Zone) (ZoneColor, error) {
     bounds := img.Bounds()
 
-    // Convert UV to pixel coordinates
-    x1 := int(uvA.X * float32(bounds.Dx()))
-    y1 := int(uvA.Y * float32(bounds.Dy()))
-    x2 := int(uvB.X * float32(bounds.Dx()))
-    y2 := int(uvB.Y * float32(bounds.Dy()))
+    x1 := int(zone.U1 * float64(bounds.Dx()))
+    y1 := int(zone.V1 * float64(bounds.Dy()))
+    x2 := int(zone.U2 * float64(bounds.Dx()))
+    y2 := int(zone.V2 * float64(bounds.Dy()))
 
-    // Sample pixels with stride (skip pixels for speed)
-    stride := calculateStride(x2 - x1)
-    var r, g, b uint64
-    var count int
+    // ... each then clamped to the image, and x2/y2 to at least x1+1/y1+1, so
+    // a zone always covers at least one pixel.
 
-    for y := y1; y < y2; y += stride {
-        for x := x1; x < x2; x += stride {
-            color := img.At(x, y)
-            r32, g32, b32, _ := color.RGBA()
-            r += uint64(r32 >> 8)
-            g += uint64(g32 >> 8)
-            b += uint64(b32 >> 8)
-            count++
-        }
-    }
+    // The same stride on both axes, so the sample count follows the zone's
+    // aspect ratio rather than being subsampleWidth squared.
+    stride := max(1, (x2-x1)/e.subsampleWidth)
 
-    // Calculate mean
-    meanR := uint8(r / uint64(count))
-    meanG := uint8(g / uint64(count))
-    meanB := uint8(b / uint64(count))
+    r, g, b := e.calculateMeanColorWithStride(img, x1, y1, x2, y2, stride)
 
-    // Apply gamma correction
-    return RGBColor{
-        R: applyGamma(meanR, gamma),
-        G: applyGamma(meanG, gamma),
-        B: applyGamma(meanB, gamma),
-    }
+    return ZoneColor{zone.ID, e.applyGamma(r), e.applyGamma(g), e.applyGamma(b)}, nil
 }
 ```
 
+`calculateMeanColorWithStride` has two paths. An `*image.RGBA` whose bounds
+cover the zone, which is what capture produces, is read straight out of `Pix`
+by `meanRGBAWithStride`. Anything else goes through `img.At`, which boxes a
+`color.Color` per sample.
+
 **Gamma Correction:**
-- Default: 2.2 (standard sRGB)
-- Pre-computed lookup table (fast)
-- Per-channel configuration
-- Range: 0.5 - 4.0
+- `applyGamma` computes `math.Pow(v/255, 1/gamma) * 255` per channel, per zone,
+  per frame. There is no lookup table
+- One gamma per extractor, and the sync engine hardcodes 2.2 when it builds one
+- `channels[].gammaFactor` is validated to 0.5-4.0 and then never read; see
+  Validation Rules
 
 **Performance:**
 - 41% faster than Lanczos resampling
-- No intermediate buffer allocations
-- Cache-friendly access patterns
+- The frame is never resampled or copied; zones are sampled in place
+- Cache-friendly access patterns: the fast path walks `Pix` by offset
 
 ---
 
@@ -708,7 +852,7 @@ Entertainment API configured. The callback calls
        ▼
 ┌─────────────────────────┐
 │   Tray App (Qt/C++)     │
-│  • QDBusInterface.call()│
+│  • HueBackend async call│
 └────────────┬────────────┘
              │
              │ DBus Session Bus
@@ -772,7 +916,7 @@ Entertainment API configured. The callback calls
        ▼
 ┌─────────────────────────┐
 │   Tray App              │
-│  • QDBusInterface.call()│
+│  • HueBackend async call│
 │    StartSync()          │
 └────────────┬────────────┘
              │
@@ -780,9 +924,8 @@ Entertainment API configured. The callback calls
              ▼
 ┌────────────────────────────────────────────────────────────┐
 │   Backend: Sync Engine Start                              │
-│  1. Activate Entertainment Area (HTTPS PUT to bridge)     │
-│  2. Initialize PipeWire capture                           │
-│  3. Request screen sharing permission (XDG Portal)        │
+│  1. Initialize PipeWire capture                           │
+│  2. Request screen sharing permission (XDG Portal)        │
 └────────────┬───────────────────────────────────────────────┘
              │
              │ XDG Desktop Portal
@@ -790,7 +933,7 @@ Entertainment API configured. The callback calls
 ┌────────────────────────────────────────────────────────────┐
 │   System: Permission Dialog                               │
 │   [Allow screen sharing? Select monitor]                  │
-│   User must approve                                        │
+│   A saved sync.restoreToken skips this                    │
 └────────────┬───────────────────────────────────────────────┘
              │
              │ User clicks "Share"
@@ -799,6 +942,14 @@ Entertainment API configured. The callback calls
 │   PipeWire: Start Streaming                               │
 │  • Provides node ID                                        │
 │  • Backend connects to stream                             │
+└────────────┬───────────────────────────────────────────────┘
+             │
+             │ Capture running
+             ▼
+┌────────────────────────────────────────────────────────────┐
+│   Backend: Open the Entertainment stream                  │
+│  3. Activate Entertainment Area (HTTPS PUT to bridge)     │
+│  4. Connect DTLS to bridge:2100                           │
 └────────────┬───────────────────────────────────────────────┘
              │
              │ Enter sync loop (30 FPS)
@@ -810,7 +961,7 @@ Entertainment API configured. The callback calls
 ║  ┌──────────────────────────────────────────────────┐     ║
 ║  │ 1. Capture Frame (PipeWire native)               │     ║
 ║  │    • Read video buffer via CGo                    │     ║
-║  │    • Reuse RGBA buffer (no allocation)           │     ║
+║  │    • Copy into a buffer from the pool            │     ║
 ║  │    Time: ~2ms                                     │     ║
 ║  └────────────┬─────────────────────────────────────┘     ║
 ║               │                                            ║
@@ -827,8 +978,8 @@ Entertainment API configured. The callback calls
 ║               ▼                                            ║
 ║  ┌──────────────────────────────────────────────────┐     ║
 ║  │ 3. Apply Gamma Correction                        │     ║
-║  │    • Per-channel gamma (default 2.2)             │     ║
-║  │    • Lookup table (fast)                          │     ║
+║  │    • Runs inside step 2, per zone mean            │     ║
+║  │    • One gamma for every zone, fixed at 2.2      │     ║
 ║  │    Time: <1ms                                     │     ║
 ║  └────────────┬─────────────────────────────────────┘     ║
 ║               │                                            ║
@@ -844,15 +995,17 @@ Entertainment API configured. The callback calls
 ║               ▼                                            ║
 ║  ┌──────────────────────────────────────────────────┐     ║
 ║  │ 5. Update Metrics                                │     ║
-║  │    • Record frame time                            │     ║
-║  │    • Update latency percentiles                   │     ║
+║  │    • Record frame, capture, extract, stream time  │     ║
+║  │    • Add the frame time to the histogram          │     ║
 ║  │    Time: <1ms                                     │     ║
 ║  └──────────────────────────────────────────────────┘     ║
 ║                                                            ║
 ║  Total: ~15ms average (well under 33ms budget)            ║
 ║                                                            ║
 ║  ┌─────────────────────────────────────────────────┐      ║
-║  │ Sleep until next frame (33ms - frame_time)      │      ║
+║  │ Wait for the next tick. A tick missed while the  │      ║
+║  │ frame was in flight is counted as a drop, not    │      ║
+║  │ run late: time.Ticker buffers only one           │      ║
 ║  └─────────────────────────────────────────────────┘      ║
 ║                                                            ║
 ║  Loop until StopSync() called                             ║
@@ -861,8 +1014,7 @@ Entertainment API configured. The callback calls
 
 **Performance Budget (30 FPS = 33ms per frame):**
 - Capture: 2ms (6%)
-- Color extraction: 11ms (33%)
-- Gamma correction: <1ms (3%)
+- Color extraction, gamma included: 11ms (33%)
 - Streaming: 1ms (3%)
 - Metrics: <1ms (3%)
 - **Total: ~15ms (45% of budget)**
@@ -906,9 +1058,14 @@ main() goroutine
 // Each DBus method call runs in its own goroutine
 // Service must be thread-safe
 
-func (s *Service) GetScenes() ([]string, *dbus.Error) {
-    // No mutex needed - read-only operation
-    return s.hueClient.GetScenes()
+func (s *Service) GetScenes(sender dbus.Sender) ([]string, *dbus.Error) {
+    // Scenes are bridge data, so they need the owner check. No mutex: the
+    // hue client has its own, and nothing here touches Service state.
+    if err := s.checkAccess(sender); err != nil {
+        return nil, dbus.MakeFailedError(err)
+    }
+    // hue.Client returns []Scene; this formats the display names.
+    ...
 }
 
 func (s *Service) SetGroupedLight(id string, sender dbus.Sender) (bool, *dbus.Error) {
@@ -1003,18 +1160,19 @@ func (d *Detector) Stop() {
        │ StartSync()
        ▼
 ┌──────────────────────┐
-│   ACTIVATING         │ Activating Entertainment Area
-│   • PUT to bridge    │
-│   • Wait for 200 OK  │
-└──────┬───────────────┘
-       │
-       │ Success
-       ▼
-┌──────────────────────┐
 │   INITIALIZING       │ Setting up PipeWire
 │   • Portal request   │
 │   • User approval    │
-│   • Connect stream   │
+│   • Frame reader up  │
+└──────┬───────────────┘
+       │
+       │ Capture started
+       ▼
+┌──────────────────────┐
+│   ACTIVATING         │ Activating Entertainment Area
+│   • PUT to bridge    │
+│   • Check body errors│
+│   • DTLS connect     │
 └──────┬───────────────┘
        │
        │ Stream ready
@@ -1022,16 +1180,16 @@ func (d *Detector) Stop() {
 ┌──────────────────────┐
 │   RUNNING            │ Sync loop active
 │   • Capture frames   │ ◄─────┐
-│   • Extract colors   │       │
-│   • Stream to bridge │       │ Every 33ms (30 FPS)
-└──────┬───────────────┘       │
-       │                       │
-       │ StopSync()            │
-       ▼                       │
-┌──────────────────────┐       │
-│   DEACTIVATING       │───────┘ Error (retry)
+│   • Extract colors   │       │ Every 33ms (30 FPS)
+│   • Stream to bridge │───────┘
+└──────┬───────────────┘
+       │
+       │ StopSync(), or capture gives up
+       ▼
+┌──────────────────────┐
+│   STOPPING           │
+│   • Cancel the loop  │
 │   • Stop capture     │
-│   • Deactivate area  │
 │   • Close DTLS       │
 └──────┬───────────────┘
        │
@@ -1043,9 +1201,13 @@ func (d *Detector) Stop() {
 ```
 
 **Error States:**
-- **CAPTURE_ERROR:** Frame capture failed (circuit breaker after 30 errors)
-- **STREAM_ERROR:** Entertainment API send failed (retry)
-- **PORTAL_ERROR:** User cancelled or timeout (stop immediately)
+- **CAPTURE_ERROR:** frame capture failed. The loop logs and continues until
+  capture gives up on its own deadline and returns `ErrCaptureStopped`, which
+  ends the session
+- **STREAM_ERROR:** Entertainment API send failed. Logged, frame dropped, loop
+  continues
+- **PORTAL_ERROR:** user cancelled or timeout. `StartSync` fails; no session
+  starts
 
 ---
 
@@ -1109,14 +1271,22 @@ true. That method returns the current detection result without the debounce.
 ┌────────────────────────────────────────────────────────────┐
 │  Native PipeWire Capture (CGo)                             │
 │                                                            │
-│  1. pw_stream_dequeue_buffer(stream) → buffer_ptr         │
-│  2. spa_buffer_find_meta_data(buffer, VIDEO_FRAME)        │
-│  3. memcpy(rgba_buffer, dma_buf, width * height * 4)      │
-│  4. pw_stream_queue_buffer(stream, buffer)                │
+│  In C, on the PipeWire loop thread:                       │
+│  1. pw_stream_dequeue_buffer(stream)                      │
+│  2. Reject: no datas, unmapped (DmaBuf), CORRUPTED chunk  │
+│  3. Bound offset and size by the mapping, not the         │
+│     producer's claims about it                            │
+│  4. memcpy into the frame slot                            │
+│  5. pw_stream_queue_buffer(stream, buffer)                │
 │                                                            │
-│  - Zero-copy access to video memory (DMA-BUF)             │
-│  - Reuses single RGBA buffer (no allocation)              │
-│  - Direct memory access (no syscalls)                     │
+│  In Go, on the reader loop:                               │
+│  6. pw_get_frame, then convert to RGBA into a buffer      │
+│     taken from the pool                                    │
+│  7. publishFrame swaps it in under the write lock and     │
+│     returns the old one to the pool                       │
+│                                                            │
+│  - Mapped buffers and a memcpy, not zero-copy             │
+│  - Buffers come from a pool, not one persistent buffer    │
 └────────────────────────────────────────────────────────────┘
 ```
 
@@ -1132,8 +1302,9 @@ true. That method returns the current detection result without the debounce.
 │       uvB: (0.5, 1.0) → (1280px, 1440px)                  │
 │                                                            │
 │    2. Calculate stride (skip pixels)                      │
-│       stride = max(1, zone_width / 32)                    │
-│       (Sample 32x32 = 1024 pixels per zone)               │
+│       stride = max(1, zone_width / subsampleWidth)        │
+│       (subsampleWidth defaults to 64, so ~64 samples      │
+│        across the zone and as many rows as fit)           │
 │                                                            │
 │    3. Sample with stride                                  │
 │       for y in 0..1440 step stride:                       │
@@ -1155,20 +1326,15 @@ true. That method returns the current detection result without the debounce.
 
 ```
 ┌────────────────────────────────────────────────────────────┐
-│  Lookup Table Gamma Correction                            │
+│  Gamma Correction                                          │
 │                                                            │
-│  Pre-computed table (done once at startup):               │
-│    for i in 0..255:                                        │
-│      gammaTable[i] = pow(i/255, 1/gamma) * 255            │
+│  Computed per channel, per zone, per frame:               │
+│    corrected = pow(mean/255, 1/gamma) * 255               │
 │                                                            │
-│  Application (per channel):                               │
-│    correctedR = gammaTable[meanR]                         │
-│    correctedG = gammaTable[meanG]                         │
-│    correctedB = gammaTable[meanB]                         │
-│                                                            │
-│  - O(1) lookup (no pow() calls)                           │
-│  - Per-channel gamma values                               │
-│  - Default: 2.2 (sRGB standard)                           │
+│  - No lookup table. Three math.Pow calls per zone, on     │
+│    means already reduced from the whole zone              │
+│  - One gamma for every zone, hardcoded to 2.2 by the      │
+│    sync engine                                             │
 └────────────────────────────────────────────────────────────┘
 ```
 
@@ -1179,11 +1345,14 @@ true. That method returns the current detection result without the debounce.
 │  DTLS Packet Construction & Send                          │
 │                                                            │
 │  Packet structure:                                         │
-│    Header (9 bytes):                                       │
+│    Header (52 bytes):                                      │
 │      [0-8]: "HueStream"                                    │
-│      [9]: Version (0x02)                                   │
-│      [10-11]: Sequence number (uint16)                     │
-│      [12-15]: Reserved (0x00)                              │
+│      [9-10]: Version (0x02 0x00)                           │
+│      [11]: Sequence number (uint8, wraps)                  │
+│      [12-13]: Reserved (0x00)                              │
+│      [14]: Color space (0x00 = RGB)                        │
+│      [15]: Reserved (0x00)                                 │
+│      [16-51]: Entertainment configuration UUID, ASCII      │
 │                                                            │
 │    Per-channel data (7 bytes):                             │
 │      [0]: Channel ID (uint8)                               │
@@ -1195,8 +1364,8 @@ true. That method returns the current detection result without the debounce.
 │    dtls.Write(packet) → UDP to bridge:2100                │
 │                                                            │
 │  - Low latency (UDP, no ACK wait)                         │
-│  - Encrypted (DTLS 1.2)                                   │
-│  - Automatic retry on transient errors                    │
+│  - Encrypted (DTLS 1.2, PSK, no certificates)             │
+│  - A failed write drops the frame; no retry, no reconnect │
 └────────────────────────────────────────────────────────────┘
 ```
 
@@ -1221,9 +1390,12 @@ true. That method returns the current detection result without the debounce.
 - Eliminated: 28MB allocation per frame
 
 **After Circuit Breaker (PR #46):**
-- Added: Stop after 30 consecutive errors
+- Added: capture stops itself rather than failing forever
 - Prevents: Infinite error loops
-- Logs: Clear message on circuit trip
+- Logs: Clear message when it gives up
+- Since replaced by a deadline. The count this shipped with gave 0.5s of grace
+  at 60 FPS and 3s at 10; it is now 5s from the first error of a streak, with a
+  6s backstop from loop start for a stream that never delivers
 
 **After Portal Timeout (PR #47):**
 - Added: 2-minute timeout on permission dialog
@@ -1314,16 +1486,15 @@ true. That method returns the current detection result without the debounce.
                               │ User stops sync
                               ▼
 ┌────────────────────────────────────────────────────────────────┐
-│ Step 5: Deactivate Entertainment Area                         │
+│ Step 5: Stop                                                   │
 │                                                                │
-│ PUT /clip/v2/resource/entertainment_configuration/{id}         │
-│ {                                                              │
-│   "action": "stop"                                             │
-│ }                                                              │
+│ - Sync loop cancelled, capture stopped                         │
+│ - DTLS connection closed                                       │
 │                                                                │
-│ - Bridge releases Entertainment mode                           │
-│ - Normal light control now available                          │
-│ - DTLS connection closed                                      │
+│ No PUT is sent. Nothing in the tree sends {"action":"stop"},   │
+│ so the bridge leaves the area active until it times the        │
+│ stream out on its own, and normal light control is blocked     │
+│ for that window.                                               │
 └────────────────────────────────────────────────────────────────┘
 ```
 
@@ -1337,10 +1508,13 @@ true. That method returns the current detection result without the debounce.
 - Can control via Entertainment API streaming
 
 **Connection Requirements:**
-- Must have `clientkey` (obtained during bridge pairing)
-- Must have `entertainmentConfigurationId` (Entertainment area UUID)
-- Must activate area before streaming
-- Must deactivate when done (or timeout after 10 minutes)
+- Must have `clientkey` (obtained during bridge pairing, see
+  `cmd/register-entertainment`)
+- Must have `entertainmentConfigurationId` (Entertainment area UUID, see
+  `cmd/get-entertainment-info`)
+- Must activate the area before streaming
+- The app never deactivates it. The bridge ends the session itself once the
+  packets stop
 
 **Performance Limits:**
 - Maximum: 60 FPS
@@ -1519,7 +1693,7 @@ channels:
   - id: 0
     active: true
     deviceName: "Left Light"
-    gammaFactor: 2.2
+    gammaFactor: 2.2          # Validated, never read
     uvA:
       x: 0.0
       y: 0.0
@@ -1544,7 +1718,9 @@ ui:
     syncing: "media-record"
     idle: "preferences-desktop-display-color"
 
-# Logging level
+# Logging level. Nothing reads it. The backend logs through the standard
+# library's log package, which has no levels; Save writes the key back so it
+# survives a round trip.
 log_level: "info"
 ```
 
@@ -1568,20 +1744,27 @@ log_level: "info"
 │    • viper.ReadInConfig()                                  │
 │    • If not found: return defaults (first run)            │
 │                                                            │
-│ 5. Unmarshal into struct                                   │
+│ 5. Check file permissions                                  │
+│    • Warn if any group or other read bit is set            │
+│    • Contains sensitive API keys                           │
+│                                                            │
+│ 6. Unmarshal into struct                                   │
 │    • viper.Unmarshal(&cfg)                                 │
 │    • Merge with defaults                                   │
 │                                                            │
-│ 6. Validate configuration                                  │
+│ 7. Clamp a legacy sync.fps of 1-9 up to 10, in memory      │
+│    • That range was valid once. Failing Load instead       │
+│      would stop a daemon that used to start                │
+│    • Not written back: Save rewrites a file openhue-cli    │
+│      also reads                                            │
+│                                                            │
+│ 8. Validate configuration                                  │
 │    • Check required fields                                 │
 │    • Validate ranges                                       │
 │    • Validate UV coordinates                               │
+│    • Any failure fails Load, which stops the daemon        │
 │                                                            │
-│ 7. Check file permissions                                  │
-│    • Warn if too permissive (> 0600)                       │
-│    • Contains sensitive API keys                           │
-│                                                            │
-│ 8. Return config                                           │
+│ 9. Return config                                           │
 │    • Ready for use                                         │
 └────────────────────────────────────────────────────────────┘
 ```
@@ -1599,18 +1782,22 @@ log_level: "info"
 - `sync.metricsInterval` - Range: 0-3600 seconds, 0 turns the line off
 
 **Gaming Mode:**
-- `gamingMode.pollInterval` - Minimum: 1 second
-- `gamingMode.debounceDelay` - Minimum: 1 second
+- `gamingMode.pollInterval` - not validated. It becomes the monitor loop's
+  ticker interval, and `time.NewTicker` panics on zero or negative
+- `gamingMode.debounceDelay` - not validated
 - All `use*` flags - Boolean
 
 **Channels:**
-- `id` - Range: 0-255
+- `id` - Range: 0-255 (it is a `uint8`, so nothing else fits)
+- Two active channels may not share an `id`: one light driven from two zones
 - `active` - Boolean
-- `gammaFactor` - Range: 0.5-4.0
+- `gammaFactor` - Range: 0.5-4.0, and then never read. The sync engine builds
+  its extractor with a hardcoded 2.2, so setting this changes nothing
 - `uvA.x`, `uvA.y` - Range: 0.0-1.0
 - `uvB.x`, `uvB.y` - Range: 0.0-1.0
 - `uvA.x < uvB.x` - UVA must be top-left
 - `uvA.y < uvB.y` - UVB must be bottom-right
+- An empty `deviceName` on an active channel warns and is accepted
 
 ### Thread Safety
 
@@ -1663,16 +1850,18 @@ calling `View` per frame, where it would wait out every `Save`'s disk write.
 - Portal permission denied
 - **Response:** Explain security reason
 
-**3. System Errors (Recoverable)**
-- Network timeout
-- Bridge temporarily unavailable
-- PipeWire stream error
-- **Response:** Automatic retry with backoff
+**3. System Errors**
+- Network timeout, bridge temporarily unavailable: no retry. The REST call
+  fails, `connStatus` records why, and `RetryConnection` re-probes on demand
+- Bridge refusing UDP 2100 at session start: retried every 500ms for up to 10s.
+  A fixed interval, not a backoff, and only for the initial connect
+- PipeWire stream failure: `ErrStreamFailed` stops capture at once, since a
+  failed stream never recovers
 
 **4. Fatal Errors (Not Recoverable)**
 - Config file corruption
 - DTLS handshake failure
-- Circuit breaker trip
+- Capture giving up on its deadline
 - **Response:** Log error, stop operation
 
 ### Error Handling Patterns
@@ -1680,19 +1869,27 @@ calling `View` per frame, where it would wait out every `Save`'s disk write.
 **DBus Error Wrapping:**
 ```go
 // Backend returns dbus.Error
-func (s *Service) ActivateScene(name string) (string, *dbus.Error) {
-    scene, err := s.hueClient.FindScene(name)
-    if err != nil {
-        // Wrap error with context
-        return "", dbus.MakeFailedError(fmt.Errorf("scene not found: %s", name))
+func (s *Service) ActivateScene(displayName string, sender dbus.Sender) (string, *dbus.Error) {
+    if err := s.checkAccess(sender); err != nil {
+        return "", dbus.MakeFailedError(err)
+    }
+    if err := common.ValidateDBusString("displayName", displayName, 255); err != nil {
+        return "", dbus.MakeFailedError(err)
     }
 
-    err = s.hueClient.ActivateScene(scene.ID)
+    scene, err := s.activateSceneByDisplayName(displayName)
     if err != nil {
         return "", dbus.MakeFailedError(err)
     }
 
-    return "Scene activated: " + name, nil
+    // Point brightness and power at the same room the scene just lit.
+    if scene.GroupedLightID != "" {
+        s.config.Update(func(c *config.Config) {
+            c.GroupedLightID = scene.GroupedLightID
+        }, nil)
+    }
+
+    return "Scene activated: " + displayName, nil
 }
 ```
 
@@ -1706,46 +1903,47 @@ if portalErr, ok := err.(*capture.PortalError); ok {
 }
 ```
 
-**Circuit Breaker:**
+**Giving Up on Capture:**
 ```go
-type CircuitBreaker struct {
-    maxErrors     int  // 30
-    errorCount    int
-    tripped       bool
-}
-
-func (cb *CircuitBreaker) RecordError() bool {
-    cb.errorCount++
-    if cb.errorCount >= cb.maxErrors {
-        cb.tripped = true
-        log.Println("Circuit breaker tripped after 30 consecutive errors")
-        return true // Stop operation
+// internal/capture/capture.go. A deadline, not a count: the reader loop's
+// period follows the configured FPS, so a fixed count would give 0.5s of
+// grace at 60 FPS and 3s at 10.
+func captureBreakerTripped(firstErrAt, now time.Time, grace time.Duration) bool {
+    if firstErrAt.IsZero() {
+        return false
     }
-    return false
+    return now.Sub(firstErrAt) >= grace
 }
 
-func (cb *CircuitBreaker) RecordSuccess() {
-    cb.errorCount = 0 // Reset on success
-}
+// In nativeFrameReaderLoop:
+//   captureGrace    = 5s from the first error of the current streak, with or
+//                     without a frame so far. A frame, ErrNoNewFrame and
+//                     ErrAwaitingFirstFrame each clear the streak
+//   firstFrameGrace = 6s from loop start, checked only while no frame has
+//                     arrived. The backstop for the paths that keep clearing
+//                     the streak
+//   ErrStreamFailed skips both and stops now: a failed stream never recovers
+//
+// Each of those calls failCapture, which stores the cause behind
+// ErrCaptureStopped. A plain Stop cancels the context and records nothing,
+// which is why Start clears captureErr.
 ```
 
 ### Validation Error Messages
 
-**Good Error Messages (Implemented):**
+Config validation carries the offending value and a hint:
 ```
-Bad: "brightness must be 0-100"
-Good: "brightness must be 0-100 (got 150)"
+"channel 0: uvA.x must be 0.0-1.0 (got 1.50)
+   → UV coordinates represent screen position as fractions
+   → 0.0 = left/top edge, 1.0 = right/bottom edge"
 
-Bad: "invalid UV coordinate"
-Good: "channel 0: uvA.x must be 0.0-1.0 (got 1.5)
-         → UV coordinates represent screen position as fractions
-         → 0.0 = left/top edge, 1.0 = right/bottom edge"
-
-Bad: "bridge not configured"
-Good: "bridge IP not configured
-         → Add 'Bridge: YOUR_BRIDGE_IP' to /home/user/.openhue/config.yaml
-         → You can discover your bridge with: openhue discover"
+"bridge IP not configured
+   → Add 'Bridge: YOUR_BRIDGE_IP' to /home/user/.openhue/config.yaml
+   → You can discover your bridge with: openhue discover"
 ```
+
+DBus argument validation does not. `SetBrightness` out of range returns the bare
+`"brightness must be 0-100"`, with neither the value nor a hint.
 
 ---
 
@@ -1861,7 +2059,9 @@ GetStatus is the exception worth noting: it discloses one bit beyond pure local 
 **Backend Service:**
 - Base: ~20 MB
 - With sync active: ~40 MB
-- RGBA buffer: 8.8 MB (2560×1440×4 bytes)
+- RGBA buffer: 14.7 MB at 2560×1440 (width × height × 4 bytes). Three can be
+  live at once while syncing: the published frame, the one `convertToRGBA` is
+  filling for the next publish, and the copy the sync loop is extracting from
 
 **Tray Application:**
 - Base: ~30 MB (Qt overhead)
@@ -1957,9 +2157,10 @@ GetStatus is the exception worth noting: it discloses one bit beyond pure local 
 
 **Rationale:**
 1. **Performance:**
-   - Zero-copy access to video memory (DMA-BUF)
-   - Lower latency than GStreamer pipeline
+   - Lower latency than a GStreamer pipeline
    - Direct control over buffer reuse
+   - One memcpy out of a mapped buffer per frame. DmaBuf is not used: the
+     handler rejects unmapped buffers rather than importing them
 
 2. **Simplicity:**
    - No external dependencies beyond libpipewire
@@ -2054,8 +2255,10 @@ GetStatus is the exception worth noting: it discloses one bit beyond pure local 
    - Fast startup
 
 3. **DBus Integration:**
-   - QDBus for async communication
-   - Type-safe D-Bus wrappers
+   - Qt6::DBus for async communication
+   - `QDBusPendingCallWatcher` behind a hand-written proxy, because
+     `QDBusInterface` introspects in its constructor and blocks on a hung
+     backend
    - Well-documented
 
 **Alternatives Considered:**
@@ -2100,35 +2303,50 @@ channels:
 
 ---
 
-### Potential Settings Dialog
+### Settings Dialog
 
-**Architecture:**
+Built. `trayapp/settingsdialog.{h,cpp}`, opened from the tray menu, holding its
+own `HueBackend` proxy rather than sharing `main.cpp`'s.
+
 ```
 ┌───────────────────────────┐
 │   Settings Dialog (Qt)    │
-│  • Visual zone editor     │
 │  • Bridge configuration   │
-│  • Performance tuning     │
-│  • Gaming mode config     │
+│  • Room and startup scene │
+│  • FPS and subsample width│
+│  • Gaming mode toggle     │
+│  • Tray icon names        │
 └─────────────┬─────────────┘
-              │ QDBus
+              │ Qt6::DBus, async
               ▼
 ┌──────────────────────────────────┐
 │  Backend DBus Interface          │
-│  • GetConfig() → YAML            │
-│  • SetConfig(yaml) → bool        │
-│  • ValidateConfig(yaml) → errors │
-│  • GetChannels() → []Channel     │
-│  • SetChannel(ch) → bool         │
+│  Reads:  GetBridgeSettings       │
+│          GetGroupedLights        │
+│          GetScenes               │
+│          GetSelectedRoom         │
+│          GetStartupScene         │
+│          GetSyncSettings         │
+│          GetTrayIcons            │
+│          IsGamingModeEnabled     │
+│  Writes: SetSyncSettings         │
+│          SetGamingMode           │
+│          SetSelectedRoom         │
+│          SetStartupScene         │
+│          SetTrayIcons            │
+│  Acts:   RetryConnection         │
+│          TestBridgeConnection    │
+│          ResetCaptureSource      │
 └──────────────────────────────────┘
 ```
 
-**Features:**
-- Visual zone editor (drag rectangles on screenshot)
+There is no `GetConfig`/`SetConfig` pair: each setting has its own method, so
+the dialog never round-trips the whole config.
+
+**Still missing:**
+- Visual zone editor (drag rectangles on a screenshot)
 - Real-time preview (see colors per zone)
 - Bridge discovery and pairing wizard
-- Performance tuning (FPS, subsample width)
-- Gaming mode method selection
 
 ---
 
@@ -2177,10 +2395,10 @@ When modifying the architecture:
 - **Configuration:** See `CONFIGURATION.md` for config.yaml reference
 - **Testing:** See `TESTING_GUIDE.md` for test patterns
 - **Performance:** See `PERFORMANCE.md` for optimization guidance
-- **Development:** See `DEVELOPMENT.md` for building and testing
+- **Development:** See `../DEVELOPMENT.md` for building and testing
 
 ---
 
-**Last Updated:** April 2026
+**Last Updated:** September 2026
 **Architecture Version:** 1.0
 **Backend Version:** Compatible with khuey backend v1.x

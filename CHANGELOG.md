@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Test Coverage**: Comprehensive unit tests across 4 packages (config, dbus, capture, gaming)
 - **Quality Gates**: Minimum 10% coverage enforcement on all PRs
 - **Performance Profiling**: Added profiling tool (`cmd/profile-sync`) with detailed metrics tracking
-- **Circuit Breaker**: Frame loop stops after 30 consecutive capture errors
+- **Capture Breaker**: the frame reader gives up 5s after the first error of a streak, with a 6s backstop from loop start for a stream that never delivers, and ends the sync session
 - **Portal Timeout**: 2-minute timeout on XDG Portal permission dialog
 
 ### Changed
@@ -43,7 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - p99 latency: 75ms → 19ms (-75%)
   - CPU overhead: 72% → 5% in color extraction
 - **Memory Optimization** (PR #43): 91% fewer allocations
-  - Reusable RGBA buffer eliminates 28MB/frame allocations
+  - Pooled RGBA buffers eliminate 28MB/frame allocations
   - Memory usage: 12.4GB/15s → 1.2GB/15s
   - Allocation rate: 827 MB/sec → 80 MB/sec (-90%)
 
