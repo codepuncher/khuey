@@ -44,7 +44,6 @@ you, apply sooner:
 - While sync runs: screen sync FPS
 - On the next sync: subsample width
 - On the next backend start: startup scene
-- Never: `sync.monitor`, which is stored but not yet applied
 
 ---
 
@@ -125,7 +124,6 @@ sync:                                   # Screen sync settings
   enabled: false
   fps: 30
   subsampleWidth: 64
-  monitor: ""
   restoreToken: ""
   metricsInterval: 60
 
@@ -315,7 +313,6 @@ Configuration for real-time screen-to-lights synchronization.
 | `sync.enabled` | bool | `false` | `true`/`false` | Enable/disable screen sync on startup |
 | `sync.fps` | int | `30` | `10` - `60` | Frame rate for screen capture and streaming |
 | `sync.subsampleWidth` | int | `64` | `16` - `256` | Resize width for processing (performance tuning) |
-| `sync.monitor` | string | `""` | Monitor name or empty | Persisted but not yet applied; capture always uses all monitors |
 | `sync.restoreToken` | string | `""` | Portal token | XDG Portal restore token (auto-generated) |
 | `sync.metricsInterval` | int | `60` | `0` - `3600` | Seconds between performance metrics log lines while syncing (`0` turns them off) |
 
@@ -425,42 +422,22 @@ sync:
 - If CPU usage too high: Decrease subsampleWidth
 - If lights flicker: May need to decrease (faster processing)
 
-#### sync.monitor
+#### Which screen is captured
 
-**Type:** String
-**Default:** `""`
-**Format:** Monitor name from Wayland compositor
-**Example:** `"DP-1"`, `"HDMI-1"`, `"eDP-1"`
+There is no option for this. The screen-share portal decides, and its
+`SelectSources` call takes no key naming an output, so the screen is whichever
+one you picked in the portal's dialog. That choice is remembered in
+`sync.restoreToken`, which is why the dialog only appears once.
 
-**Not applied yet.** The value is stored, returned by `GetSyncSettings` and
-shown in the settings dialog, but the sync engine always captures all monitors:
-`NewEngine` passes `Monitor: -1` and nothing reads `sync.monitor`. Setting it
-changes nothing today.
+To capture a different screen, open the tray settings dialog and use **Change
+capture screen** on the Screen Sync tab. It drops the saved grant, so the portal
+asks again the next time sync starts. Editing `sync.restoreToken` by hand does
+not work while the backend is running: the next config save writes the running
+backend's copy back over the file.
 
-**How to find monitor names** (for when it is honoured):
-```bash
-# Wayland (KDE Plasma)
-kscreen-doctor -o
-
-# Or check system settings
-# System Settings → Display Configuration → Monitor names
-```
-
-**Example:**
-```yaml
-sync:
-  monitor: ""        # Default
-  # monitor: "DP-1"  # Stored, but capture still uses all monitors
-```
-
-**When to set:**
-- Multi-monitor setups
-- Want to sync specific screen (e.g., gaming monitor)
-- Default is usually correct for single-monitor setups
-
-**Limitations:**
-- Currently captures primary monitor only (multi-monitor support planned)
-- Monitor name must match Wayland compositor output name
+Only one screen is captured at a time. The portal is asked for a single source
+(`multiple: false`), and the capture package reads the first stream it
+returns.
 
 #### sync.restoreToken
 
@@ -492,7 +469,7 @@ sync:
 
 **Troubleshooting:**
 - If dialog reappears: Token expired, will regenerate
-- To force new dialog: Delete token, set to empty string
+- To force new dialog: **Change capture screen** in the settings dialog
 - Token is session-specific, may expire after logout/reboot
 
 **Security:**
@@ -1599,8 +1576,8 @@ sync:
   enabled: false
   fps: 30
   subsampleWidth: 64
-  monitor: ""
   restoreToken: ""
+  metricsInterval: 60
 
 channels:
   - id: 0
@@ -1644,8 +1621,8 @@ sync:
   enabled: false
   fps: 30
   subsampleWidth: 64
-  monitor: "DP-1"  # Primary gaming monitor
   restoreToken: ""
+  metricsInterval: 60
 
 channels:
   - id: 0
@@ -1676,7 +1653,6 @@ log_level: "info"
 - ✅ Scene control
 - ✅ Power/brightness control
 - ✅ Screen sync (3 zones)
-- ✅ Specific monitor selection
 - ❌ Gaming mode
 
 ---
@@ -1697,8 +1673,8 @@ sync:
   enabled: false        # Don't auto-start
   fps: 30               # Smooth gaming
   subsampleWidth: 64
-  monitor: "DP-1"
   restoreToken: ""
+  metricsInterval: 60
 
 gamingMode:
   enabled: true         # Enable auto-detection
@@ -1758,8 +1734,8 @@ sync:
   enabled: false
   fps: 25              # Slightly lower for movies
   subsampleWidth: 48   # Lower for better performance
-  monitor: "HDMI-1"    # TV input
   restoreToken: ""
+  metricsInterval: 60
 
 channels:
   - id: 0  # Left edge light
@@ -1818,8 +1794,8 @@ sync:
   enabled: false
   fps: 20              # Lower FPS for battery
   subsampleWidth: 32   # Lower resolution
-  monitor: ""
   restoreToken: ""
+  metricsInterval: 60
 
 gamingMode:
   enabled: false       # Disable gaming mode on laptop
@@ -1865,8 +1841,8 @@ sync:
   enabled: false
   fps: 60              # Maximum smoothness
   subsampleWidth: 128  # High quality
-  monitor: "DP-1"
   restoreToken: ""
+  metricsInterval: 60
 
 channels:
   - id: 0
@@ -1916,8 +1892,8 @@ sync:
   enabled: false
   fps: 30
   subsampleWidth: 64
-  monitor: ""
-  restoreToken: ""  # Clear for fresh permission dialog
+  restoreToken: ""  # Empty forces the permission dialog on the next backend start
+  metricsInterval: 60
 
 gamingMode:
   enabled: true

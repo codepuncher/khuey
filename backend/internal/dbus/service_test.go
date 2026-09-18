@@ -641,7 +641,7 @@ func sentinelConfig() *config.Config {
 		Sync: config.SyncConfig{
 			FPS:            15,
 			SubsampleWidth: 32,
-			Monitor:        "sentinel-monitor",
+			RestoreToken:   "sentinel-token",
 		},
 		GamingMode: config.GamingModeConfig{Enabled: false},
 		UI: config.UIConfig{
@@ -722,12 +722,24 @@ var guardedMethodCases = []guardedMethodCase{
 	{
 		name: "SetSyncSettings",
 		call: func(s *Service, sender dbus.Sender) *dbus.Error {
-			_, err := s.SetSyncSettings(30, 64, "eDP-1", sender)
+			_, err := s.SetSyncSettings(30, 64, sender)
 			return err
 		},
 		checkUnchanged: func(t *testing.T, cfg *config.Config) {
-			if cfg.Sync.FPS != 15 || cfg.Sync.SubsampleWidth != 32 || cfg.Sync.Monitor != "sentinel-monitor" {
+			if cfg.Sync.FPS != 15 || cfg.Sync.SubsampleWidth != 32 {
 				t.Errorf("Sync settings mutated: %+v", cfg.Sync)
+			}
+		},
+	},
+	{
+		name: "ResetCaptureSource",
+		call: func(s *Service, sender dbus.Sender) *dbus.Error {
+			_, err := s.ResetCaptureSource(sender)
+			return err
+		},
+		checkUnchanged: func(t *testing.T, cfg *config.Config) {
+			if cfg.Sync.RestoreToken != "sentinel-token" {
+				t.Errorf("Restore token mutated: %q", cfg.Sync.RestoreToken)
 			}
 		},
 	},

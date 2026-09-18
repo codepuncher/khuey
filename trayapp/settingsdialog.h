@@ -49,7 +49,6 @@ class SettingsDialog : public QDialog {
     struct FormValues {
         int fps = 0;
         int subsample = 0;
-        QString monitor;
         bool gamingMode = false;
         QString roomID;
         QString startupScene;
@@ -74,7 +73,7 @@ class SettingsDialog : public QDialog {
     QSpinBox* fpsSpinBox;
     QSlider* subsampleSlider;
     QSpinBox* subsampleSpinBox;
-    QComboBox* monitorCombo;
+    QPushButton* resetCaptureButton;
     QLabel* syncStatusLabel;
     QCheckBox* gamingModeCheckbox;
 
@@ -147,7 +146,6 @@ class SettingsDialog : public QDialog {
     // Current values
     int currentFPS;
     int currentSubsample;
-    QString currentMonitor;
     QString currentRoomID;
     bool currentGamingMode;
     QString currentGamingIcon;

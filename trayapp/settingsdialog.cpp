@@ -82,25 +82,47 @@ void SettingsDialog::setupUI() {
 
     syncLayout->addWidget(subsampleGroup);
 
-    // Monitor selection. The backend persists this but never applies it: the
-    // sync engine always captures all monitors. Disabled rather than removed
-    // so the setting reappears here when the backend honours it.
-    QGroupBox* monitorGroup = new QGroupBox("Monitor", syncTab);
-    QVBoxLayout* monitorLayout = new QVBoxLayout(monitorGroup);
-    QHBoxLayout* monitorRow = new QHBoxLayout();
-    monitorRow->addWidget(new QLabel("Monitor:"));
-    monitorCombo = new QComboBox(monitorGroup);
-    monitorCombo->addItem("All monitors", "");
-    monitorCombo->setEnabled(false);
-    monitorRow->addWidget(monitorCombo, 1);
-    monitorLayout->addLayout(monitorRow);
+    // The screen-share portal takes no option naming an output, so the screen
+    // is whatever was picked in its dialog. All this can do is drop the saved
+    // grant so the dialog comes back.
+    QGroupBox* captureGroup = new QGroupBox("Capture screen", syncTab);
+    QVBoxLayout* captureLayout = new QVBoxLayout(captureGroup);
 
-    QLabel* monitorHint =
-        new QLabel("Selecting a single monitor is not supported yet", monitorGroup);
-    monitorHint->setStyleSheet("QLabel { color: gray; font-size: 10pt; }");
-    monitorLayout->addWidget(monitorHint);
+    resetCaptureButton = new QPushButton("Change capture screen...", captureGroup);
+    connect(resetCaptureButton, &QPushButton::clicked, this, [this]() {
+        readsInFlight++;
+        updateInputState();
 
-    syncLayout->addWidget(monitorGroup);
+        QDBusPendingCall call = backend->asyncCall("ResetCaptureSource");
+        whenFinished(this, {call}, [this, call]() {
+            readsInFlight--;
+            updateInputState();
+            if (closing) {
+                return;
+            }
+
+            QDBusReply<bool> reply = call;
+            if (reply.isValid() && reply.value()) {
+                QMessageBox::information(this, "Change capture screen",
+                                         "The screen-share dialog will ask which screen to "
+                                         "capture the next time Screen Sync starts.");
+                return;
+            }
+
+            QString error =
+                reply.isValid() ? "Failed to clear the saved screen" : reply.error().message();
+            QMessageBox::warning(this, "Change capture screen", error);
+        });
+    });
+    captureLayout->addWidget(resetCaptureButton);
+
+    QLabel* captureHint = new QLabel("The screen is chosen in the system's screen-share dialog.\n"
+                                     "This asks again the next time Screen Sync starts.",
+                                     captureGroup);
+    captureHint->setStyleSheet("QLabel { color: gray; font-size: 10pt; }");
+    captureLayout->addWidget(captureHint);
+
+    syncLayout->addWidget(captureGroup);
 
     // Gaming Mode checkbox
     QGroupBox* gamingGroup = new QGroupBox("Gaming Mode", syncTab);
@@ -346,7 +368,6 @@ void SettingsDialog::setupUI() {
     const auto onFormChanged = [this]() { updateInputState(); };
     connect(fpsSpinBox, QOverload<int>::of(&QSpinBox::valueChanged), this, onFormChanged);
     connect(subsampleSpinBox, QOverload<int>::of(&QSpinBox::valueChanged), this, onFormChanged);
-    connect(monitorCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, onFormChanged);
     connect(gamingModeCheckbox, &QCheckBox::toggled, this, onFormChanged);
     connect(roomCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, onFormChanged);
     connect(startupSceneCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
@@ -376,22 +397,9 @@ void SettingsDialog::loadSettings() {
             const QVariantMap settings = syncReply.value();
             currentFPS = settings["fps"].toInt();
             currentSubsample = settings["subsampleWidth"].toInt();
-            currentMonitor = settings["monitor"].toString();
 
             fpsSlider->setValue(currentFPS);
             subsampleSlider->setValue(currentSubsample);
-
-            // Surface a hand-set monitor as its own entry. The combo only
-            // offers "All monitors", so without this Apply would send an empty
-            // string back and quietly drop a value the user set in the config.
-            if (!currentMonitor.isEmpty()) {
-                int index = monitorCombo->findData(currentMonitor);
-                if (index < 0) {
-                    monitorCombo->addItem(currentMonitor + " (not applied yet)", currentMonitor);
-                    index = monitorCombo->count() - 1;
-                }
-                monitorCombo->setCurrentIndex(index);
-            }
         }
 
         QDBusReply<QString> roomReply = roomCall;
@@ -514,6 +522,7 @@ void SettingsDialog::updateInputState() {
     testConnectionButton->setEnabled(!busy);
     reconnectButton->setEnabled(!busy);
     refreshRoomsButton->setEnabled(!busy);
+    resetCaptureButton->setEnabled(!busy);
 }
 
 void SettingsDialog::reportSaveComplete(const std::function<void()>& onSaved) {
@@ -553,17 +562,16 @@ void SettingsDialog::reject() {
 }
 
 bool SettingsDialog::FormValues::operator==(const FormValues& other) const {
-    return std::tie(fps, subsample, monitor, gamingMode, roomID, startupScene, gamingIcon,
-                    syncingIcon, idleIcon) ==
-           std::tie(other.fps, other.subsample, other.monitor, other.gamingMode, other.roomID,
-                    other.startupScene, other.gamingIcon, other.syncingIcon, other.idleIcon);
+    return std::tie(fps, subsample, gamingMode, roomID, startupScene, gamingIcon, syncingIcon,
+                    idleIcon) == std::tie(other.fps, other.subsample, other.gamingMode,
+                                          other.roomID, other.startupScene, other.gamingIcon,
+                                          other.syncingIcon, other.idleIcon);
 }
 
 SettingsDialog::FormValues SettingsDialog::formValues() const {
     FormValues values;
     values.fps = fpsSpinBox->value();
     values.subsample = subsampleSpinBox->value();
-    values.monitor = monitorCombo->currentData().toString();
     values.gamingMode = gamingModeCheckbox->isChecked();
     values.roomID = roomCombo->currentData().toString();
     if (values.roomID.isEmpty()) {
@@ -591,9 +599,7 @@ SettingsDialog::FormValues SettingsDialog::formValues() const {
 
 void SettingsDialog::saveSettings(const FormValues& values, std::function<void()> onSaved) {
     auto queue = std::make_shared<QList<Setter>>();
-    queue->append({"SetSyncSettings",
-                   {values.fps, values.subsample, values.monitor},
-                   "Screen Sync settings"});
+    queue->append({"SetSyncSettings", {values.fps, values.subsample}, "Screen Sync settings"});
     queue->append({"SetGamingMode", {values.gamingMode}, "gaming mode setting"});
     if (!values.roomID.isEmpty()) {
         queue->append({"SetSelectedRoom", {values.roomID}, "room selection"});

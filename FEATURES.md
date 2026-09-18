@@ -58,8 +58,8 @@ sync:
   enabled: true
   fps: 30                  # Frame rate (10-60)
   subsampleWidth: 64       # Processing width (lower = faster)
-  monitor: ""              # Monitor name (empty = default)
   restoreToken: "..."      # Saved permission token
+  metricsInterval: 60      # Seconds between metrics lines while syncing (0 = off)
 ```
 
 ### Zone Mapping
@@ -331,7 +331,7 @@ Right-click tray icon → **Settings...**
 #### Screen Sync
 - Frame Rate: FPS slider and spin box (10-60)
 - Processing Quality: subsample width slider and spin box (16-256)
-- Monitor: disabled, fixed to "All monitors"; the backend saves a monitor but always captures all of them. A monitor set in the config file shows as "(not applied yet)"
+- Capture screen: a **Change capture screen** button. The screen-share portal takes no option naming an output, so the screen is the one picked in its dialog; the button drops the saved grant and the dialog asks again on the next sync start
 - Gaming Mode checkbox (the other `gamingMode` settings are config-file only)
 
 #### Light Control
@@ -405,8 +405,9 @@ SetStartupScene(string sceneName) → bool      # "" clears it
 StartSync() → bool
 StopSync() → bool
 IsSyncing() → bool
-GetSyncSettings() → dict                      # fps, subsampleWidth, monitor, enabled
-SetSyncSettings(int fps, int subsampleWidth, string monitor) → bool
+GetSyncSettings() → dict                      # fps, subsampleWidth, enabled
+SetSyncSettings(int fps, int subsampleWidth) → bool
+ResetCaptureSource() → bool                   # portal asks which screen on the next sync start
 
 # Gaming mode
 SetGamingMode(bool enabled) → bool

@@ -18,7 +18,6 @@ func main() {
 	// Create capture instance with 30 FPS
 	cfg := capture.Config{
 		FPS:              30,
-		Monitor:          -1,   // All monitors
 		UseNativeCapture: true, // Use native CGo capture (default)
 	}
 
