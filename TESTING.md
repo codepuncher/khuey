@@ -53,20 +53,19 @@ The tray icon should appear in your system tray and connect to the backend via D
 
 ## Current Status
 
-**What Works:**
-- ✅ Backend configuration loading/saving
-- ✅ Config compatibility with openhue-cli
-- ✅ Hue client initialization
-- ✅ Basic Hue API operations (scenes, power, brightness)
-- ✅ Tray app UI with system tray integration
-- ✅ DBus communication (tray app ↔ backend)
-- ✅ Scene control, power, and brightness controls
+- [x] Backend configuration loading/saving
+- [x] Config compatibility with openhue-cli
+- [x] Hue client initialization
+- [x] Basic Hue API operations (scenes, power, brightness)
+- [x] Tray app UI with system tray integration
+- [x] DBus communication (tray app ↔ backend)
+- [x] Scene control, power, and brightness controls
+- [x] Wayland screen capture
+- [x] DTLS Entertainment API streaming
+- [x] Screen color analysis and zone mapping
+- [x] Settings dialog for configuration
 
-**What's In Development:**
-- ⏳ Wayland screen capture
-- ⏳ DTLS Entertainment API streaming
-- ⏳ Screen color analysis and zone mapping
-- ⏳ Settings dialog for configuration
+Planned work is tracked in [GitHub issues](https://github.com/codepuncher/khuey/issues).
 
 ## Testing with a Real Hue Bridge
 

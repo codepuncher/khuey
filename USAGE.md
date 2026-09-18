@@ -40,7 +40,7 @@ Click the Hue icon to open the control panel:
 
 ### 4. Configure Settings (NEW!)
 
-Right-click the tray icon and select **"⚙️ Settings..."** to access the Settings Dialog.
+Right-click the tray icon and select **"Settings..."** to access the Settings Dialog.
 
 The Settings Dialog provides a GUI to configure:
 
@@ -71,7 +71,7 @@ width applies the next time Screen Sync starts.
 
 #### Connection Settings
 - **Bridge IP**: View your current bridge IP address
-- **Status**: Connection status (✓ Connected / ✗ Disconnected)
+- **Status**: Connection status (Connected / Disconnected)
 - **Test Connection**: Verify bridge is reachable
 - **Reconnect**: Attempt to reconnect to the bridge
 
@@ -121,7 +121,7 @@ Gaming Mode automatically detects when you're playing games and enables screen s
 
 1. Right-click the tray icon → **Settings**
 2. Go to the **Screen Sync** tab
-3. Check ☑ **"Automatically enable screen sync when gaming"**
+3. Check **"Automatically enable screen sync when gaming"**
 4. Click **OK** or **Apply**
 
 ### How It Works
@@ -279,7 +279,7 @@ The app uses multiple detection methods to identify gaming activity:
 
 1. Right-click tray icon → **Settings**
 2. Go to **Screen Sync** tab
-3. Enable: ☑ **"Automatically enable screen sync when gaming"**
+3. Enable: **"Automatically enable screen sync when gaming"**
 4. Click **Save**
 
 **Option 2: Via Config File**
@@ -316,10 +316,10 @@ cd backend
 Expected output when Skyrim SE is running:
 ```
 [17:52:00]
-  systemd-inhibit: true ✅
-  Power profile:   true ✅
-  Steam AppId:     true (AppId: 489830) ✅
-  🎮 Gaming Active: true ✅
+  systemd-inhibit: true
+  Power profile:   true
+  Steam AppId:     true (AppId: 489830)
+  Gaming Active: true
 ```
 
 When no game is running:
@@ -328,7 +328,7 @@ When no game is running:
   systemd-inhibit: false
   Power profile:   false
   Steam AppId:     false
-  🎮 Gaming Active: false
+  Gaming Active: false
 ```
 
 ### How It Behaves
@@ -337,13 +337,13 @@ When no game is running:
 1. Gaming mode detects gaming activity
 2. After 5 seconds (debounce delay), screen sync auto-starts
 3. Your lights sync to screen colors for immersive experience
-4. Notification: "🎮 Gaming detected - starting screen sync"
+4. The backend logs "[INFO] Gaming detected - starting screen sync"
 
 **When you exit the game:**
 1. Gaming mode detects game stopped
 2. After 5 seconds (debounce delay), screen sync auto-stops
 3. Your lights return to previous state
-4. Notification: "🎮 Gaming stopped - stopping screen sync"
+4. The backend logs "[INFO] Gaming stopped - stopping screen sync"
 
 **Debouncing prevents false triggers:**
 - A game launched and closed again inside the debounce window doesn't trigger sync
@@ -386,7 +386,7 @@ dbus-send --session --dest=org.kde.plasma.hue \
 # Check if detector is running
 journalctl --user -u hue-backend -n 20 | grep -i "gaming mode"
 
-# Should see: "✅ Gaming mode detector started"
+# Should see: "[INFO] Gaming mode detector started"
 ```
 
 **Manual override:**

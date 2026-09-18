@@ -1114,9 +1114,9 @@ true. That method returns the current detection result without the debounce.
 │  3. memcpy(rgba_buffer, dma_buf, width * height * 4)      │
 │  4. pw_stream_queue_buffer(stream, buffer)                │
 │                                                            │
-│  ✓ Zero-copy access to video memory (DMA-BUF)             │
-│  ✓ Reuses single RGBA buffer (no allocation)              │
-│  ✓ Direct memory access (no syscalls)                     │
+│  - Zero-copy access to video memory (DMA-BUF)             │
+│  - Reuses single RGBA buffer (no allocation)              │
+│  - Direct memory access (no syscalls)                     │
 └────────────────────────────────────────────────────────────┘
 ```
 
@@ -1145,9 +1145,9 @@ true. That method returns the current detection result without the debounce.
 │       meanG = sum.G / sample_count                        │
 │       meanB = sum.B / sample_count                        │
 │                                                            │
-│  ✓ No image resampling (41% faster)                       │
-│  ✓ Cache-friendly linear access                           │
-│  ✓ Configurable accuracy vs performance                   │
+│  - No image resampling (41% faster)                       │
+│  - Cache-friendly linear access                           │
+│  - Configurable accuracy vs performance                   │
 └────────────────────────────────────────────────────────────┘
 ```
 
@@ -1166,9 +1166,9 @@ true. That method returns the current detection result without the debounce.
 │    correctedG = gammaTable[meanG]                         │
 │    correctedB = gammaTable[meanB]                         │
 │                                                            │
-│  ✓ O(1) lookup (no pow() calls)                           │
-│  ✓ Per-channel gamma values                               │
-│  ✓ Default: 2.2 (sRGB standard)                           │
+│  - O(1) lookup (no pow() calls)                           │
+│  - Per-channel gamma values                               │
+│  - Default: 2.2 (sRGB standard)                           │
 └────────────────────────────────────────────────────────────┘
 ```
 
@@ -1194,9 +1194,9 @@ true. That method returns the current detection result without the debounce.
 │  Send:                                                     │
 │    dtls.Write(packet) → UDP to bridge:2100                │
 │                                                            │
-│  ✓ Low latency (UDP, no ACK wait)                         │
-│  ✓ Encrypted (DTLS 1.2)                                   │
-│  ✓ Automatic retry on transient errors                    │
+│  - Low latency (UDP, no ACK wait)                         │
+│  - Encrypted (DTLS 1.2)                                   │
+│  - Automatic retry on transient errors                    │
 └────────────────────────────────────────────────────────────┘
 ```
 
@@ -1231,11 +1231,11 @@ true. That method returns the current detection result without the debounce.
 - Returns: Clear error message
 
 **Current Performance (PRs #42-50):**
-- ✅ 30.0 FPS sustained
-- ✅ 11ms average frame time
-- ✅ 80 MB/sec allocations
-- ✅ No dropped frames
-- ✅ Robust error handling
+- 30.0 FPS sustained
+- 11ms average frame time
+- 80 MB/sec allocations
+- No dropped frames
+- Robust error handling
 
 ---
 
@@ -1281,8 +1281,8 @@ true. That method returns the current detection result without the debounce.
 │   "errors": []                                                 │
 │ }                                                              │
 │                                                                │
-│ ✓ Bridge reserves Entertainment API for this client           │
-│ ✓ Normal light control now blocked (Entertainment mode)       │
+│ - Bridge reserves Entertainment API for this client           │
+│ - Normal light control now blocked (Entertainment mode)       │
 └────────────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -1321,20 +1321,20 @@ true. That method returns the current detection result without the debounce.
 │   "action": "stop"                                             │
 │ }                                                              │
 │                                                                │
-│ ✓ Bridge releases Entertainment mode                           │
-│ ✓ Normal light control now available                          │
-│ ✓ DTLS connection closed                                      │
+│ - Bridge releases Entertainment mode                           │
+│ - Normal light control now available                          │
+│ - DTLS connection closed                                      │
 └────────────────────────────────────────────────────────────────┘
 ```
 
 ### Entertainment API Limitations
 
 **While Active:**
-- ❌ Cannot activate scenes via REST API
-- ❌ Cannot control lights via REST API
-- ❌ Cannot change brightness/color via REST API
-- ✅ Can read light state (GET requests still work)
-- ✅ Can control via Entertainment API streaming
+- Cannot activate scenes via REST API
+- Cannot control lights via REST API
+- Cannot change brightness/color via REST API
+- Can read light state (GET requests still work)
+- Can control via Entertainment API streaming
 
 **Connection Requirements:**
 - Must have `clientkey` (obtained during bridge pairing)
@@ -1718,7 +1718,7 @@ func (cb *CircuitBreaker) RecordError() bool {
     cb.errorCount++
     if cb.errorCount >= cb.maxErrors {
         cb.tripped = true
-        log.Println("🔴 Circuit breaker tripped after 30 consecutive errors")
+        log.Println("Circuit breaker tripped after 30 consecutive errors")
         return true // Stop operation
     }
     return false
@@ -1733,16 +1733,16 @@ func (cb *CircuitBreaker) RecordSuccess() {
 
 **Good Error Messages (Implemented):**
 ```
-❌ Bad: "brightness must be 0-100"
-✅ Good: "brightness must be 0-100 (got 150)"
+Bad: "brightness must be 0-100"
+Good: "brightness must be 0-100 (got 150)"
 
-❌ Bad: "invalid UV coordinate"
-✅ Good: "channel 0: uvA.x must be 0.0-1.0 (got 1.5)
+Bad: "invalid UV coordinate"
+Good: "channel 0: uvA.x must be 0.0-1.0 (got 1.5)
          → UV coordinates represent screen position as fractions
          → 0.0 = left/top edge, 1.0 = right/bottom edge"
 
-❌ Bad: "bridge not configured"
-✅ Good: "bridge IP not configured
+Bad: "bridge not configured"
+Good: "bridge IP not configured
          → Add 'Bridge: YOUR_BRIDGE_IP' to /home/user/.openhue/config.yaml
          → You can discover your bridge with: openhue discover"
 ```
@@ -1918,9 +1918,9 @@ GetStatus is the exception worth noting: it discloses one bit beyond pure local 
    - Multiple frontends possible
 
 **Alternatives Considered:**
-- ❌ Monolithic Qt application - Harder to test, tight coupling
-- ❌ Electron app - Higher resource usage, worse performance
-- ❌ Pure CLI tool - Less user-friendly, no tray integration
+- Monolithic Qt application - Harder to test, tight coupling
+- Electron app - Higher resource usage, worse performance
+- Pure CLI tool - Less user-friendly, no tray integration
 
 ---
 
@@ -1945,9 +1945,9 @@ GetStatus is the exception worth noting: it discloses one bit beyond pure local 
    - Async support in Qt
 
 **Alternatives Considered:**
-- ❌ Unix sockets - Manual access control, no introspection
-- ❌ HTTP REST - Overkill, higher latency, port management
-- ❌ Websockets - Complex, server management, overkill
+- Unix sockets - Manual access control, no introspection
+- HTTP REST - Overkill, higher latency, port management
+- Websockets - Complex, server management, overkill
 
 ---
 
@@ -1972,9 +1972,9 @@ GetStatus is the exception worth noting: it discloses one bit beyond pure local 
    - Future-proof (X11 being phased out)
 
 **Alternatives Considered:**
-- ❌ GStreamer - Higher latency, complex pipeline, larger dependencies
-- ❌ FFmpeg - Overkill, not designed for live streaming
-- ❌ X11 XGetImage - Doesn't work on Wayland, deprecated
+- GStreamer - Higher latency, complex pipeline, larger dependencies
+- FFmpeg - Overkill, not designed for live streaming
+- X11 XGetImage - Doesn't work on Wayland, deprecated
 
 ---
 
@@ -1999,9 +1999,9 @@ GetStatus is the exception worth noting: it discloses one bit beyond pure local 
    - Future-proof architecture
 
 **Alternatives Considered:**
-- ❌ Pixel coordinates - Resolution-dependent, breaks on monitor change
-- ❌ Percentage-based - Similar to UV but less standard
-- ❌ Absolute positions - Not portable, config hell
+- Pixel coordinates - Resolution-dependent, breaks on monitor change
+- Percentage-based - Similar to UV but less standard
+- Absolute positions - Not portable, config hell
 
 ---
 
@@ -2032,9 +2032,9 @@ GetStatus is the exception worth noting: it discloses one bit beyond pure local 
    - Easy cross-platform builds
 
 **Alternatives Considered:**
-- ❌ C++ - Manual memory management, slower compilation, more complexity
-- ❌ Rust - Steeper learning curve, longer compile times, less mature DBus
-- ❌ Python - Slower runtime, GIL limitations, poor concurrency
+- C++ - Manual memory management, slower compilation, more complexity
+- Rust - Steeper learning curve, longer compile times, less mature DBus
+- Python - Slower runtime, GIL limitations, poor concurrency
 
 ---
 
@@ -2059,9 +2059,9 @@ GetStatus is the exception worth noting: it discloses one bit beyond pure local 
    - Well-documented
 
 **Alternatives Considered:**
-- ❌ GTK - Not native to KDE, inconsistent UI
-- ❌ Electron - Massive resource usage, slow startup
-- ❌ Pure C++ - Qt provides better abstractions
+- GTK - Not native to KDE, inconsistent UI
+- Electron - Massive resource usage, slow startup
+- Pure C++ - Qt provides better abstractions
 
 ---
 

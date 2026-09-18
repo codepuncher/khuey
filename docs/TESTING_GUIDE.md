@@ -2422,8 +2422,8 @@ t.Logf("Requests made: %+v", requests)
 ### General Testing Principles
 
 1. **Test behavior, not implementation**
-   - ✅ Test what function returns/does
-   - ❌ Don't test internal variables
+   - Test what function returns/does
+   - Don't test internal variables
 
 2. **Keep tests independent**
    - Each test should set up its own state
@@ -2431,8 +2431,8 @@ t.Logf("Requests made: %+v", requests)
    - Use `t.Run()` for subtests
 
 3. **Use descriptive test names**
-   - ✅ `TestValidate_MissingBridge_ReturnsError`
-   - ❌ `TestValidate1`
+   - Good: `TestValidate_MissingBridge_ReturnsError`
+   - Bad: `TestValidate1`
 
 4. **Clean up resources**
    - Always `defer cleanup()`
@@ -2701,4 +2701,4 @@ This guide covers the complete testing workflow for KDE Hue Control:
 - `backend/integration_test.go` - Integration test examples
 - `internal/color/extractor_bench_test.go` - Benchmark patterns
 
-Happy testing! 🧪
+Happy testing.

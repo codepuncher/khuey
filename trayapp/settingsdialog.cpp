@@ -232,16 +232,15 @@ void SettingsDialog::setupUI() {
 
             QDBusReply<bool> reply = call;
             if (reply.isValid() && reply.value()) {
-                QMessageBox::information(this, "Reconnect",
-                                         "✓ Successfully reconnected to bridge!");
-                connectionStatusLabel->setText("✓ Connected");
+                QMessageBox::information(this, "Reconnect", "Successfully reconnected to bridge!");
+                connectionStatusLabel->setText("Connected");
                 connectionStatusLabel->setStyleSheet("QLabel { color: green; font-weight: bold; }");
                 lastErrorLabel->clear();
                 return;
             }
 
             QString error = reply.isValid() ? "Failed to reconnect" : reply.error().message();
-            QMessageBox::warning(this, "Reconnect", "✗ " + error);
+            QMessageBox::warning(this, "Reconnect", error);
         });
     });
     connectionButtonsLayout->addWidget(reconnectButton);
@@ -440,7 +439,7 @@ void SettingsDialog::loadSettings() {
             bridgeIPEdit->setText(settings["bridgeIP"].toString());
 
             bool connected = settings["connected"].toBool();
-            connectionStatusLabel->setText(connected ? "✓ Connected" : "✗ Disconnected");
+            connectionStatusLabel->setText(connected ? "Connected" : "Disconnected");
             connectionStatusLabel->setStyleSheet(connected
                                                      ? "QLabel { color: green; font-weight: bold; }"
                                                      : "QLabel { color: red; font-weight: bold; }");
@@ -726,16 +725,16 @@ void SettingsDialog::onTestConnectionClicked() {
 
         QDBusReply<bool> reply = call;
         if (reply.isValid() && reply.value()) {
-            QMessageBox::information(this, "Connection Test", "✓ Bridge is reachable!");
-            connectionStatusLabel->setText("✓ Connected");
+            QMessageBox::information(this, "Connection Test", "Bridge is reachable!");
+            connectionStatusLabel->setText("Connected");
             connectionStatusLabel->setStyleSheet("QLabel { color: green; font-weight: bold; }");
             lastErrorLabel->clear();
             return;
         }
 
         QString error = reply.isValid() ? "Bridge is unreachable" : reply.error().message();
-        QMessageBox::warning(this, "Connection Test", "✗ " + error);
-        connectionStatusLabel->setText("✗ Disconnected");
+        QMessageBox::warning(this, "Connection Test", error);
+        connectionStatusLabel->setText("Disconnected");
         connectionStatusLabel->setStyleSheet("QLabel { color: red; font-weight: bold; }");
         lastErrorLabel->setText("Error: " + error);
     });
@@ -791,18 +790,18 @@ QString SettingsDialog::applyRooms(const QDBusPendingCall& call, const QString& 
     };
 
     if (reply.type() == QDBusMessage::ErrorMessage) {
-        return fail("❌ Failed to load rooms from bridge",
+        return fail("Failed to load rooms from bridge",
                     "Failed to load rooms: " + reply.errorMessage());
     }
 
     if (reply.arguments().isEmpty()) {
-        return fail("⚠️  No data from bridge", "The backend returned no rooms.");
+        return fail("No data from bridge", "The backend returned no rooms.");
     }
 
     // Extract the QDBusArgument from the message - MUST be const!
     QVariant var = reply.arguments().at(0);
     if (!var.canConvert<QDBusArgument>()) {
-        return fail("❌ Invalid response from bridge",
+        return fail("Invalid response from bridge",
                     "The backend returned rooms in an unexpected format.");
     }
 
@@ -828,7 +827,7 @@ QString SettingsDialog::applyRooms(const QDBusPendingCall& call, const QString& 
 
     if (roomCombo->count() == 0) {
         roomCombo->addItem("No rooms found", "");
-        roomPreviewLabel->setText("⚠️  No rooms or zones available. Check bridge connection.");
+        roomPreviewLabel->setText("No rooms or zones available. Check bridge connection.");
         return QString();
     }
     roomPreviewLabel->setText(QString("Found %1 room(s)/zone(s)").arg(roomCombo->count()));

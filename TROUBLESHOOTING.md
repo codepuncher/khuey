@@ -383,7 +383,7 @@ dbus-send --session --dest=org.kde.plasma.hue \
 
 ## Screen Sync Issues
 
-### 🚨 Screen Sync "Hangs" or "Doesn't Work"
+### Screen Sync "Hangs" or "Doesn't Work"
 
 **THIS IS THE #1 MISUNDERSTOOD ISSUE**
 
@@ -394,13 +394,13 @@ dbus-send --session --dest=org.kde.plasma.hue \
 **What Actually Happens:**
 
 1. You call `StartSync` (via tray or DBus)
-2. Backend activates Entertainment Area ✅
-3. Backend initializes PipeWire capture ✅
+2. Backend activates Entertainment Area
+3. Backend initializes PipeWire capture
 4. **XDG Portal shows GUI dialog** ← You must interact with this!
 5. Dialog asks: "Which screen do you want to share?"
 6. **User must click the dialog, select monitor, click "Share"**
 7. ONLY THEN does PipeWire start streaming frames
-8. Lights sync to screen ✅
+8. Lights sync to screen
 
 **The Dialog is Invisible When Testing via CLI!**
 
@@ -409,7 +409,7 @@ If you're running `dbus-send` commands from terminal, the GUI dialog appears on 
 **Solution:**
 ```bash
 # When testing via CLI, ALWAYS tell the user first:
-echo "⚠️  A GUI dialog will appear - approve screen sharing!"
+echo "A GUI dialog will appear, approve screen sharing"
 
 # Then call StartSync
 dbus-send --session --dest=org.kde.plasma.hue \
@@ -500,12 +500,12 @@ dbus-send --session --dest=org.kde.plasma.hue \
 **Diagnosis:**
 ```bash
 # Check actual FPS in logs
-journalctl --user -u hue-backend -f | grep "FPS"
+journalctl --user -u hue-backend -f | grep -E "fps|Screen sync started"
 
 # Look for:
-# ✅ Screen sync started at 30 FPS
-# [Metrics] FPS: 29.8, Frame time: 11.2ms  ← Good
-# [Metrics] FPS: 15.3, Frame time: 45.8ms  ← Bad
+# Screen sync started at 30 FPS
+# [INFO] Sync: 30.0/30 fps, frame avg=6.51ms ...   ← Good
+# [INFO] Sync: 15.3/30 fps, frame avg=45.80ms ...  ← Bad
 ```
 
 **Common causes:**

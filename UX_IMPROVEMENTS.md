@@ -40,12 +40,12 @@ Comprehensive user experience improvements to the khuey tray application, focusi
 **Problem:** No indication of loading states or operation progress.
 
 **Solution:**
-- **Loading Indicators**: All long operations show "⏳" with descriptive text
+- **Loading Indicators**: All long operations show descriptive text while they run
 - **Operation-Specific Icons**: Each button shows relevant icon (play/stop for sync, etc.)
 - **Progress States**: Scene activation shows: loading → success/error → reset
 - **Color-Coded Status**: Green for success, orange for warnings, red for errors, gray for neutral
 - **Brightness Visual Feedback**: Color changes based on brightness level (green>75%, orange>25%, gray low)
-- **FPS Display**: Shows "⚡ Syncing at 30 FPS" when screen sync active
+- **FPS Display**: Shows "Screen sync active  •  30 FPS" when screen sync is active
 - **Gaming Mode Indicator**: Special styling and icon when gaming mode is active
 
 **User Impact:** Always clear what's happening, no confusion about application state.
@@ -105,7 +105,7 @@ Comprehensive user experience improvements to the khuey tray application, focusi
 **Solution:**
 - **Permission Dialog Warning**: Proactive notification explaining screen sharing approval needed
 - **Detailed Status**: Shows "Please approve screen sharing dialog..." during startup
-- **FPS Display**: Shows "⚡ Syncing at 30 FPS" when active
+- **FPS Display**: Shows "Screen sync active  •  30 FPS" when active
 - **Gaming Mode Integration**: Special status text and styling when gaming
 - **Icon Changes**: Button icon changes based on state (start/stop/loading)
 - **Comprehensive Error Messages**:
@@ -122,10 +122,9 @@ Comprehensive user experience improvements to the khuey tray application, focusi
 **Problem:** No visual feedback when toggling power.
 
 **Solution:**
-- **Loading State**: Shows "⏳ Turning on..." or "⏳ Turning off..."
+- **Loading State**: Shows "Turning on..." or "Turning off..."
 - **Button Disabled**: Prevents double-clicks during operation
 - **Error Recovery**: Checkbox reverts on failure with clear error message
-- **Success Confirmation**: Brief "✅ Power On/Off" status message
 - **Auto-Refresh**: Reloads state after 500ms to sync with actual lights
 
 **User Impact:** Clear confirmation of power changes, no accidental double-toggles.
@@ -204,10 +203,10 @@ enum ConnectionState {
 
 ## Testing Performed
 
-✅ Backend compilation: Success
-✅ Tray app compilation: Success
-✅ All Go tests: Pass
-✅ Manual testing scenarios:
+- Backend compilation: Success
+- Tray app compilation: Success
+- All Go tests: Pass
+- Manual testing scenarios:
   - Startup with backend down → Retry logic works
   - Bridge unreachable → Clear error with retry button
   - Scene activation → Loading indicator and success feedback
@@ -229,10 +228,10 @@ enum ConnectionState {
 
 ## Backward Compatibility
 
-- ✅ All existing DBus methods work unchanged
-- ✅ No config file format changes
-- ✅ No breaking changes to backend API
-- ✅ Existing functionality preserved
+- All existing DBus methods work unchanged
+- No config file format changes
+- No breaking changes to backend API
+- Existing functionality preserved
 
 ## Files Modified
 

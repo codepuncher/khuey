@@ -157,7 +157,7 @@ echo ""
 # Run and capture output
 if $BENCH_CMD | tee -a "$RESULTS_FILE"; then
     echo ""
-    echo -e "${GREEN}✓ Benchmarks completed successfully${NC}"
+    echo -e "${GREEN}[OK]${NC} Benchmarks completed successfully"
     echo ""
     echo -e "${BLUE}Results saved to:${NC}"
     echo -e "  ${YELLOW}$RESULTS_FILE${NC}"
@@ -194,7 +194,7 @@ if $BENCH_CMD | tee -a "$RESULTS_FILE"; then
     
 else
     echo ""
-    echo -e "${RED}✗ Benchmarks failed${NC}"
+    echo -e "${RED}[FAIL]${NC} Benchmarks failed"
     echo -e "${RED}Check output above for errors${NC}"
     exit 1
 fi

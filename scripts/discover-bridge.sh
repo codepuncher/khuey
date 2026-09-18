@@ -6,7 +6,7 @@ echo ""
 
 # Check openhue-cli
 if command -v openhue &> /dev/null; then
-    echo "✓ openhue-cli found! Easiest method:"
+    echo "[OK] openhue-cli found. Easiest method:"
     echo "  openhue setup"
     exit 0
 fi

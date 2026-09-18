@@ -689,13 +689,13 @@ gamingMode:
 ```
 
 **When to enable:**
-- ✅ Running CachyOS
-- ✅ Running systemd-based distro with game optimizations
-- ✅ Want most reliable detection
+- Running CachyOS
+- Running systemd-based distro with game optimizations
+- Want most reliable detection
 
 **When to disable:**
-- ❌ Not using systemd
-- ❌ Using non-CachyOS without game profiles
+- Not using systemd
+- Using non-CachyOS without game profiles
 
 ##### gamingMode.usePowerProfile
 
@@ -717,13 +717,13 @@ gamingMode:
 ```
 
 **When to enable:**
-- ✅ System has power-profiles-daemon
-- ✅ Want additional validation
-- ✅ Using CachyOS (combines with systemd-inhibit)
+- System has power-profiles-daemon
+- Want additional validation
+- Using CachyOS (combines with systemd-inhibit)
 
 **When to disable:**
-- ❌ No power-profiles-daemon installed
-- ❌ Manually set performance profile for other reasons
+- No power-profiles-daemon installed
+- Manually set performance profile for other reasons
 
 ##### gamingMode.useSteamAppId
 
@@ -745,13 +745,13 @@ gamingMode:
 ```
 
 **When to enable:**
-- ✅ Play Steam games
-- ✅ Want Steam-specific detection
-- ✅ Using Steam Runtime/Proton
+- Play Steam games
+- Want Steam-specific detection
+- Using Steam Runtime/Proton
 
 **When to disable:**
-- ❌ Don't use Steam
-- ❌ Only play non-Steam games
+- Don't use Steam
+- Only play non-Steam games
 
 ##### gamingMode.useGameMode (Legacy)
 
@@ -773,14 +773,14 @@ gamingMode:
 ```
 
 **When to enable:**
-- ✅ Have Feral GameMode installed
-- ✅ Games launched with `gamemoderun`
-- ✅ Not using CachyOS
+- Have Feral GameMode installed
+- Games launched with `gamemoderun`
+- Not using CachyOS
 
 **When to disable:**
-- ❌ GameMode not installed
-- ❌ Using CachyOS (systemd-inhibit is better)
-- ❌ Games don't use GameMode
+- GameMode not installed
+- Using CachyOS (systemd-inhibit is better)
+- Games don't use GameMode
 
 ### Detection Priority
 
@@ -1346,9 +1346,9 @@ The tray icon changes based on application state:
 ```yaml
 ui:
   icons:
-    gaming: "applications-games"                # 🎮 Gaming + sync
-    syncing: "media-record"                      # ⏺️  Syncing
-    idle: "preferences-desktop-display-color"    # 🎨 Idle
+    gaming: "applications-games"                # Gaming + sync
+    syncing: "media-record"                      # Syncing
+    idle: "preferences-desktop-display-color"    # Idle
 ```
 
 #### Icon Name Format
@@ -1547,18 +1547,13 @@ journalctl --user -u hue-backend --since "1 hour ago"
 ./backend/hue-sync  # Logs to terminal
 ```
 
-**Log format:**
+**Log format:** a `2006/01/02 15:04:05` timestamp from the standard library
+logger, then a level tag, then the message. journalctl adds its own timestamp
+and unit prefix on top of that. Both prefixes are omitted below.
+
 ```
-[LEVEL] Message
-[INFO] Bridge connected: 192.168.1.100
-
-[LEVEL] Message with context
-[DEBUG] Frame captured: 2560x1440 (BGRA)
-
-[LEVEL] Emoji prefix for key events
-✅ Gaming detected - starting screen sync
-❌ Failed to connect to bridge
-⚠️  Frame processing took 45ms (target: 33ms)
+[INFO] Screen sync started
+[WARN] Frame skip: dropped 12 frames (processing too slow for 30 FPS)
 ```
 
 #### Performance Impact
@@ -1597,9 +1592,11 @@ log_level: "info"
 ```
 
 **Features:**
-- ✅ Scene control
-- ✅ Power/brightness control
-- ❌ Screen sync (requires Entertainment API)
+- Scene control
+- Power/brightness control
+
+**Not available:**
+- Screen sync (requires Entertainment API)
 
 ---
 
@@ -1641,10 +1638,12 @@ log_level: "info"
 ```
 
 **Features:**
-- ✅ Scene control
-- ✅ Power/brightness control
-- ✅ Screen sync (2 zones)
-- ❌ Gaming mode
+- Scene control
+- Power/brightness control
+- Screen sync (2 zones)
+
+**Not available:**
+- Gaming mode
 
 ---
 
@@ -1693,10 +1692,12 @@ log_level: "info"
 ```
 
 **Features:**
-- ✅ Scene control
-- ✅ Power/brightness control
-- ✅ Screen sync (3 zones)
-- ❌ Gaming mode
+- Scene control
+- Power/brightness control
+- Screen sync (3 zones)
+
+**Not available:**
+- Gaming mode
 
 ---
 
@@ -1753,11 +1754,11 @@ log_level: "info"
 ```
 
 **Features:**
-- ✅ Scene control
-- ✅ Power/brightness control
-- ✅ Screen sync
-- ✅ **Automatic gaming detection**
-- ✅ CachyOS-optimized detection
+- Scene control
+- Power/brightness control
+- Screen sync
+- **Automatic gaming detection**
+- CachyOS-optimized detection
 
 ---
 
@@ -1813,11 +1814,11 @@ log_level: "info"
 ```
 
 **Features:**
-- ✅ Scene control
-- ✅ Power/brightness control
-- ✅ Screen sync (4 edge zones)
-- ✅ Optimized for movies (lower FPS)
-- ✅ Edge-focused mapping
+- Scene control
+- Power/brightness control
+- Screen sync (4 edge zones)
+- Optimized for movies (lower FPS)
+- Edge-focused mapping
 
 ---
 
@@ -1855,11 +1856,11 @@ log_level: "warn"      # Less logging overhead
 ```
 
 **Features:**
-- ✅ Scene control
-- ✅ Power/brightness control
-- ✅ Screen sync (1 zone)
-- ✅ **Battery-optimized** (low FPS, low resolution)
-- ✅ Minimal logging
+- Scene control
+- Power/brightness control
+- Screen sync (1 zone)
+- **Battery-optimized** (low FPS, low resolution)
+- Minimal logging
 
 **Performance:**
 - CPU usage: ~2-4% (vs 6-10% default)
@@ -1906,10 +1907,10 @@ log_level: "debug"     # More diagnostic info
 ```
 
 **Features:**
-- ✅ Scene control
-- ✅ Power/brightness control
-- ✅ **Maximum quality** (60 FPS, high resolution)
-- ✅ Detailed logging
+- Scene control
+- Power/brightness control
+- **Maximum quality** (60 FPS, high resolution)
+- Detailed logging
 
 **Performance:**
 - CPU usage: ~15-25%
@@ -1966,10 +1967,10 @@ log_level: "debug"     # Detailed debugging
 ```
 
 **Features:**
-- ✅ All detection methods enabled
-- ✅ Debug logging
-- ✅ Fresh restore token (forces dialog)
-- ✅ Simple 2-zone setup for testing
+- All detection methods enabled
+- Debug logging
+- Fresh restore token (forces dialog)
+- Simple 2-zone setup for testing
 
 **When to use:**
 - Troubleshooting sync issues
@@ -2543,14 +2544,14 @@ python3 -c "import yaml; yaml.safe_load(open('~/.openhue/config.yaml'))"
 ## Summary
 
 This configuration reference covers:
-- ✅ Every configuration option with type, range, defaults
-- ✅ UV coordinate system with visual examples
-- ✅ Entertainment API channel configuration
-- ✅ Gaming mode detection methods
-- ✅ 8 real-world example configurations
-- ✅ Complete validation rules
-- ✅ Troubleshooting common issues
-- ✅ Migration and compatibility notes
+- Every configuration option with type, range, defaults
+- UV coordinate system with visual examples
+- Entertainment API channel configuration
+- Gaming mode detection methods
+- 8 real-world example configurations
+- Complete validation rules
+- Troubleshooting common issues
+- Migration and compatibility notes
 
 **Key takeaways:**
 1. Config file: `~/.openhue/config.yaml` (0600 permissions)
