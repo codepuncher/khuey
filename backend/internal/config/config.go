@@ -107,7 +107,6 @@ type SyncConfig struct {
 	Enabled        bool   `mapstructure:"enabled"`
 	FPS            int    `mapstructure:"fps"`
 	SubsampleWidth int    `mapstructure:"subsampleWidth"`
-	Monitor        string `mapstructure:"monitor"`      // Monitor to capture (empty = default)
 	RestoreToken   string `mapstructure:"restoreToken"` // Portal session restore token (eliminates permission dialog)
 
 	MetricsInterval int `mapstructure:"metricsInterval"` // Seconds between metrics lines while syncing (0 = off)
@@ -149,7 +148,6 @@ func DefaultConfig() *Config {
 			Enabled:         false,
 			FPS:             DefaultFPS,
 			SubsampleWidth:  DefaultSubsampleWidth,
-			Monitor:         "",
 			RestoreToken:    "", // Empty on first run
 			MetricsInterval: DefaultMetricsInterval,
 		},

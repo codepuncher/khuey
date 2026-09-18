@@ -51,20 +51,16 @@ The Settings Dialog provides a GUI to configure:
 - **Subsample Width**: Processing quality (16-256px, default: 64)
   - Lower = better performance, less color precision
   - Higher = better color accuracy, more CPU usage
-- **Monitor**: Select which monitor to capture (default: primary monitor)
+- **Change capture screen**: Drops the saved screen-share grant, so the system's
+  screen-share dialog asks which screen to capture the next time sync starts
 - **Gaming Mode**: Automatically enable screen sync when gaming (disabled by default)
   - Detects games using systemd-inhibit, power profile and Steam detection
   - Auto-starts sync when you launch a game
   - Auto-stops sync when you exit the game
   - Great for immersive gaming without manual toggling
 
-Changes require restarting Screen Sync to take effect.
-- **Subsample Width**: Processing quality (16-256 pixels, default: 64)
-  - Lower = better performance, less color precision
-  - Higher = more accurate colors, more CPU usage
-- **Monitor**: Select which monitor to sync (default: primary)
-
-**Note:** Screen Sync must be restarted for changes to take effect.
+FPS applies straight away, including to a sync already running. Subsample
+width applies the next time Screen Sync starts.
 
 #### Light Control Settings
 - **Room/Zone Selection**: Choose which room or zone to control with power and brightness buttons

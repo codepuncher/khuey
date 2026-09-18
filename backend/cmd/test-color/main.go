@@ -16,7 +16,7 @@ func main() {
 
 	// Step 1: Get a test frame
 	fmt.Println("Generating test frame...")
-	cap, err := capture.NewScreenCapture(capture.Config{FPS: 30, Monitor: -1})
+	cap, err := capture.NewScreenCapture(capture.Config{FPS: 30})
 	if err != nil {
 		log.Fatalf("Failed to create capture: %v", err)
 	}

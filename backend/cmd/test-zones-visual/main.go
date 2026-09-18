@@ -19,7 +19,7 @@ func main() {
 	fmt.Println()
 
 	// Get test frame
-	cap, _ := capture.NewScreenCapture(capture.Config{FPS: 30, Monitor: -1})
+	cap, _ := capture.NewScreenCapture(capture.Config{FPS: 30})
 	defer cap.Stop()
 
 	frame, _ := cap.CaptureFrame()

@@ -293,7 +293,12 @@ func (s *Service) introspectionMethods() []introspect.Method {
 			Args: []introspect.Arg{
 				{Name: "fps", Type: "i", Direction: "in"},
 				{Name: "subsampleWidth", Type: "i", Direction: "in"},
-				{Name: "monitor", Type: "s", Direction: "in"},
+				{Name: "success", Type: "b", Direction: "out"},
+			},
+		},
+		{
+			Name: "ResetCaptureSource",
+			Args: []introspect.Arg{
 				{Name: "success", Type: "b", Direction: "out"},
 			},
 		},
@@ -777,24 +782,17 @@ func (s *Service) GetSyncSettings() (map[string]interface{}, *dbus.Error) {
 	return map[string]interface{}{
 		"fps":            settings.FPS,
 		"subsampleWidth": settings.SubsampleWidth,
-		"monitor":        settings.Monitor,
 		"enabled":        settings.Enabled,
 	}, nil
 }
 
 // SetSyncSettings updates Screen Sync configuration.
 // FPS applies immediately, including to a running sync loop; subsampleWidth
-// takes effect on the next sync start. Monitor is persisted but not yet
-// honored: NewEngine always captures all monitors.
-func (s *Service) SetSyncSettings(fps int32, subsampleWidth int32, monitor string, sender dbus.Sender) (bool, *dbus.Error) {
+// takes effect on the next sync start.
+func (s *Service) SetSyncSettings(fps int32, subsampleWidth int32, sender dbus.Sender) (bool, *dbus.Error) {
 	// Access control: only service owner can modify settings
 	if err := s.checkAccess(sender); err != nil {
 		log.Printf("[WARN] SetSyncSettings access denied")
-		return false, dbus.MakeFailedError(err)
-	}
-
-	if err := common.ValidateDBusString("monitor", monitor, 255); err != nil {
-		log.Printf("[WARN] SetSyncSettings invalid input: %v", err)
 		return false, dbus.MakeFailedError(err)
 	}
 
@@ -813,7 +811,6 @@ func (s *Service) SetSyncSettings(fps int32, subsampleWidth int32, monitor strin
 		prev = c.Sync
 		c.Sync.FPS = int(fps)
 		c.Sync.SubsampleWidth = int(subsampleWidth)
-		c.Sync.Monitor = monitor
 	}, func(c *config.Config) {
 		c.Sync = prev
 	})
@@ -831,7 +828,28 @@ func (s *Service) SetSyncSettings(fps int32, subsampleWidth int32, monitor strin
 		}
 	}
 
-	log.Printf("[INFO] Sync settings updated: FPS=%d, SubsampleWidth=%d, Monitor=%s", fps, subsampleWidth, monitor)
+	log.Printf("[INFO] Sync settings updated: FPS=%d, SubsampleWidth=%d", fps, subsampleWidth)
+	return true, nil
+}
+
+// ResetCaptureSource forgets the saved screen-share grant. The portal asks
+// which screen to cast on the next sync start, which is the only way to change
+// it: the portal takes no option naming an output.
+func (s *Service) ResetCaptureSource(sender dbus.Sender) (bool, *dbus.Error) {
+	if err := s.checkAccess(sender); err != nil {
+		log.Printf("[WARN] ResetCaptureSource access denied")
+		return false, dbus.MakeFailedError(err)
+	}
+
+	if s.syncEngine == nil {
+		return false, dbus.MakeFailedError(fmt.Errorf("sync engine unavailable"))
+	}
+
+	if err := s.syncEngine.ResetCaptureSource(); err != nil {
+		log.Printf("[ERROR] Failed to reset capture source: %v", err)
+		return false, dbus.MakeFailedError(err)
+	}
+
 	return true, nil
 }
 

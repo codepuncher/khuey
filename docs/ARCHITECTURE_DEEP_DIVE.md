@@ -329,7 +329,7 @@ type Service struct {
 3. **Lights:** SetPower, SetBrightness, GetState
 4. **Sync:** StartSync, StopSync, IsSyncing
 5. **Gaming:** SetGamingMode, IsGamingModeEnabled, IsGamingModeActive
-6. **Config:** SetGroupedLight, SetSyncSettings, GetBridgeSettings
+6. **Config:** SetGroupedLight, SetSyncSettings, ResetCaptureSource, GetBridgeSettings
 
 **Introspection:**
 - Full introspection data exposed
@@ -1497,8 +1497,8 @@ sync:
   enabled: false
   fps: 30                    # 10-60
   subsampleWidth: 64         # 16-256
-  monitor: ""                # Empty = default monitor
   restoreToken: ""           # Portal session token
+  metricsInterval: 60        # 0-3600 seconds, 0 = off
 
 # Gaming mode settings
 gamingMode:
@@ -1592,7 +1592,7 @@ log_level: "info"
 **Sync Settings:**
 - `sync.fps` - Range: 10-60
 - `sync.subsampleWidth` - Range: 16-256
-- `sync.monitor` - Any string; stored but not yet applied
+- `sync.metricsInterval` - Range: 0-3600 seconds, 0 turns the line off
 
 **Gaming Mode:**
 - `gamingMode.pollInterval` - Minimum: 1 second
@@ -1802,7 +1802,7 @@ A nil `callerUID` resolver (e.g. a directly-constructed `Service` in tests) fail
 Mutators:
 - SetPower, SetBrightness
 - ActivateScene
-- SetGroupedLight, SetSyncSettings
+- SetGroupedLight, SetSyncSettings, ResetCaptureSource
 - StartSync, StopSync
 - SetSelectedRoom, SetStartupScene
 - SetGamingMode

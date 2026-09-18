@@ -23,7 +23,6 @@ sync:
   fps: 30
   subsampleWidth: 64
   enabled: false
-  monitor: ""
   restoreToken: ""
 gamingMode:
   enabled: true

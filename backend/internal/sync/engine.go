@@ -131,7 +131,6 @@ func NewEngine(cfg *config.Config) (*Engine, error) {
 	// Create screen capture - native PipeWire capture with CGo
 	capturer, err := capture.NewScreenCapture(capture.Config{
 		FPS:              cfg.Sync.FPS,
-		Monitor:          -1,                    // All monitors
 		UseMockFrames:    false,                 // Disable mock frames
 		UseNativeCapture: true,                  // Use native CGo PipeWire capture
 		UseScreenshot:    false,                 // Disable screenshot fallback
@@ -740,14 +739,46 @@ func (e *Engine) activateEntertainmentArea() error {
 // updateRestoreToken saves a new restore token to config
 // Called automatically when a new token is received from the portal
 func (e *Engine) updateRestoreToken(newToken string) {
+	var saved bool
 	err := e.config.Update(func(c *config.Config) {
+		// Checked here so a reset, or a newer session's grant, cannot land
+		// between the check and the write.
+		if e.capturer != nil && !e.capturer.TokenIsCurrent(newToken) {
+			return
+		}
 		c.Sync.RestoreToken = newToken
+		saved = true
 	}, nil)
 	if err != nil {
-		log.Printf("[WARN] Failed to save restore token: %v", err)
-	} else {
-		log.Printf("[INFO] Screen share permission saved (no dialog next time)")
+		log.Printf("[WARN] Failed to save config after the portal handed over a grant: %v", err)
+		return
 	}
+	if !saved {
+		log.Printf("[INFO] Screen share grant is no longer the current one, not saving it")
+		return
+	}
+	log.Printf("[INFO] Screen share permission saved (no dialog next time)")
+}
+
+// ResetCaptureSource forgets the saved screen-share grant so the portal asks
+// which screen to cast the next time sync starts. A running session keeps the
+// screen it already has.
+func (e *Engine) ResetCaptureSource() error {
+	// No revert on a failed save: a grant the user asked to drop is not worth
+	// restoring, and the clear stands in memory whether or not the file took
+	// it. Both halves clear under the one lock, so a grant being saved by a
+	// starting session cannot slip past this and outlive the reset.
+	if err := e.config.Update(func(c *config.Config) {
+		c.Sync.RestoreToken = ""
+		if e.capturer != nil {
+			e.capturer.ClearRestoreToken()
+		}
+	}, nil); err != nil {
+		return fmt.Errorf("failed to clear restore token: %w", err)
+	}
+
+	log.Printf("[INFO] Screen share permission cleared, the portal will ask again on the next sync start")
+	return nil
 }
 
 // updateMetrics updates performance metrics with frame timing data

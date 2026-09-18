@@ -87,14 +87,19 @@ type ScreenCapture struct {
 	captureHeight  int
 
 	// Restore token for permission persistence
-	restoreToken  string                // Current restore token from config
+	restoreToken string     // Current restore token from config, guarded by tokenMutex
+	tokenMutex   sync.Mutex // Start reads the token on the sync goroutine while DBus clears it
+
+	// Bumped by ClearRestoreToken so a start already waiting on the portal
+	// dialog cannot save its grant over a reset the user was told had worked.
+	tokenGeneration uint64
+
 	onTokenUpdate func(newToken string) // Callback to save new token
 }
 
 // Config holds screen capture configuration
 type Config struct {
 	FPS              int             // Target frames per second (10-60)
-	Monitor          int             // Monitor index (-1 for all monitors)
 	UseMockFrames    bool            // Use mock gradient instead of real capture (for testing)
 	UseNativeCapture bool            // Use native CGo PipeWire capture (default: true)
 	UseScreenshot    bool            // Use screenshot method for real capture (simple, higher CPU)
@@ -211,7 +216,12 @@ func (sc *ScreenCapture) Start() error {
 	sc.sessionHandle = sessionHandle
 
 	// Step 2: Select sources (monitors) with restore token
-	if err := sc.selectSources(sessionHandle, sc.restoreToken); err != nil {
+	sc.tokenMutex.Lock()
+	currentToken := sc.restoreToken
+	startGeneration := sc.tokenGeneration
+	sc.tokenMutex.Unlock()
+
+	if err := sc.selectSources(sessionHandle, currentToken); err != nil {
 		return fmt.Errorf("failed to select sources: %w", err)
 	}
 
@@ -225,15 +235,24 @@ func (sc *ScreenCapture) Start() error {
 	log.Printf("Screen capture started: session=%s, node=%d", sessionHandle, streamNode)
 
 	// Save new restore token for next session (if callback provided)
-	if newToken != "" && newToken != sc.restoreToken {
+	sc.tokenMutex.Lock()
+	reset := startGeneration != sc.tokenGeneration
+	tokenChanged := !reset && newToken != "" && newToken != sc.restoreToken
+	if tokenChanged {
 		sc.restoreToken = newToken
-		if sc.onTokenUpdate != nil {
-			// CRITICAL: Run callback in goroutine to avoid blocking capture startup
-			// The callback saves config which acquires locks that caller (engine.Start) may hold
-			// Running synchronously caused a deadlock where capture.Start blocked indefinitely
-			// Async execution allows capture to complete startup before config save
-			go sc.onTokenUpdate(newToken)
-		}
+	}
+	sc.tokenMutex.Unlock()
+
+	if reset && newToken != "" {
+		log.Printf("[INFO] Screen share was reset while this session started, its grant is not saved")
+	}
+
+	if tokenChanged && sc.onTokenUpdate != nil {
+		// CRITICAL: Run callback in goroutine to avoid blocking capture startup
+		// The callback saves config which acquires locks that caller (engine.Start) may hold
+		// Running synchronously caused a deadlock where capture.Start blocked indefinitely
+		// Async execution allows capture to complete startup before config save
+		go sc.onTokenUpdate(newToken)
 	}
 
 	// Start real Pipewire capture if not using mock frames
@@ -758,4 +777,23 @@ func (sc *ScreenCapture) SetFPS(fps int) error {
 	sc.fps = fps
 	sc.fpsMutex.Unlock()
 	return nil
+}
+
+// ClearRestoreToken forgets the portal's saved screen-share grant, so the next
+// Start shows the picker again. The portal has no option for naming an output,
+// so re-picking in its dialog is the only way to change which screen is cast.
+func (sc *ScreenCapture) ClearRestoreToken() {
+	sc.tokenMutex.Lock()
+	sc.restoreToken = ""
+	sc.tokenGeneration++
+	sc.tokenMutex.Unlock()
+}
+
+// TokenIsCurrent reports whether token is still the one this session holds.
+// The portal's grant is saved from a goroutine, so a reset can land in between;
+// callers check this under whatever lock guards the destination.
+func (sc *ScreenCapture) TokenIsCurrent(token string) bool {
+	sc.tokenMutex.Lock()
+	defer sc.tokenMutex.Unlock()
+	return sc.restoreToken == token
 }

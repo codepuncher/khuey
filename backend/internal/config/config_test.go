@@ -708,7 +708,6 @@ func TestSavePersistsSyncFields(t *testing.T) {
 
 	cfg.Sync.FPS = 45
 	cfg.Sync.SubsampleWidth = 96
-	cfg.Sync.Monitor = "DP-1"
 	cfg.Sync.RestoreToken = "new-token"
 	if err := cfg.Save(); err != nil {
 		t.Fatalf("Save() error = %v", err)
@@ -723,9 +722,6 @@ func TestSavePersistsSyncFields(t *testing.T) {
 	}
 	if reloaded.Sync.SubsampleWidth != 96 {
 		t.Errorf("Sync.SubsampleWidth = %d, want 96", reloaded.Sync.SubsampleWidth)
-	}
-	if reloaded.Sync.Monitor != "DP-1" {
-		t.Errorf("Sync.Monitor = %q, want \"DP-1\"", reloaded.Sync.Monitor)
 	}
 	if reloaded.Sync.RestoreToken != "new-token" {
 		t.Errorf("Sync.RestoreToken = %q, want \"new-token\"", reloaded.Sync.RestoreToken)

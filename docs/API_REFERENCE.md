@@ -74,7 +74,7 @@ dbus-send --session --print-reply \
 
 **Protected Methods:**
 - All methods that modify state (SetPower, ActivateScene, StartSync, etc.)
-- Methods that change configuration (SetGroupedLight, SetSyncSettings, etc.)
+- Methods that change configuration (SetGroupedLight, SetSyncSettings, ResetCaptureSource, etc.)
 - Methods that read bridge or bridge-derived data (GetScenes, GetGroupedLights, GetState, GetConnectionStatus, GetBridgeSettings, GetSelectedRoom, GetStartupScene)
 
 **Read-Only Methods (No Access Control):**
@@ -901,7 +901,6 @@ Returns current screen sync configuration.
 **Returns (map keys):**
 - `fps` (int) - Target frames per second (10-60)
 - `subsampleWidth` (int) - Resize width for processing (16-256)
-- `monitor` (string) - Monitor name; stored but not yet applied, capture uses all monitors
 - `enabled` (bool) - Whether sync is enabled in config
 
 **Example (dbus-send):**
@@ -930,7 +929,6 @@ if (reply.isValid()) {
     QVariantMap settings = reply.value();
     int fps = settings["fps"].toInt();
     int subsampleWidth = settings["subsampleWidth"].toInt();
-    QString monitor = settings["monitor"].toString();
 
     qDebug() << "FPS:" << fps;
     qDebug() << "Subsample Width:" << subsampleWidth;
@@ -943,12 +941,11 @@ if (reply.isValid()) {
 
 Updates screen sync configuration.
 
-**Signature:** `SetSyncSettings(fps: int32, subsampleWidth: int32, monitor: string) → bool`
+**Signature:** `SetSyncSettings(fps: int32, subsampleWidth: int32) → bool`
 
 **Parameters:**
 - `fps` (int32) - Target frames per second (10-60)
 - `subsampleWidth` (int32) - Resize width for processing (16-256)
-- `monitor` (string) - Monitor name; stored but not yet applied, capture uses all monitors
 
 **Returns:**
 - `true` - Settings saved successfully
@@ -960,7 +957,8 @@ Updates screen sync configuration.
 - `"access denied"` - Caller is not service owner
 - `"failed to save sync settings"` - File system error
 
-**Note:** Changes require restarting sync to take effect.
+**Note:** `fps` applies immediately, including to a running sync loop.
+`subsampleWidth` takes effect on the next sync start.
 
 **Example (dbus-send):**
 ```bash
@@ -969,24 +967,50 @@ dbus-send --session --print-reply \
   /org/kde/plasma/hue \
   org.kde.plasma.hue.SetSyncSettings \
   int32:30 \
-  int32:64 \
-  string:""
+  int32:64
 ```
 
 **Example (Qt/C++):**
 ```cpp
 int fps = 30;
 int subsampleWidth = 64;
-QString monitor = "";
 
-QDBusReply<bool> reply = iface.call("SetSyncSettings", fps, subsampleWidth, monitor);
+QDBusReply<bool> reply = iface.call("SetSyncSettings", fps, subsampleWidth);
 
 if (reply.isValid() && reply.value()) {
     qDebug() << "Sync settings updated";
-    // Prompt user to restart sync if running
 } else {
     qWarning() << "Failed:" << reply.error().message();
 }
+```
+
+---
+
+#### ResetCaptureSource
+
+Forgets the saved screen-share grant, so the portal asks which screen to capture
+the next time sync starts. This is the only way to change the captured screen:
+the portal's `SelectSources` takes no option naming an output.
+
+**Signature:** `ResetCaptureSource() → bool`
+
+**Returns:**
+- `true` - Grant cleared, the portal will ask on the next sync start
+- `false` - Failed (error in DBus error field)
+
+**Errors:**
+- `"access denied"` - Caller is not service owner
+- `"sync engine unavailable"` - Backend started without a sync engine
+- `"failed to clear restore token"` - File system error
+
+A running sync keeps the screen it already has.
+
+**Example (dbus-send):**
+```bash
+dbus-send --session --print-reply \
+  --dest=org.kde.plasma.hue \
+  /org/kde/plasma/hue \
+  org.kde.plasma.hue.ResetCaptureSource
 ```
 
 ---
