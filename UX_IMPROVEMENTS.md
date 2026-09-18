@@ -11,9 +11,8 @@ Comprehensive user experience improvements to the khuey tray application, focusi
 **Problem:** Application showed generic errors when backend was unavailable or bridge was unreachable.
 
 **Solution:**
-- **Startup Retry Logic**: Exponential backoff retry when backend is unavailable (5 attempts, max 10s delay)
-- **Connection State Tracking**: Four states (CONNECTING, CONNECTED, DISCONNECTED, ERROR) with visual indicators
-- **State Icons**: Dynamic status icons that show connection state at a glance
+- **Startup Retry Logic**: Linear backoff retry when backend is unavailable (5 attempts, 1s to 5s delay)
+- **Connection State Tracking**: Four states (CONNECTING, CONNECTED, DISCONNECTED, ERROR) driving the retry button and gating the status text
 - **Detailed Error Info**: Collapsible connection details panel showing last error and bridge IP
 - **Retry Button**: Appears only when disconnected, with one-click reconnection
 
@@ -75,11 +74,10 @@ Comprehensive user experience improvements to the khuey tray application, focusi
 **Problem:** Simple list with no feedback.
 
 **Solution:**
-- **Visual Feedback**: Scene icons change during activation (loading → success/error)
+- **Visual Feedback**: Status text shows the scene being activated, then the result
 - **Scene Count**: Shows "(X available)" next to "Scenes:" header
 - **Alternating Row Colors**: Easier to read long lists
 - **Better Error Handling**: Specific messages for "scene not found" vs "bridge unreachable"
-- **Icon Consistency**: All scenes have appropriate icon (favorites)
 - **Loading State**: List disabled during activation to prevent double-clicks
 
 **User Impact:** Clear feedback when activating scenes, organized presentation.
@@ -104,7 +102,7 @@ Comprehensive user experience improvements to the khuey tray application, focusi
 
 **Solution:**
 - **Permission Dialog Warning**: Proactive notification explaining screen sharing approval needed
-- **Detailed Status**: Shows "Please approve screen sharing dialog..." during startup
+- **Detailed Status**: Shows "Waiting for screen share approval" during startup
 - **FPS Display**: Shows "Screen sync active  •  30 FPS" when active
 - **Gaming Mode Integration**: Special status text and styling when gaming
 - **Icon Changes**: Button icon changes based on state (start/stop/loading)
@@ -137,7 +135,7 @@ Comprehensive user experience improvements to the khuey tray application, focusi
 - **Section Headers with Icons**: Each control group has icon + label
 - **Spacing**: Added spacing between sections for better readability
 - **Preset Button Row**: Compact layout for brightness presets
-- **Status Section**: Icon + text + collapsible details
+- **Status Section**: Text + collapsible details
 - **Button Row**: Settings, Refresh, and conditional Retry button grouped
 - **Wider Dialog**: Increased from 400px to 450px for better layout
 - **Alternating Colors**: Scene list uses alternating row colors
@@ -150,14 +148,14 @@ Comprehensive user experience improvements to the khuey tray application, focusi
 
 **Solution:**
 - **Rich Status Display**:
-  - Connection state with icon
+  - Connection state
   - Backend availability
   - Bridge reachability with IP
   - Last error details (collapsible)
   - Scene count
   - Sync status with FPS
   - Gaming mode state
-- **Real-Time Updates**: Status checks every 10 seconds (connection), 2 seconds (gaming)
+- **Real-Time Updates**: Control panel polls connection, sync and gaming state every 10 seconds while open; the tray tooltip refreshes every 3 seconds
 - **Tooltip Enhancement**: Tray tooltip shows gaming mode state
 - **Connection Details**: Optional panel showing bridge IP and last error
 
@@ -176,7 +174,7 @@ enum ConnectionState {
 ```
 
 ### Retry Logic
-- **Exponential Backoff**: 1s, 2s, 3s, 4s, 5s delays (max 10s)
+- **Linear Backoff**: 1s, 2s, 3s, 4s, 5s delays
 - **Attempt Limit**: Gives up after 5 attempts
 - **User Control**: Manual retry button always available
 
@@ -187,11 +185,8 @@ enum ConnectionState {
 - **Smart Deduplication**: Tracks shown notifications to prevent spam
 
 ### UI Components Added
-- `statusIconLabel`: Shows connection state icon
 - `connectionDetailsLabel`: Collapsible error details
 - `sceneCountLabel`: Scene count display
-- `syncIconLabel`: Sync status icon
-- `fpsLabel`: FPS indicator when syncing
 - `retryButton`: Conditional retry button
 - Preset brightness buttons (25%, 50%, 75%, 100%)
 
@@ -220,7 +215,7 @@ enum ConnectionState {
 1. **Reduced Confusion**: Always clear what's happening and why
 2. **Faster Troubleshooting**: Errors include specific fix steps
 3. **Better Control**: Preset buttons, retry button, clear feedback
-4. **Professional Feel**: Polished UI with icons, colors, animations
+4. **Professional Feel**: Polished UI with icons and colors
 5. **Reduced Frustration**: Automatic retries, smart notifications
 6. **Gaming Integration**: Clear indication of gaming mode state
 7. **Screen Sync Clarity**: Permission dialog explained, FPS shown

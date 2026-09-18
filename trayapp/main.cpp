@@ -232,9 +232,9 @@ class HueControlDialog : public QDialog {
   public slots:
     void initialConnect() {
         if (!iface.isValid()) {
-            // Backend not running - retry with exponential backoff
+            // Backend not running - retry with linear backoff
             connectionRetryCount++;
-            int delay = qMin(1000 * connectionRetryCount, 10000); // Max 10 seconds
+            int delay = qMin(1000 * connectionRetryCount, 10000);
 
             statusLabel->setText(QString("Connecting... (attempt %1)").arg(connectionRetryCount));
             updateConnectionState(CONNECTING);
