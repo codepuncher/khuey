@@ -11,10 +11,10 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-# Test counters
+# Counters. A test is a function; a check is one assertion inside one.
 TESTS_RUN=0
-TESTS_PASSED=0
-TESTS_FAILED=0
+CHECKS_PASSED=0
+CHECKS_FAILED=0
 
 # Print functions
 print_header() {
@@ -30,12 +30,12 @@ print_test() {
 
 print_pass() {
     echo -e "${GREEN}  [OK]${NC} $1"
-    ((TESTS_PASSED++))
+    CHECKS_PASSED=$((CHECKS_PASSED + 1))
 }
 
 print_fail() {
     echo -e "${RED}  [FAIL]${NC} $1"
-    ((TESTS_FAILED++))
+    CHECKS_FAILED=$((CHECKS_FAILED + 1))
 }
 
 print_warning() {
@@ -46,16 +46,19 @@ print_warning() {
 call_dbus() {
     local method="$1"
     shift
+    # Callers assert on the reply text, which is why stderr is merged in. An
+    # error reply exits 1, and set -e would kill the script at the caller's
+    # assignment before it could report the failure.
     dbus-send --session --print-reply \
         --dest=org.kde.plasma.hue \
         /org/kde/plasma/hue \
         "org.kde.plasma.hue.$method" \
-        "$@" 2>&1
+        "$@" 2>&1 || true
 }
 
 # Test functions
 test_service_available() {
-    ((TESTS_RUN++))
+    TESTS_RUN=$((TESTS_RUN + 1))
     print_test "Service availability"
     
     if dbus-send --session --dest=org.freedesktop.DBus \
@@ -73,7 +76,7 @@ test_service_available() {
 }
 
 test_get_status() {
-    ((TESTS_RUN++))
+    TESTS_RUN=$((TESTS_RUN + 1))
     print_test "GetStatus()"
     
     local result
@@ -106,7 +109,7 @@ test_get_status() {
 }
 
 test_get_scenes() {
-    ((TESTS_RUN++))
+    TESTS_RUN=$((TESTS_RUN + 1))
     print_test "GetScenes()"
     
     local result
@@ -114,12 +117,11 @@ test_get_scenes() {
     
     if echo "$result" | grep -q "array"; then
         local scene_count
-        scene_count=$(echo "$result" | grep -c "struct" || echo "0")
-        # Remove any non-numeric characters
-        scene_count=$(echo "$scene_count" | tr -cd '0-9')
+        # grep -c exits 1 on no matches, having already printed its 0.
+        scene_count=$(echo "$result" | grep -c "string" || true)
         print_pass "Returned $scene_count scenes"
         
-        if [ "${scene_count:-0}" -gt 0 ]; then
+        if [ "$scene_count" -gt 0 ]; then
             print_pass "Scene data structure valid"
         else
             print_warning "No scenes found (bridge may need setup)"
@@ -132,7 +134,7 @@ test_get_scenes() {
 }
 
 test_is_syncing() {
-    ((TESTS_RUN++))
+    TESTS_RUN=$((TESTS_RUN + 1))
     print_test "IsSyncing()"
     
     local result
@@ -156,14 +158,14 @@ test_is_syncing() {
 }
 
 test_introspection() {
-    ((TESTS_RUN++))
+    TESTS_RUN=$((TESTS_RUN + 1))
     print_test "Introspection (DBus interface)"
     
     local result
     result=$(dbus-send --session --print-reply \
         --dest=org.kde.plasma.hue \
         /org/kde/plasma/hue \
-        org.freedesktop.DBus.Introspectable.Introspect 2>&1)
+        org.freedesktop.DBus.Introspectable.Introspect 2>&1 || true)
     
     if echo "$result" | grep -q "<interface"; then
         print_pass "Introspection data available"
@@ -173,7 +175,7 @@ test_introspection() {
         local found=0
         for method in "${methods[@]}"; do
             if echo "$result" | grep -q "method name=\"$method\""; then
-                ((found++))
+                found=$((found + 1))
             fi
         done
         
@@ -190,15 +192,19 @@ test_introspection() {
 }
 
 test_response_time() {
-    ((TESTS_RUN++))
+    TESTS_RUN=$((TESTS_RUN + 1))
     print_test "Response time (GetStatus)"
     
-    local start
+    local result start end
     start=$(date +%s%N)
-    call_dbus "GetStatus" > /dev/null 2>&1
-    local end
+    result=$(call_dbus "GetStatus")
     end=$(date +%s%N)
     
+    if ! echo "$result" | grep -q "string"; then
+        print_fail "No valid response"
+        return 1
+    fi
+
     local duration_ns=$((end - start))
     local duration_ms=$((duration_ns / 1000000))
     
@@ -214,7 +220,7 @@ test_response_time() {
 }
 
 test_error_handling() {
-    ((TESTS_RUN++))
+    TESTS_RUN=$((TESTS_RUN + 1))
     print_test "Error handling (invalid method)"
     
     local result
@@ -244,38 +250,39 @@ fi
 
 echo ""
 
-# Run test suite
-test_get_status
+# Run test suite. Each test records its own result and returns 1 when it fails,
+# so the failures have to be tolerated here for the summary below to be reached.
+test_get_status || true
 echo ""
 
-test_get_scenes
+test_get_scenes || true
 echo ""
 
-test_is_syncing
+test_is_syncing || true
 echo ""
 
-test_introspection
+test_introspection || true
 echo ""
 
-test_response_time
+test_response_time || true
 echo ""
 
-test_error_handling
+test_error_handling || true
 echo ""
 
 # Print summary
 echo -e "${BLUE}════════════════════════════════════════════════════════════${NC}"
 echo -e "${BLUE}Test Results:${NC}"
-echo -e "  Tests run:    $TESTS_RUN"
-echo -e "  ${GREEN}Passed:       $TESTS_PASSED${NC}"
+echo -e "  Tests run:      $TESTS_RUN"
+echo -e "  ${GREEN}Checks passed:  $CHECKS_PASSED${NC}"
 
-if [ $TESTS_FAILED -gt 0 ]; then
-    echo -e "  ${RED}Failed:       $TESTS_FAILED${NC}"
+if [ $CHECKS_FAILED -gt 0 ]; then
+    echo -e "  ${RED}Checks failed:  $CHECKS_FAILED${NC}"
 else
-    echo -e "  ${GREEN}Failed:       $TESTS_FAILED${NC}"
+    echo -e "  ${GREEN}Checks failed:  $CHECKS_FAILED${NC}"
 fi
 
-if [ $TESTS_FAILED -eq 0 ]; then
+if [ $CHECKS_FAILED -eq 0 ]; then
     echo -e "${GREEN}All tests passed!${NC}"
     exit 0
 else
