@@ -25,21 +25,21 @@ print_header() {
 }
 
 print_test() {
-    echo -e "${BLUE}▶${NC} Testing: $1"
+    echo -e "${BLUE}==>${NC} Testing: $1"
 }
 
 print_pass() {
-    echo -e "${GREEN}  ✓${NC} $1"
+    echo -e "${GREEN}  [OK]${NC} $1"
     ((TESTS_PASSED++))
 }
 
 print_fail() {
-    echo -e "${RED}  ✗${NC} $1"
+    echo -e "${RED}  [FAIL]${NC} $1"
     ((TESTS_FAILED++))
 }
 
 print_warning() {
-    echo -e "${YELLOW}  ⚠${NC} $1"
+    echo -e "${YELLOW}  [WARN]${NC} $1"
 }
 
 # DBus helper
@@ -80,7 +80,8 @@ test_get_status() {
     result=$(call_dbus "GetStatus")
     
     if echo "$result" | grep -q "string"; then
-        local status=$(echo "$result" | grep "string" | sed 's/.*string "\(.*\)"/\1/')
+        local status
+        status=$(echo "$result" | grep "string" | sed 's/.*string "\(.*\)"/\1/')
         print_pass "Returned: $status"
         
         case "$status" in
@@ -112,7 +113,8 @@ test_get_scenes() {
     result=$(call_dbus "GetScenes")
     
     if echo "$result" | grep -q "array"; then
-        local scene_count=$(echo "$result" | grep -c "struct" || echo "0")
+        local scene_count
+        scene_count=$(echo "$result" | grep -c "struct" || echo "0")
         # Remove any non-numeric characters
         scene_count=$(echo "$scene_count" | tr -cd '0-9')
         print_pass "Returned $scene_count scenes"
@@ -137,7 +139,8 @@ test_is_syncing() {
     result=$(call_dbus "IsSyncing")
     
     if echo "$result" | grep -q "boolean"; then
-        local syncing=$(echo "$result" | grep "boolean" | awk '{print $2}')
+        local syncing
+        syncing=$(echo "$result" | grep "boolean" | awk '{print $2}')
         print_pass "Returned: $syncing"
         
         if [ "$syncing" = "true" ]; then
@@ -190,9 +193,11 @@ test_response_time() {
     ((TESTS_RUN++))
     print_test "Response time (GetStatus)"
     
-    local start=$(date +%s%N)
+    local start
+    start=$(date +%s%N)
     call_dbus "GetStatus" > /dev/null 2>&1
-    local end=$(date +%s%N)
+    local end
+    end=$(date +%s%N)
     
     local duration_ns=$((end - start))
     local duration_ms=$((duration_ns / 1000000))
@@ -271,7 +276,7 @@ else
 fi
 
 if [ $TESTS_FAILED -eq 0 ]; then
-    echo -e "${GREEN}All tests passed!${NC} ✨"
+    echo -e "${GREEN}All tests passed!${NC}"
     exit 0
 else
     echo -e "${RED}Some tests failed.${NC}"

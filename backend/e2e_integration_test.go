@@ -137,7 +137,7 @@ func TestE2E_SceneActivationWorkflow(t *testing.T) {
 		if status != "Ready" {
 			t.Errorf("Expected status 'Ready', got '%s'", status)
 		}
-		t.Logf("✓ Initial status: %s", status)
+		t.Logf("Initial status: %s", status)
 	})
 
 	t.Run("Step2_RetrieveScenes", func(t *testing.T) {
@@ -160,9 +160,9 @@ func TestE2E_SceneActivationWorkflow(t *testing.T) {
 				break
 			}
 		}
-		t.Logf("✓ Scenes have room prefix: %v", hasRoomPrefix)
+		t.Logf("Scenes have room prefix: %v", hasRoomPrefix)
 
-		t.Logf("✓ Retrieved %d scenes: %v", len(scenes), scenes)
+		t.Logf("Retrieved %d scenes: %v", len(scenes), scenes)
 
 		// Verify bridge received GET request
 		requests := bridge.GetRequestLog()
@@ -198,7 +198,7 @@ func TestE2E_SceneActivationWorkflow(t *testing.T) {
 			t.Errorf("Unexpected activation result: %s", result)
 		}
 
-		t.Logf("✓ Scene activated: %s → %s", sceneName, result)
+		t.Logf("Scene activated: %s → %s", sceneName, result)
 
 		// Verify bridge received PUT request to activate scene
 		requests := bridge.GetRequestLog()
@@ -212,7 +212,7 @@ func TestE2E_SceneActivationWorkflow(t *testing.T) {
 		for _, req := range requests {
 			if strings.HasPrefix(req, "PUT") && strings.Contains(req, "/clip/v2/resource/scene/") {
 				foundPut = true
-				t.Logf("✓ Bridge received activation: %s", req)
+				t.Logf("Bridge received activation: %s", req)
 				break
 			}
 		}
@@ -230,7 +230,7 @@ func TestE2E_SceneActivationWorkflow(t *testing.T) {
 		if status != "Ready" {
 			t.Errorf("Status should remain 'Ready' after activation, got '%s'", status)
 		}
-		t.Logf("✓ Status after activation: %s", status)
+		t.Logf("Status after activation: %s", status)
 	})
 
 	_ = service // Keep reference
@@ -254,7 +254,7 @@ func TestE2E_ErrorRecoveryWorkflow(t *testing.T) {
 		if len(scenes) == 0 {
 			t.Fatal("No scenes available")
 		}
-		t.Logf("✓ Normal operation: %d scenes available", len(scenes))
+		t.Logf("Normal operation: %d scenes available", len(scenes))
 	})
 
 	t.Run("Step2_SimulateBridgeFailure", func(t *testing.T) {
@@ -267,7 +267,7 @@ func TestE2E_ErrorRecoveryWorkflow(t *testing.T) {
 		if err == nil {
 			t.Error("Expected error when bridge is failing, got nil")
 		} else {
-			t.Logf("✓ Error properly propagated: %v", err)
+			t.Logf("Error properly propagated: %v", err)
 		}
 	})
 
@@ -278,7 +278,7 @@ func TestE2E_ErrorRecoveryWorkflow(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GetStatus() failed: %v", err)
 		}
-		t.Logf("✓ Service responsive during bridge failure: %s", status)
+		t.Logf("Service responsive during bridge failure: %s", status)
 	})
 
 	t.Run("Step4_RecoverBridge", func(t *testing.T) {
@@ -294,7 +294,7 @@ func TestE2E_ErrorRecoveryWorkflow(t *testing.T) {
 		if len(recoveredScenes) != len(scenes) {
 			t.Errorf("Expected %d scenes after recovery, got %d", len(scenes), len(recoveredScenes))
 		}
-		t.Logf("✓ Bridge recovered: %d scenes retrieved", len(recoveredScenes))
+		t.Logf("Bridge recovered: %d scenes retrieved", len(recoveredScenes))
 	})
 
 	t.Run("Step5_ActivateSceneAfterRecovery", func(t *testing.T) {
@@ -307,7 +307,7 @@ func TestE2E_ErrorRecoveryWorkflow(t *testing.T) {
 		if !strings.Contains(result, "Scene activated") {
 			t.Errorf("Unexpected result after recovery: %s", result)
 		}
-		t.Logf("✓ Scene activation works after recovery: %s", result)
+		t.Logf("Scene activation works after recovery: %s", result)
 	})
 
 	_ = service
@@ -400,7 +400,7 @@ func TestE2E_ConcurrentOperationsWorkflow(t *testing.T) {
 			t.Errorf("Low success rate under concurrency: %.1f%% (%d/%d)",
 				successRate, successCount, numOps)
 		} else {
-			t.Logf("✓ Concurrent operations: %.1f%% success rate (%d/%d)",
+			t.Logf("Concurrent operations: %.1f%% success rate (%d/%d)",
 				successRate, successCount, numOps)
 		}
 
@@ -410,14 +410,14 @@ func TestE2E_ConcurrentOperationsWorkflow(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Service not responsive after concurrent operations: %v", err)
 		}
-		t.Logf("✓ Service responsive after load: %s", finalStatus)
+		t.Logf("Service responsive after load: %s", finalStatus)
 
 		// Check request count - should have many requests
 		requestCount := bridge.GetRequestCount()
 		if requestCount < numOps/2 {
 			t.Logf("Warning: Lower request count than expected: %d", requestCount)
 		} else {
-			t.Logf("✓ Bridge handled %d requests", requestCount)
+			t.Logf("Bridge handled %d requests", requestCount)
 		}
 	})
 
@@ -438,7 +438,7 @@ func TestE2E_StatusMonitoringWorkflow(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GetStatus() failed: %v", err)
 		}
-		t.Logf("✓ Status: %s", status)
+		t.Logf("Status: %s", status)
 
 		var syncing bool
 		err = obj.Call(e2eDBusInterface+".IsSyncing", 0).Store(&syncing)
@@ -448,7 +448,7 @@ func TestE2E_StatusMonitoringWorkflow(t *testing.T) {
 		if syncing {
 			t.Error("IsSyncing should be false initially")
 		}
-		t.Logf("✓ Syncing: %v", syncing)
+		t.Logf("Syncing: %v", syncing)
 
 		var settings map[string]godbus.Variant
 		err = obj.Call(e2eDBusInterface+".GetSyncSettings", 0).Store(&settings)
@@ -458,7 +458,7 @@ func TestE2E_StatusMonitoringWorkflow(t *testing.T) {
 		if len(settings) == 0 {
 			t.Error("GetSyncSettings returned empty map")
 		}
-		t.Logf("✓ Sync settings: %d keys", len(settings))
+		t.Logf("Sync settings: %d keys", len(settings))
 	})
 
 	t.Run("Step2_PerformAction", func(t *testing.T) {
@@ -475,7 +475,7 @@ func TestE2E_StatusMonitoringWorkflow(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ActivateScene() failed: %v", err)
 			}
-			t.Logf("✓ Action performed: %s", result)
+			t.Logf("Action performed: %s", result)
 		}
 	})
 
@@ -501,7 +501,7 @@ func TestE2E_StatusMonitoringWorkflow(t *testing.T) {
 				t.Errorf("Inconsistent status on iteration %d: %s != %s", i, currentStatus, status)
 			}
 		}
-		t.Logf("✓ State consistent across multiple queries")
+		t.Logf("State consistent across multiple queries")
 	})
 
 	t.Run("Step4_ConnectionStatus", func(t *testing.T) {
@@ -516,7 +516,7 @@ func TestE2E_StatusMonitoringWorkflow(t *testing.T) {
 		if len(connStatus) == 0 {
 			t.Error("GetConnectionStatus returned empty map")
 		} else {
-			t.Logf("✓ Connection status: %d keys", len(connStatus))
+			t.Logf("Connection status: %d keys", len(connStatus))
 			for k := range connStatus {
 				t.Logf("  - %s", k)
 			}
@@ -564,7 +564,7 @@ func TestE2E_ServiceLifecycleWorkflow(t *testing.T) {
 		}
 		defer service.Stop()
 
-		t.Log("✓ Service started successfully")
+		t.Log("Service started successfully")
 
 		// Verify service is accessible
 		time.Sleep(100 * time.Millisecond)
@@ -580,7 +580,7 @@ func TestE2E_ServiceLifecycleWorkflow(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Service not responding: %v", err)
 		}
-		t.Logf("✓ Service responding: %s", status)
+		t.Logf("Service responding: %s", status)
 	})
 
 	t.Run("Step2_RestartService", func(t *testing.T) {
@@ -602,7 +602,7 @@ func TestE2E_ServiceLifecycleWorkflow(t *testing.T) {
 		service1.Stop()
 		time.Sleep(200 * time.Millisecond) // Wait for cleanup
 
-		t.Log("✓ Service stopped")
+		t.Log("Service stopped")
 
 		// Start second instance (should succeed after stop)
 		service2, err := dbus.NewService(cfg, client)
@@ -616,7 +616,7 @@ func TestE2E_ServiceLifecycleWorkflow(t *testing.T) {
 		}
 		defer service2.Stop()
 
-		t.Log("✓ Service restarted successfully")
+		t.Log("Service restarted successfully")
 
 		// Verify second instance works
 		time.Sleep(100 * time.Millisecond)
@@ -632,7 +632,7 @@ func TestE2E_ServiceLifecycleWorkflow(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Restarted service not responding: %v", err)
 		}
-		t.Logf("✓ Restarted service responding: %s", status)
+		t.Logf("Restarted service responding: %s", status)
 	})
 }
 
@@ -669,7 +669,7 @@ func TestE2E_MultipleSceneActivations(t *testing.T) {
 				t.Errorf("Unexpected result for scene '%s': %s", sceneName, result)
 			}
 
-			t.Logf("✓ Scene %d activated: %s", i+1, sceneName)
+			t.Logf("Scene %d activated: %s", i+1, sceneName)
 
 			// Small delay between activations
 			time.Sleep(50 * time.Millisecond)
@@ -686,8 +686,8 @@ func TestE2E_MultipleSceneActivations(t *testing.T) {
 		t.Errorf("Service status unexpected after activations: %s", finalStatus)
 	}
 
-	t.Logf("✓ All %d scenes activated successfully", len(scenes))
-	t.Logf("✓ Service status after %d activations: %s", len(scenes), finalStatus)
+	t.Logf("All %d scenes activated successfully", len(scenes))
+	t.Logf("Service status after %d activations: %s", len(scenes), finalStatus)
 
 	// Check total request count
 	requestCount := bridge.GetRequestCount()
@@ -696,7 +696,7 @@ func TestE2E_MultipleSceneActivations(t *testing.T) {
 	if requestCount < expectedMin {
 		t.Logf("Warning: Expected at least %d requests, got %d", expectedMin, requestCount)
 	} else {
-		t.Logf("✓ Bridge handled %d requests", requestCount)
+		t.Logf("Bridge handled %d requests", requestCount)
 	}
 
 	_ = service
@@ -717,7 +717,7 @@ func TestE2E_GroupedLightsWorkflow(t *testing.T) {
 		}
 
 		// Mock should have grouped lights (from default scenario)
-		t.Logf("✓ Retrieved %d grouped lights", len(lights))
+		t.Logf("Retrieved %d grouped lights", len(lights))
 
 		// Note: May return 0 if mock doesn't properly handle grouped lights endpoint
 		if len(lights) == 0 {
@@ -734,7 +734,7 @@ func TestE2E_GroupedLightsWorkflow(t *testing.T) {
 			if light.Type == "" {
 				t.Errorf("Light %d has empty Type", i)
 			}
-			t.Logf("✓ Light %d: ID=%s, Name=%s, Type=%s", i+1, light.ID, light.Name, light.Type)
+			t.Logf("Light %d: ID=%s, Name=%s, Type=%s", i+1, light.ID, light.Name, light.Type)
 		}
 	})
 
@@ -742,7 +742,7 @@ func TestE2E_GroupedLightsWorkflow(t *testing.T) {
 		requests := bridge.GetRequestLog()
 		// Should have received GET request for grouped lights
 		foundRequest := containsRequestWithMethod(requests, "GET", "/clip/v2/resource/grouped_light")
-		t.Logf("✓ Bridge grouped lights request: %v", foundRequest)
+		t.Logf("Bridge grouped lights request: %v", foundRequest)
 
 		// Log all requests for debugging
 		if len(requests) > 0 {
@@ -766,7 +766,7 @@ func TestE2E_InvalidOperations(t *testing.T) {
 		if err == nil {
 			t.Error("Expected error when activating nonexistent scene, got nil")
 		} else {
-			t.Logf("✓ Error properly returned: %v", err)
+			t.Logf("Error properly returned: %v", err)
 		}
 	})
 
@@ -776,7 +776,7 @@ func TestE2E_InvalidOperations(t *testing.T) {
 		if err == nil {
 			t.Error("Expected error when activating empty scene name, got nil")
 		} else {
-			t.Logf("✓ Error properly returned for empty name: %v", err)
+			t.Logf("Error properly returned for empty name: %v", err)
 		}
 	})
 
@@ -788,7 +788,7 @@ func TestE2E_InvalidOperations(t *testing.T) {
 		if err == nil && result {
 			t.Error("Expected error for brightness > 100")
 		} else {
-			t.Logf("✓ Invalid brightness rejected: %v", err)
+			t.Logf("Invalid brightness rejected: %v", err)
 		}
 	})
 

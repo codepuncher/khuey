@@ -50,8 +50,8 @@ cp ../systemd/hue-tray.desktop ~/.config/autostart/
 
 - **Scene Control**: Activate any of your Hue scenes with room names
 - **Screen Sync**: Real-time screen color synchronization with Hue lights (Entertainment API)
-- **🎮 Gaming Mode**: Automatic screen sync when gaming (CachyOS-optimized)
-- **🔑 Restore Token**: Eliminates screen share permission dialog
+- **Gaming Mode**: Automatic screen sync when gaming (CachyOS-optimized)
+- **Restore Token**: Eliminates screen share permission dialog
 - **Settings Dialog**: GUI for bridge setup, room selection, and screen sync configuration
 - **Power/Brightness Controls**: Toggle and dim lights with room/zone support
 - **Multi-zone Mapping**: Different screen areas control different lights
@@ -366,22 +366,21 @@ Still stuck? Check:
 
 ## Development Status
 
-**Progress: 10/15 components complete (67%)**
+- [x] Project structure
+- [x] Configuration system
+- [x] Hue API client
+- [x] DBus service
+- [x] Qt tray application (KStatusNotifierItem)
+- [x] Scene control with room names
+- [x] Desktop notifications
+- [x] Auto-start integration (systemd + KDE)
+- [x] Installation scripts
+- [x] Power/brightness controls
+- [x] Screen capture (Wayland/PipeWire)
+- [x] Entertainment API streaming
+- [x] Settings dialog
 
-✅ Project structure
-✅ Configuration system
-✅ Hue API client
-✅ DBus service
-✅ Qt tray application (KStatusNotifierItem)
-✅ Scene control with room names
-✅ Alphabetical sorting
-✅ Desktop notifications
-✅ Auto-start integration (systemd + KDE)
-✅ Installation scripts
-⏳ Power/brightness controls (needs room configuration)
-⏳ Screen capture (Wayland/Pipewire)
-⏳ Entertainment API streaming
-⏳ Settings dialog
+Planned work is tracked in [GitHub issues](https://github.com/codepuncher/khuey/issues).
 
 ## Architecture
 

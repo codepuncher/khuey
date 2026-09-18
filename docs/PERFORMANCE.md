@@ -138,9 +138,9 @@ TwoZones_4K:        < 20ms    // Typical: 141µs (130x faster!)
 
 | Resolution | Target FPS | Frame Budget | Status          |
 |-----------|-----------|--------------|------------------|
-| 1080p     | 30        | 33.3 ms      | ✅ Achieves 30.0 |
-| 1440p     | 30        | 33.3 ms      | ✅ Achieves 30.0 |
-| 4K        | 30        | 33.3 ms      | ✅ Achieves 30.0 |
+| 1080p     | 30        | 33.3 ms      | Achieves 30.0    |
+| 1440p     | 30        | 33.3 ms      | Achieves 30.0    |
+| 4K        | 30        | 33.3 ms      | Achieves 30.0    |
 
 **Frame Time Breakdown Budget** (30 FPS = 33.3ms total):
 - Capture: < 10ms (actual: 3-5ms)
@@ -433,23 +433,25 @@ go build -o profile-sync ./cmd/profile-sync
 ./profile-sync --duration 30 --cpuprofile cpu_custom.prof --memprofile mem_custom.prof
 ```
 
-**Output:**
+**Output:** (the profiler timestamps its output with
+`HH:MM:SS.microseconds`; omitted here)
+
 ```
-🔬 Screen Sync Performance Profiler
+[INFO] Screen Sync Performance Profiler
    Duration: 15 seconds
    FPS Target: 30
    Channels: 2
    CPU profiling: cpu.prof
 
-▶️  Starting screen sync...
+[INFO] Starting screen sync...
    NOTE: Will show permission dialog - approve to start profiling
 
 [... 15 seconds of profiling ...]
 
-⏱️  Duration complete (15s)
+[INFO] Duration complete (15s)
    Memory profile: mem.prof
 
-✅ Profiling complete!
+[INFO] Profiling complete!
 
 Analyze results:
    go tool pprof -http=:8080 cpu.prof
@@ -769,7 +771,7 @@ pkg: github.com/codepuncher/khuey/internal/color
 BenchmarkExtractColors_TwoZones_1440p-8    8000    148234 ns/op
 BenchmarkExtractColors_FourZones_1440p-8   7500    156891 ns/op
 
-✓ Benchmarks completed successfully
+[OK] Benchmarks completed successfully
 
 Results saved to:
   backend/benchmark_results/benchmark_20260426-194817.txt
@@ -851,17 +853,17 @@ Running 10 concurrent config loads for 60s...
 Thread 1: 125 successful loads
 Thread 2: 128 successful loads
 ...
-✓ Config load stress test completed
+[OK] Config load stress test completed
 
 [2/4] Validation Stress Test
 Running validation benchmarks with high load...
 BenchmarkValidate-8   150000   80125 ns/op
-✓ Validation stress test completed
+[OK] Validation stress test completed
 
 [3/4] Memory Pressure Test
 Running memory-intensive benchmarks...
 BenchmarkLoad-8       2000     508234 ns/op   50123 B/op   450 allocs/op
-✓ Memory pressure test completed
+[OK] Memory pressure test completed
 
 [4/4] Performance Regression Tests
 Running regression tests to ensure performance thresholds...
@@ -870,7 +872,7 @@ Running regression tests to ensure performance thresholds...
     Threshold: 12ms
     Max FPS theoretical: 6770
 --- PASS: TestPerformanceRegression_ColorExtraction (0.02s)
-✓ All performance regression tests passed
+[OK] All performance regression tests passed
 ```
 
 ---
@@ -928,10 +930,10 @@ GitHub Actions automatically runs benchmarks on PRs and posts comparison comment
 
 | Benchmark | Before | After | Change |
 |-----------|--------|-------|--------|
-| ExtractColors_TwoZones | 250µs | 148µs | -40.8% ⚡ |
-| ExtractColors_FourZones | 280µs | 156µs | -44.3% ⚡ |
+| ExtractColors_TwoZones | 250µs | 148µs | -40.8% |
+| ExtractColors_FourZones | 280µs | 156µs | -44.3% |
 
-**Performance improved by 41% on average!** ✅
+**Performance improved by 41% on average.**
 ```
 
 ---
@@ -1011,7 +1013,7 @@ backend/benchmark_results/
 
 ### 1. Allocating in Hot Paths
 
-**❌ Bad:**
+**Bad:**
 ```go
 // Allocates new buffer every frame (30 FPS = 30 allocations/sec)
 func GetFrame() image.Image {
@@ -1021,7 +1023,7 @@ func GetFrame() image.Image {
 }
 ```
 
-**✅ Good:**
+**Good:**
 ```go
 // Reuse buffer across frames
 type Capture struct {
@@ -1043,7 +1045,7 @@ func (c *Capture) GetFrame() image.Image {
 
 ### 2. Expensive Operations in Tight Loops
 
-**❌ Bad:**
+**Bad:**
 ```go
 // Lanczos resampling on entire image every frame
 func ExtractColors(img image.Image) []color.Color {
@@ -1052,7 +1054,7 @@ func ExtractColors(img image.Image) []color.Color {
 }
 ```
 
-**✅ Good:**
+**Good:**
 ```go
 // Stride-based sampling - skip expensive resampling
 func ExtractColors(img image.Image) []color.Color {
@@ -1072,7 +1074,7 @@ func ExtractColors(img image.Image) []color.Color {
 
 ### 3. Holding Mutexes Too Long
 
-**❌ Bad:**
+**Bad:**
 ```go
 func (s *Service) ProcessFrames() {
     s.mu.Lock()
@@ -1086,7 +1088,7 @@ func (s *Service) ProcessFrames() {
 }
 ```
 
-**✅ Good:**
+**Good:**
 ```go
 func (s *Service) ProcessFrames() {
     frame := captureFrame()
@@ -1104,7 +1106,7 @@ func (s *Service) ProcessFrames() {
 
 ### 4. Creating HTTP Clients Repeatedly
 
-**❌ Bad:**
+**Bad:**
 ```go
 func GetScenes() ([]Scene, error) {
     client := &http.Client{}  // New client every call!
@@ -1113,7 +1115,7 @@ func GetScenes() ([]Scene, error) {
 }
 ```
 
-**✅ Good:**
+**Good:**
 ```go
 type HueClient struct {
     httpClient *http.Client  // Reuse client (connection pooling)
@@ -1134,7 +1136,7 @@ func NewClient() *HueClient {
 
 ### 5. Excessive Logging in Hot Paths
 
-**❌ Bad:**
+**Bad:**
 ```go
 func ProcessFrame() {
     for i, pixel := range pixels {
@@ -1143,7 +1145,7 @@ func ProcessFrame() {
 }
 ```
 
-**✅ Good:**
+**Good:**
 ```go
 func ProcessFrame() {
     // Log only summary or errors
@@ -1157,7 +1159,7 @@ func ProcessFrame() {
 
 ### 6. Not Pre-allocating Slices
 
-**❌ Bad:**
+**Bad:**
 ```go
 func GetColors(zones []Zone) []color.Color {
     var colors []color.Color  // Grows dynamically (multiple allocations)
@@ -1168,7 +1170,7 @@ func GetColors(zones []Zone) []color.Color {
 }
 ```
 
-**✅ Good:**
+**Good:**
 ```go
 func GetColors(zones []Zone) []color.Color {
     colors := make([]color.Color, 0, len(zones))  // Pre-allocate capacity
@@ -1185,7 +1187,7 @@ func GetColors(zones []Zone) []color.Color {
 
 ### 7. Unnecessary Image Format Conversions
 
-**❌ Bad:**
+**Bad:**
 ```go
 // Manual pixel-by-pixel conversion
 func ConvertToRGBA(img image.Image) *image.RGBA {
@@ -1199,7 +1201,7 @@ func ConvertToRGBA(img image.Image) *image.RGBA {
 }
 ```
 
-**✅ Good:**
+**Good:**
 ```go
 // Use optimized draw.Draw()
 func ConvertToRGBA(img image.Image) *image.RGBA {
@@ -1215,7 +1217,7 @@ func ConvertToRGBA(img image.Image) *image.RGBA {
 
 ### 8. Blocking on Network in Critical Path
 
-**❌ Bad:**
+**Bad:**
 ```go
 func StartSync() {
     // Blocks UI while connecting
@@ -1227,7 +1229,7 @@ func StartSync() {
 }
 ```
 
-**✅ Good:**
+**Good:**
 ```go
 func StartSync() {
     go func() {
@@ -1247,7 +1249,7 @@ func StartSync() {
 
 ### 9. Not Using Buffer Pools
 
-**❌ Bad:**
+**Bad:**
 ```go
 func ProcessImage() {
     buffer := make([]byte, 1024*1024)  // 1 MB allocation per call
@@ -1255,7 +1257,7 @@ func ProcessImage() {
 }
 ```
 
-**✅ Good:**
+**Good:**
 ```go
 var bufferPool = sync.Pool{
     New: func() interface{} {
@@ -1274,7 +1276,7 @@ func ProcessImage() {
 
 ### 10. Goroutine Leaks
 
-**❌ Bad:**
+**Bad:**
 ```go
 func StartMonitoring() {
     go func() {
@@ -1286,7 +1288,7 @@ func StartMonitoring() {
 }
 ```
 
-**✅ Good:**
+**Good:**
 ```go
 func StartMonitoring(ctx context.Context) {
     go func() {
@@ -1323,12 +1325,12 @@ GitHub Actions runs performance tests on every PR:
 
 **On regression:**
 ```
-❌ Performance regression detected!
+Performance regression detected.
 TestPerformanceRegression_ColorExtraction FAILED
   Average time 15ms exceeds threshold 12ms
 ```
 
-**PR status:** ❌ Failing - blocks merge
+**PR status:** failing, blocks merge
 
 ---
 
@@ -1361,21 +1363,21 @@ benchstat baseline.txt after-changes.txt
 
 #### 4. Interpret Results
 
-**No regression (✅):**
+**No regression:**
 ```
 name                          old time/op  new time/op  delta
 ExtractColors_TwoZones-8       148µs ± 1%   150µs ± 2%   +1.35%  (p=0.050 n=10+10)
 ```
 Change < 5% is acceptable variance.
 
-**Minor regression (⚠️):**
+**Minor regression:**
 ```
 name                          old time/op  new time/op  delta
 ExtractColors_TwoZones-8       148µs ± 1%   180µs ± 2%  +21.62%  (p=0.000 n=10+10)
 ```
 Investigate if 5-25% slower. May be acceptable for new features.
 
-**Major regression (❌):**
+**Major regression:**
 ```
 name                          old time/op  new time/op  delta
 ExtractColors_TwoZones-8       148µs ± 1%  3200µs ± 3% +2062%  (p=0.000 n=10+10)
@@ -1414,7 +1416,7 @@ plt.show()
 ```bash
 # In CI workflow
 if [ "$frame_time" -gt "12" ]; then
-    echo "❌ Frame time $frame_time ms exceeds 12ms threshold!"
+    echo "[FAIL] Frame time $frame_time ms exceeds 12ms threshold"
     exit 1
 fi
 ```

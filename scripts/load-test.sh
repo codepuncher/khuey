@@ -159,7 +159,7 @@ ELAPSED=$((END_TIME - START_TIME))
 # Cleanup
 rm -rf "$TEMP_CONFIG_DIR"
 
-echo -e "${GREEN}✓ Config load stress test completed${NC}"
+echo -e "${GREEN}[OK]${NC} Config load stress test completed"
 echo ""
 
 # Test 2: Validation Stress Test
@@ -177,7 +177,7 @@ echo ""
 echo "Running validation benchmarks with high load..."
 go test -bench=BenchmarkValidate -benchtime="$DURATION" ./internal/config 2>&1 | tee -a "$RESULTS_FILE"
 
-echo -e "${GREEN}✓ Validation stress test completed${NC}"
+echo -e "${GREEN}[OK]${NC} Validation stress test completed"
 echo ""
 
 # Test 3: Memory Pressure Test
@@ -195,7 +195,7 @@ echo ""
 echo "Running memory-intensive benchmarks..."
 go test -bench=. -benchmem -benchtime=30s ./internal/config 2>&1 | tee -a "$RESULTS_FILE"
 
-echo -e "${GREEN}✓ Memory pressure test completed${NC}"
+echo -e "${GREEN}[OK]${NC} Memory pressure test completed"
 echo ""
 
 # Test 4: Performance Regression Tests
@@ -212,9 +212,9 @@ echo ""
 # Run performance regression tests
 REGRESSION_FAILED="false"
 if go test -v -run TestPerformance ./... 2>&1 | tee -a "$RESULTS_FILE"; then
-    echo -e "${GREEN}✓ All performance regression tests passed${NC}"
+    echo -e "${GREEN}[OK]${NC} All performance regression tests passed"
 else
-    echo -e "${RED}✗ Some performance regression tests failed${NC}"
+    echo -e "${RED}[FAIL]${NC} Some performance regression tests failed"
     echo -e "${YELLOW}Check results for details on performance degradation${NC}"
     REGRESSION_FAILED="true"
 fi

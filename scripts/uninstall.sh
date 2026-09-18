@@ -28,15 +28,15 @@ if [[ "$1" == "--dry-run" ]]; then
 fi
 
 print_success() {
-    echo -e "${GREEN}✓${NC} $1"
+    echo -e "${GREEN}[OK]${NC} $1"
 }
 
 print_warning() {
-    echo -e "${YELLOW}⚠${NC} $1"
+    echo -e "${YELLOW}[WARN]${NC} $1"
 }
 
 print_section() {
-    echo -e "${BLUE}▶ $1${NC}"
+    echo -e "${BLUE}==>${NC} $1"
 }
 
 echo -e "${BLUE}╔════════════════════════════════════════════════════════════╗${NC}"
@@ -115,9 +115,9 @@ echo -e "${GREEN}║          Uninstallation Complete!                         �
 echo -e "${GREEN}╚════════════════════════════════════════════════════════════╝${NC}"
 echo ""
 echo "What was removed:"
-echo "  ✓ Backend systemd service"
-echo "  ✓ Tray app autostart"
-echo "  ✓ Running processes"
+echo "  - Backend systemd service"
+echo "  - Tray app autostart"
+echo "  - Running processes"
 echo ""
 echo "What was NOT removed:"
 echo "  - Config file: $CONFIG_FILE (contains Hue credentials)"

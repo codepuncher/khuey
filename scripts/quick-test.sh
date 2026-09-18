@@ -73,19 +73,19 @@ print_header() {
 }
 
 print_section() {
-    echo -e "${BLUE}▶ $1${NC}"
+    echo -e "${BLUE}==>${NC} $1"
 }
 
 print_success() {
-    echo -e "${GREEN}✓${NC} $1"
+    echo -e "${GREEN}[OK]${NC} $1"
 }
 
 print_error() {
-    echo -e "${RED}✗ Error:${NC} $1"
+    echo -e "${RED}[FAIL]${NC} $1"
 }
 
 print_warning() {
-    echo -e "${YELLOW}⚠${NC} $1"
+    echo -e "${YELLOW}[WARN]${NC} $1"
 }
 
 # Track results
@@ -193,26 +193,26 @@ echo -e "${BLUE}═════════════════════�
 echo -e "${BLUE}Summary:${NC}"
 
 if [ "$RUN_BUILD" = true ]; then
-    echo "  ✓ Backend build"
-    echo "  ✓ Tray app build"
+    echo "  [OK] Backend build"
+    echo "  [OK] Tray app build"
 fi
 
 if [ "$RUN_TESTS" = true ]; then
-    echo "  ✓ Unit tests"
+    echo "  [OK] Unit tests"
 fi
 
 if [ "$RUN_LINT" = true ]; then
-    echo "  ✓ Linting"
+    echo "  [OK] Linting"
 fi
 
 if [ "$RUN_INTEGRATION" = true ]; then
-    echo "  ✓ Integration tests"
+    echo "  [OK] Integration tests"
 fi
 
 echo ""
 
 if [ $ERRORS -eq 0 ]; then
-    echo -e "${GREEN}All checks passed!${NC} 🎉"
+    echo -e "${GREEN}All checks passed!${NC}"
     exit 0
 else
     echo -e "${RED}$ERRORS error(s) found.${NC}"

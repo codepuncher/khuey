@@ -1501,15 +1501,15 @@ func monitorConnection() {
         lastError := status["lastError"].(string)
 
         if connected {
-            fmt.Printf("✓ Connected to bridge at %s\n", bridgeIP)
+            fmt.Printf("Connected to bridge at %s\n", bridgeIP)
         } else {
-            fmt.Printf("✗ Not connected to %s: %s\n", bridgeIP, lastError)
+            fmt.Printf("Not connected to %s: %s\n", bridgeIP, lastError)
 
             // Try to reconnect
             var success bool
             err = obj.Call("org.kde.plasma.hue.RetryConnection", 0).Store(&success)
             if err == nil && success {
-                fmt.Println("✓ Reconnected successfully")
+                fmt.Println("Reconnected successfully")
             }
         }
     }
@@ -1622,14 +1622,14 @@ Q_DECLARE_METATYPE(GroupedLight)
 ### 1. Always Check Errors
 
 ```cpp
-// ✅ Good
+// Good
 QDBusReply<bool> reply = iface.call("Method");
 if (!reply.isValid()) {
     qWarning() << "Error:" << reply.error().message();
     return;
 }
 
-// ❌ Bad
+// Bad
 QDBusReply<bool> reply = iface.call("Method");
 bool result = reply.value(); // Crashes if error occurred
 ```
@@ -1637,20 +1637,20 @@ bool result = reply.value(); // Crashes if error occurred
 ### 2. Use Async Calls for UI Applications
 
 ```cpp
-// ✅ Good - Non-blocking UI
+// Good - Non-blocking UI
 QDBusPendingCall async = iface.asyncCall("Method");
 QDBusPendingCallWatcher *watcher = new QDBusPendingCallWatcher(async, this);
 connect(watcher, &QDBusPendingCallWatcher::finished,
         this, &MyClass::handleReply);
 
-// ❌ Bad - Blocks UI thread
+// Bad - Blocks UI thread
 QDBusReply<bool> reply = iface.call("Method"); // UI freezes during call
 ```
 
 ### 3. Cache DBusInterface Objects
 
 ```cpp
-// ✅ Good - Create once, reuse
+// Good - Create once, reuse
 class MyClass {
     QDBusInterface *iface;
 public:
@@ -1659,7 +1659,7 @@ public:
     }
 };
 
-// ❌ Bad - Creates new connection every call
+// Bad - Creates new connection every call
 void myFunction() {
     QDBusInterface iface("org.kde.plasma.hue", ...);
     iface.call("Method");
@@ -1669,7 +1669,7 @@ void myFunction() {
 ### 4. Handle Portal Errors Gracefully
 
 ```cpp
-// ✅ Good - Parse and explain portal errors
+// Good - Parse and explain portal errors
 QString error = reply.error().message();
 if (error.startsWith("PortalError:")) {
     // Parse error type and show user-friendly message
@@ -1678,14 +1678,14 @@ if (error.startsWith("PortalError:")) {
     showGenericError(error);
 }
 
-// ❌ Bad - Show raw error to user
+// Bad - Show raw error to user
 QMessageBox::critical(this, "Error", reply.error().message());
 ```
 
 ### 5. Validate Before Calling
 
 ```cpp
-// ✅ Good - Check status first
+// Good - Check status first
 QDBusReply<QString> status = iface.call("GetStatus");
 if (status.value() != "Ready") {
     qWarning() << "Backend not ready";
@@ -1693,7 +1693,7 @@ if (status.value() != "Ready") {
 }
 iface.call("StartSync");
 
-// ❌ Bad - Call without checking
+// Bad - Call without checking
 iface.call("StartSync"); // May fail if not configured
 ```
 

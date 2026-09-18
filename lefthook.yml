@@ -22,7 +22,7 @@ pre-commit:
         BRANCH=$(git rev-parse --abbrev-ref HEAD)
         if [ "$BRANCH" = "main" ]; then
           echo ""
-          echo "❌ Direct commits to main branch are not allowed!"
+          echo "[FAIL] Direct commits to main branch are not allowed!"
           echo "   Create a feature branch: git checkout -b feature-name"
           echo ""
           exit 1
@@ -54,7 +54,7 @@ pre-commit:
         cd backend
         # Check if goimports is installed
         if ! command -v goimports > /dev/null 2>&1; then
-          echo "⚠️  goimports not installed (optional)"
+          echo "[WARN] goimports not installed (optional)"
           echo "   Install with: go install golang.org/x/tools/cmd/goimports@latest"
           exit 0  # Don't fail if not installed
         fi
@@ -64,7 +64,7 @@ pre-commit:
           # Check if any files need formatting
           UNFORMATTED=$(goimports -l $FILES)
           if [ -n "$UNFORMATTED" ]; then
-            echo "❌ Go imports need formatting:"
+            echo "[FAIL] Go imports need formatting:"
             echo "$UNFORMATTED"
             echo ""
             echo "Run: goimports -w $UNFORMATTED"
@@ -114,11 +114,11 @@ pre-commit:
         for file in {staged_files}; do
           # Check for common mistakes
           if grep -n "project()" "$file" > /dev/null 2>&1; then
-            echo "✅ $file: project() command found"
+            echo "[OK] $file: project() command found"
           fi
           # Check file is readable
           if [ ! -r "$file" ]; then
-            echo "❌ $file: not readable"
+            echo "[FAIL] $file: not readable"
             exit 1
           fi
         done
@@ -151,7 +151,7 @@ pre-commit:
       run: |
         # Check if shellcheck is installed
         if ! command -v shellcheck > /dev/null 2>&1; then
-          echo "⚠️  shellcheck not installed (optional)"
+          echo "[WARN] shellcheck not installed (optional)"
           echo "   Install with: sudo pacman -S shellcheck"
           exit 0  # Don't fail if not installed
         fi
@@ -176,7 +176,7 @@ pre-push:
         BRANCH=$(git rev-parse --abbrev-ref HEAD)
         if [ "$BRANCH" = "main" ]; then
           echo ""
-          echo "❌ Direct pushes to main branch are not allowed!"
+          echo "[FAIL] Direct pushes to main branch are not allowed!"
           echo "   Use pull requests for all changes to main"
           echo ""
           exit 1
@@ -225,17 +225,17 @@ commit-msg:
         
         # Check minimum length
         if [ ${#TITLE} -lt 10 ]; then
-          echo "❌ Commit message too short (minimum 10 characters)"
+          echo "[FAIL] Commit message too short (minimum 10 characters)"
           exit 1
         fi
         
         # Check maximum length for first line
         if [ ${#TITLE} -gt 72 ]; then
-          echo "⚠️  Warning: First line exceeds 72 characters (${#TITLE})"
+          echo "[WARN] First line exceeds 72 characters (${#TITLE})"
           echo "   Consider keeping under 72 for better git log readability"
         fi
         
-        echo "✅ Commit message validated"
+        echo "[OK] Commit message validated"
 
 # Local overrides (not committed to repo)
 # Developers can create lefthook-local.yml for personal customizations

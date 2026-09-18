@@ -537,7 +537,7 @@ class HueControlDialog : public QDialog {
     }
 
     void onPowerToggled(bool checked) {
-        statusLabel->setText(checked ? "⏳ Turning on..." : "⏳ Turning off...");
+        statusLabel->setText(checked ? "Turning on..." : "Turning off...");
         powerCheckbox->setEnabled(false);
         powerChangePending = true;
         queueLightWrite(false, [this, checked]() { sendPower(checked); });
@@ -708,7 +708,7 @@ class HueControlDialog : public QDialog {
         }
 
         // Show loading state with visual feedback
-        statusLabel->setText("⏳ Activating scene: " + sceneName);
+        statusLabel->setText("Activating scene: " + sceneName);
         sceneList->setEnabled(false);
         activateSceneBtn->setEnabled(false);
         sceneActivationPending = true;
@@ -794,7 +794,7 @@ class HueControlDialog : public QDialog {
     }
 
     void stopSync() {
-        syncButton->setText("⏳ Stopping...");
+        syncButton->setText("Stopping...");
         syncButton->setIcon(QIcon::fromTheme("process-stop"));
 
         QDBusPendingCall call = iface.asyncCall("StopSync");
@@ -826,7 +826,7 @@ class HueControlDialog : public QDialog {
     }
 
     void startSync() {
-        syncButton->setText("⏳ Starting...");
+        syncButton->setText("Starting...");
         syncButton->setIcon(QIcon::fromTheme("chronometer"));
         statusLabel->setText("Waiting for screen share approval");
 
