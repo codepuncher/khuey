@@ -41,6 +41,22 @@ const (
 	// message survives.
 	DefaultMetricsInterval = 60
 	MaxMetricsInterval     = 3600
+
+	// Gaming mode's poll interval in seconds, the range
+	// docs/CONFIGURATION.md documents. The value becomes the detector's
+	// ticker interval, and time.NewTicker panics on a non-positive one, so
+	// the floor keeps zero and negative out. A ceiling closes the other way
+	// in: a value large enough that time.Duration(n) * time.Second
+	// overflows int64 and wraps negative.
+	DefaultPollInterval = 2
+	MinPollInterval     = 1
+	MaxPollInterval     = 30
+
+	// Seconds a detected gaming state must hold before the callback fires.
+	// Zero fires on the poll after the change is first seen.
+	DefaultDebounceDelay = 5
+	MinDebounceDelay     = 0
+	MaxDebounceDelay     = 60
 )
 
 // Config represents the application configuration.
@@ -153,8 +169,8 @@ func DefaultConfig() *Config {
 		},
 		GamingMode: GamingModeConfig{
 			Enabled:           false, // Disabled by default (opt-in)
-			PollInterval:      2,     // Check every 2 seconds
-			DebounceDelay:     5,     // Wait 5 seconds before triggering
+			PollInterval:      DefaultPollInterval,
+			DebounceDelay:     DefaultDebounceDelay,
 			UseSystemdInhibit: true,  // CachyOS primary detection
 			UsePowerProfile:   true,  // CachyOS secondary validation
 			UseSteamAppId:     true,  // Steam-specific detection
@@ -399,6 +415,19 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("sync.metricsInterval must be between 0 and %d seconds (got %d)\n"+
 			"  → Update 'sync.metricsInterval' in config.yaml\n"+
 			"  → 0 turns the periodic metrics line off", MaxMetricsInterval, c.Sync.MetricsInterval)
+	}
+
+	// Validate gaming mode timings
+	if c.GamingMode.PollInterval < MinPollInterval || c.GamingMode.PollInterval > MaxPollInterval {
+		return fmt.Errorf("gamingMode.pollInterval must be between %d and %d seconds (got %d)\n"+
+			"  → Update 'gamingMode.pollInterval' in config.yaml\n"+
+			"  → Recommended: %d", MinPollInterval, MaxPollInterval, c.GamingMode.PollInterval, DefaultPollInterval)
+	}
+
+	if c.GamingMode.DebounceDelay < MinDebounceDelay || c.GamingMode.DebounceDelay > MaxDebounceDelay {
+		return fmt.Errorf("gamingMode.debounceDelay must be between %d and %d seconds (got %d)\n"+
+			"  → Update 'gamingMode.debounceDelay' in config.yaml\n"+
+			"  → 0 starts sync on the next poll", MinDebounceDelay, MaxDebounceDelay, c.GamingMode.DebounceDelay)
 	}
 
 	// Validate channels if configured

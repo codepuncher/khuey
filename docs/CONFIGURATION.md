@@ -613,9 +613,11 @@ gamingMode:
 
 **Type:** Integer
 **Default:** `2` seconds
-**Range:** `1` - `30` seconds (practical range)
+**Range:** `1` - `30` seconds
+**Validation:** Must be within range or config load fails
 
-How frequently to check for gaming activity.
+How frequently to check for gaming activity. It becomes the detector's ticker
+interval, which is why `0` is rejected rather than treated as "every poll".
 
 **Performance Impact:**
 - **1s**: ~0.2% CPU (responsive, higher overhead)
@@ -642,7 +644,8 @@ gamingMode:
 
 **Type:** Integer
 **Default:** `5` seconds
-**Range:** `0` - `60` seconds (practical range)
+**Range:** `0` - `60` seconds
+**Validation:** Must be within range or config load fails
 
 Wait time after game detection before starting screen sync.
 
@@ -2027,6 +2030,25 @@ sync:
   fps: 30              # Must be 10-60
   subsampleWidth: 64   # Must be 16-256
   metricsInterval: 60  # Must be 0-3600
+```
+
+### Gaming Mode Validation
+
+Checked whatever `gamingMode.enabled` says, since `SetGamingMode` can turn the
+detector on at runtime without reloading the config.
+
+| Rule | Error Message |
+|------|---------------|
+| PollInterval < 1 | `gamingMode.pollInterval must be between 1 and 30 seconds (got X)` |
+| PollInterval > 30 | `gamingMode.pollInterval must be between 1 and 30 seconds (got X)` |
+| DebounceDelay < 0 | `gamingMode.debounceDelay must be between 0 and 60 seconds (got X)` |
+| DebounceDelay > 60 | `gamingMode.debounceDelay must be between 0 and 60 seconds (got X)` |
+
+**How to fix:**
+```yaml
+gamingMode:
+  pollInterval: 2   # Must be 1-30
+  debounceDelay: 5  # Must be 0-60
 ```
 
 ### Channel Validation

@@ -1681,8 +1681,8 @@ sync:
 # Gaming mode settings
 gamingMode:
   enabled: false
-  pollInterval: 2            # Seconds
-  debounceDelay: 5           # Seconds
+  pollInterval: 2            # 1-30 seconds
+  debounceDelay: 5           # 0-60 seconds, 0 fires on the next poll
   useSystemdInhibit: true    # CachyOS primary
   usePowerProfile: true      # CachyOS secondary
   useSteamAppId: true        # Steam games
@@ -1782,9 +1782,12 @@ log_level: "info"
 - `sync.metricsInterval` - Range: 0-3600 seconds, 0 turns the line off
 
 **Gaming Mode:**
-- `gamingMode.pollInterval` - not validated. It becomes the monitor loop's
-  ticker interval, and `time.NewTicker` panics on zero or negative
-- `gamingMode.debounceDelay` - not validated
+- `gamingMode.pollInterval` - Range: 1-30 seconds. It becomes the monitor
+  loop's ticker interval, and `time.NewTicker` panics on a non-positive one.
+  The ceiling also keeps `time.Duration(n) * time.Second` inside int64
+- `gamingMode.debounceDelay` - Range: 0-60 seconds, 0 triggers on the next poll
+- Both are checked whatever `gamingMode.enabled` says: `SetGamingMode` starts
+  the detector at runtime from the config already in memory
 - All `use*` flags - Boolean
 
 **Channels:**

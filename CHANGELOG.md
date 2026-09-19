@@ -34,6 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Deadlock**: Gaming callback releasing mutex before calling sync engine
 - **Race Condition**: Gaming detector atomically checking and starting
 - **Goroutine Leak**: Frame reader goroutine now tracked with WaitGroup
+- **Gaming Mode Timings**: `gamingMode.pollInterval` is validated to 1-30 seconds and `gamingMode.debounceDelay` to 0-60. A zero, negative or int64-overflowing poll interval reached `time.NewTicker` and panicked the detector goroutine, taking the daemon with it on every start where gaming mode was enabled and the Entertainment API configured
 
 ### Performance
 - **Screen Sync Optimization** (PR #42): 41% faster frame processing
