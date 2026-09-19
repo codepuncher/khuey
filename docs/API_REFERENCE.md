@@ -902,6 +902,8 @@ Returns current screen sync configuration.
 - `fps` (int) - Target frames per second (10-60)
 - `subsampleWidth` (int) - Resize width for processing (16-256)
 - `enabled` (bool) - Whether sync is enabled in config
+- `hasScreenGrant` (bool) - Whether a portal restore token is saved, so the
+  screen share dialog is skipped on the next `StartSync`
 
 **Example (dbus-send):**
 ```bash

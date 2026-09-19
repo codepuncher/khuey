@@ -785,6 +785,8 @@ func (s *Service) GetSyncSettings() (map[string]interface{}, *dbus.Error) {
 		"fps":            settings.FPS,
 		"subsampleWidth": settings.SubsampleWidth,
 		"enabled":        settings.Enabled,
+		// Whether the portal will reuse a grant instead of showing its dialog
+		"hasScreenGrant": settings.RestoreToken != "",
 	}, nil
 }
 
