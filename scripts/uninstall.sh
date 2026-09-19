@@ -89,9 +89,12 @@ echo ""
 # Stop and remove tray app
 print_section "Stopping tray app..."
 
+NOTIFYRC_FILE="${XDG_DATA_HOME:-$HOME/.local/share}/knotifications6/hue-tray.notifyrc"
+
 if [ "$DRY_RUN" = true ]; then
     echo "  Would kill: hue-tray processes"
     echo "  Would remove: ~/.config/autostart/hue-tray.desktop"
+    echo "  Would remove: $NOTIFYRC_FILE"
     print_success "Tray app (dry-run)"
 else
     if pgrep -f hue-tray > /dev/null; then
@@ -107,6 +110,13 @@ else
     else
         print_warning "Tray app autostart not found"
     fi
+
+    if [ -f "$NOTIFYRC_FILE" ]; then
+        rm "$NOTIFYRC_FILE"
+        print_success "Removed tray app notification config"
+    else
+        print_warning "Tray app notification config not found"
+    fi
 fi
 echo ""
 
@@ -117,6 +127,7 @@ echo ""
 echo "What was removed:"
 echo "  - Backend systemd service"
 echo "  - Tray app autostart"
+echo "  - Tray app notification config"
 echo "  - Running processes"
 echo ""
 echo "What was NOT removed:"
