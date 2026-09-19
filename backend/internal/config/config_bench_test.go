@@ -99,8 +99,9 @@ func BenchmarkDefaultConfig(b *testing.B) {
 // BenchmarkValidate benchmarks config validation
 func BenchmarkValidate(b *testing.B) {
 	cfg := &Config{
-		Bridge: "192.168.1.100",
-		Key:    "test-api-key",
+		Bridge:     "192.168.1.100",
+		Key:        "test-api-key",
+		GamingMode: validGamingMode,
 		Sync: SyncConfig{
 			FPS:            30,
 			SubsampleWidth: 64,
@@ -173,8 +174,9 @@ func BenchmarkSave(b *testing.B) {
 // BenchmarkValidateChannels benchmarks channel validation with many channels
 func BenchmarkValidateChannels(b *testing.B) {
 	cfg := &Config{
-		Bridge: "192.168.1.100",
-		Key:    "test-api-key",
+		Bridge:     "192.168.1.100",
+		Key:        "test-api-key",
+		GamingMode: validGamingMode,
 		Sync: SyncConfig{
 			FPS:            30,
 			SubsampleWidth: 64,

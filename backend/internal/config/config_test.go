@@ -94,6 +94,13 @@ func TestChannelConfig(t *testing.T) {
 	}
 }
 
+// Validate checks the gaming mode timings whatever gamingMode.enabled says, so
+// a Config literal built without them fails on the zero PollInterval.
+var validGamingMode = GamingModeConfig{
+	PollInterval:  DefaultPollInterval,
+	DebounceDelay: DefaultDebounceDelay,
+}
+
 // TestValidate tests the Validate() method
 func TestValidate(t *testing.T) {
 	tests := []struct {
@@ -105,8 +112,9 @@ func TestValidate(t *testing.T) {
 		{
 			name: "Valid config",
 			cfg: &Config{
-				Bridge: "192.168.1.100",
-				Key:    "test-key",
+				Bridge:     "192.168.1.100",
+				Key:        "test-key",
+				GamingMode: validGamingMode,
 				Sync: SyncConfig{
 					FPS:            30,
 					SubsampleWidth: 64,
@@ -117,7 +125,8 @@ func TestValidate(t *testing.T) {
 		{
 			name: "Missing bridge",
 			cfg: &Config{
-				Key: "test-key",
+				Key:        "test-key",
+				GamingMode: validGamingMode,
 				Sync: SyncConfig{
 					FPS:            30,
 					SubsampleWidth: 64,
@@ -129,7 +138,8 @@ func TestValidate(t *testing.T) {
 		{
 			name: "Missing key",
 			cfg: &Config{
-				Bridge: "192.168.1.100",
+				Bridge:     "192.168.1.100",
+				GamingMode: validGamingMode,
 				Sync: SyncConfig{
 					FPS:            30,
 					SubsampleWidth: 64,
@@ -141,8 +151,9 @@ func TestValidate(t *testing.T) {
 		{
 			name: "FPS too low",
 			cfg: &Config{
-				Bridge: "192.168.1.100",
-				Key:    "test-key",
+				Bridge:     "192.168.1.100",
+				Key:        "test-key",
+				GamingMode: validGamingMode,
 				Sync: SyncConfig{
 					FPS:            0,
 					SubsampleWidth: 64,
@@ -154,8 +165,9 @@ func TestValidate(t *testing.T) {
 		{
 			name: "FPS too high",
 			cfg: &Config{
-				Bridge: "192.168.1.100",
-				Key:    "test-key",
+				Bridge:     "192.168.1.100",
+				Key:        "test-key",
+				GamingMode: validGamingMode,
 				Sync: SyncConfig{
 					FPS:            120,
 					SubsampleWidth: 64,
@@ -171,8 +183,9 @@ func TestValidate(t *testing.T) {
 			// config load fine yet be unchangeable via the tray settings UI.
 			name: "FPS below capture minimum",
 			cfg: &Config{
-				Bridge: "192.168.1.100",
-				Key:    "test-key",
+				Bridge:     "192.168.1.100",
+				Key:        "test-key",
+				GamingMode: validGamingMode,
 				Sync: SyncConfig{
 					FPS:            5,
 					SubsampleWidth: 64,
@@ -184,8 +197,9 @@ func TestValidate(t *testing.T) {
 		{
 			name: "FPS at reconciled minimum",
 			cfg: &Config{
-				Bridge: "192.168.1.100",
-				Key:    "test-key",
+				Bridge:     "192.168.1.100",
+				Key:        "test-key",
+				GamingMode: validGamingMode,
 				Sync: SyncConfig{
 					FPS:            MinFPS,
 					SubsampleWidth: 64,
@@ -196,8 +210,9 @@ func TestValidate(t *testing.T) {
 		{
 			name: "SubsampleWidth too low",
 			cfg: &Config{
-				Bridge: "192.168.1.100",
-				Key:    "test-key",
+				Bridge:     "192.168.1.100",
+				Key:        "test-key",
+				GamingMode: validGamingMode,
 				Sync: SyncConfig{
 					FPS:            30,
 					SubsampleWidth: 10,
@@ -209,8 +224,9 @@ func TestValidate(t *testing.T) {
 		{
 			name: "SubsampleWidth too high",
 			cfg: &Config{
-				Bridge: "192.168.1.100",
-				Key:    "test-key",
+				Bridge:     "192.168.1.100",
+				Key:        "test-key",
+				GamingMode: validGamingMode,
 				Sync: SyncConfig{
 					FPS:            30,
 					SubsampleWidth: 500,
@@ -222,8 +238,9 @@ func TestValidate(t *testing.T) {
 		{
 			name: "Invalid UV coordinates - uvA.X negative",
 			cfg: &Config{
-				Bridge: "192.168.1.100",
-				Key:    "test-key",
+				Bridge:     "192.168.1.100",
+				Key:        "test-key",
+				GamingMode: validGamingMode,
 				Sync: SyncConfig{
 					FPS:            30,
 					SubsampleWidth: 64,
@@ -243,8 +260,9 @@ func TestValidate(t *testing.T) {
 		{
 			name: "Invalid UV coordinates - uvB.X > 1",
 			cfg: &Config{
-				Bridge: "192.168.1.100",
-				Key:    "test-key",
+				Bridge:     "192.168.1.100",
+				Key:        "test-key",
+				GamingMode: validGamingMode,
 				Sync: SyncConfig{
 					FPS:            30,
 					SubsampleWidth: 64,
@@ -264,8 +282,9 @@ func TestValidate(t *testing.T) {
 		{
 			name: "Invalid UV coordinates - uvA.X >= uvB.X",
 			cfg: &Config{
-				Bridge: "192.168.1.100",
-				Key:    "test-key",
+				Bridge:     "192.168.1.100",
+				Key:        "test-key",
+				GamingMode: validGamingMode,
 				Sync: SyncConfig{
 					FPS:            30,
 					SubsampleWidth: 64,
