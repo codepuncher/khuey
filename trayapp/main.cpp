@@ -1194,6 +1194,11 @@ class HueTrayApp : public QApplication {
 
   public:
     HueTrayApp(int& argc, char** argv) : QApplication(argc, argv) {
+        /**
+         * KNotification looks the event ids up in a notifyrc named after the
+         * application, so this has to match hue-tray.notifyrc.
+         */
+        setApplicationName("hue-tray");
         setQuitOnLastWindowClosed(false);
 
         // Initialize default icon names

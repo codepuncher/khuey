@@ -216,6 +216,23 @@ else
 fi
 echo ""
 
+# Install notification config for tray app
+print_section "Installing notification config..."
+NOTIFYRC_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/knotifications6"
+
+if [ "$DRY_RUN" = true ]; then
+    echo "  Would install: $NOTIFYRC_DIR/hue-tray.notifyrc"
+    print_success "Notification config (dry-run)"
+else
+    # KNotification resolves the tray's event ids against this file and looks
+    # for it only under a data dir, so the tray shows nothing without it.
+    mkdir -p "$NOTIFYRC_DIR"
+    cp "$PROJECT_ROOT/trayapp/hue-tray.notifyrc" "$NOTIFYRC_DIR/"
+
+    print_success "Notification config: $NOTIFYRC_DIR/hue-tray.notifyrc"
+fi
+echo ""
+
 # Enable and start services
 print_section "Starting services..."
 

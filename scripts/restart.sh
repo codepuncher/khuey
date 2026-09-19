@@ -27,6 +27,13 @@ cd "$TRAY_DIR"
 cmake . > /dev/null
 make
 
+# KNotification resolves the tray's event ids against this file and looks for
+# it only under a data dir, so a rebuilt binary alone leaves notifications
+# dead. install.sh does the same.
+NOTIFYRC_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/knotifications6"
+mkdir -p "$NOTIFYRC_DIR"
+cp "$TRAY_DIR/hue-tray.notifyrc" "$NOTIFYRC_DIR/"
+
 # Stop backend
 echo "Stopping backend..."
 systemctl --user stop hue-backend || true

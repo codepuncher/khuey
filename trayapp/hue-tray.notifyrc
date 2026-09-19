@@ -1,0 +1,44 @@
+[Global]
+IconName=preferences-desktop-display-color
+Name=Hue Control
+Comment=Philips Hue lights and screen sync
+
+[Event/connectionFailed]
+Name=Bridge Unreachable
+Comment=The Hue bridge stopped responding
+Action=Popup
+
+[Event/connectionRestored]
+Name=Bridge Connection Restored
+Comment=The Hue bridge is reachable again
+Action=Popup
+
+[Event/error]
+Name=Error
+Comment=A request to the bridge or the backend failed
+Action=Popup
+
+[Event/sceneActivated]
+Name=Scene Activated
+Comment=A lighting scene was applied
+Action=Popup
+
+[Event/syncFailed]
+Name=Screen Sync Failed
+Comment=Screen sync could not start
+Action=Popup
+
+[Event/syncPermission]
+Name=Screen Sharing Permission Required
+Comment=The screen share dialog is waiting for approval
+Action=Popup
+
+[Event/syncStarted]
+Name=Screen Sync Started
+Comment=The lights are following the screen
+Action=Popup
+
+[Event/syncStopped]
+Name=Screen Sync Stopped
+Comment=The lights stopped following the screen
+Action=Popup
