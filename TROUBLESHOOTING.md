@@ -449,9 +449,14 @@ journalctl --user -u hue-backend --since "30 seconds ago" | grep -i frame
 # Lights should be changing colors!
 ```
 
-### Screen Sync Stops After Permission Dialog Timeout
+### Screen Sync Never Starts After the Permission Dialog Times Out
 
-**Symptom:** Sync starts, then stops after 2 minutes. Logs show "portal timeout".
+**Symptom:** The dialog goes unanswered for 2 minutes and sync never starts.
+The tray reports the failure and the log shows:
+
+```
+[ERROR] Failed to start sync: ... timeout: User did not respond to permission dialog within 2 minutes (Hint: Please approve screen sharing when prompted)
+```
 
 **Cause:** User didn't approve permission dialog within 2 minutes.
 
@@ -463,15 +468,37 @@ journalctl --user -u hue-backend --since "30 seconds ago" | grep -i frame
 **To change timeout:**
 ```go
 // Edit backend/internal/capture/portal.go
-// Change timeout in waitForResponse:
-timeout := 5 * time.Minute  // Increase to 5 minutes
+// waitForResponse waits inline, so change the duration in the select:
+case <-time.After(2 * time.Minute):
 ```
 
-### Screen Sync Stops With "Circuit Breaker"
+### Screen Sync Stops On Its Own
 
-**Symptom:** Sync runs for a while, then stops. Logs show "circuit breaker tripped".
+**Symptom:** Sync runs for a while, then stops. The log ends with one of these,
+followed by `[ERROR] Screen capture stopped, ending sync:`:
 
-**Cause:** 30 consecutive frame capture errors (circuit breaker activated).
+```
+[ERROR] Frame capture failing for 5.001s (150 attempts), stopping capture (possible permission denial or PipeWire issue)
+[ERROR] No first frame after 6.002s, stopping capture
+[ERROR] Stream up but no first frame after 6.001s, stopping capture
+[ERROR] Stopping capture: pipewire stream failed
+```
+
+The last line may end there or carry a reason after a colon. When it ends
+there, PipeWire logged the reason separately as `[PipeWire] Stream error:
+<error>`.
+
+```bash
+journalctl --user -u hue-backend | grep -i "stopping capture"
+```
+
+**Cause:** The frame reader gives up on a deadline, not an error count. Five
+seconds of continuous capture errors, timed from the first error of the streak,
+stops it. A stream that connects but never delivers a frame is stopped by a
+separate 6-second backstop measured from the start of the loop. A failed stream
+stops immediately, since it never recovers. Once the first frame has arrived, a
+still screen producing no frames counts against neither deadline, so an idle
+desktop on its own will not stop a running session.
 
 **Common reasons:**
 1. Screen sharing permission revoked mid-session
@@ -865,8 +892,8 @@ cat ~/.openhue/config.yaml | grep -v "Key\|clientkey"
 | "Invalid API key" | Wrong/expired key | Re-run `openhue setup` |
 | "Entertainment Area not found" | No area configured | Create area in Hue app or run register tool |
 | "No frame available yet" | Portal dialog not approved | Approve screen sharing dialog |
-| "Circuit breaker tripped" | 30 consecutive capture errors | Check PipeWire status, restart sync |
-| "Portal timeout" | Dialog not approved in 2 min | Start sync again, approve promptly |
+| "Frame capture failing for ... stopping capture" | 5s of continuous capture errors | Check PipeWire status, restart sync |
+| "User did not respond to permission dialog" | Dialog not approved in 2 min | Start sync again, approve promptly |
 | "Service not available" | Backend not running | `systemctl --user start hue-backend` |
 
 ---
