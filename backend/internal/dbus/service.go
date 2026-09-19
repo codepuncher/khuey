@@ -610,9 +610,11 @@ func (s *Service) StartSync(sender dbus.Sender) (bool, *dbus.Error) {
 	if err := s.syncEngine.Start(context.Background()); err != nil {
 		log.Printf("[ERROR] Failed to start sync: %v", err)
 
-		// Check if it's a portal error and provide better error message
-		if portalErr, ok := err.(*capture.PortalError); ok {
-			// Format: "PortalError:TYPE:HINT" for easy parsing in tray app
+		// The engine and the capturer both wrap this, so it has to be
+		// unwrapped rather than asserted. Format: "PortalError:TYPE:HINT",
+		// which the tray app splits on the colons.
+		var portalErr *capture.PortalError
+		if errors.As(err, &portalErr) {
 			errMsg := "PortalError:" + portalErr.Type + ":" + portalErr.Hint
 			return false, dbus.MakeFailedError(fmt.Errorf("%s", errMsg))
 		}
