@@ -405,7 +405,7 @@ SetStartupScene(string sceneName) → bool      # "" clears it
 StartSync() → bool
 StopSync() → bool
 IsSyncing() → bool
-GetSyncSettings() → dict                      # fps, subsampleWidth, enabled
+GetSyncSettings() → dict                      # fps, subsampleWidth, enabled, hasScreenGrant
 SetSyncSettings(int fps, int subsampleWidth) → bool
 ResetCaptureSource() → bool                   # portal asks which screen on the next sync start
 

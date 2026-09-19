@@ -782,14 +782,25 @@ class HueControlDialog : public QDialog {
         syncButton->setEnabled(false);
         syncTogglePending = true;
 
-        QDBusPendingCall call = iface.asyncCall("IsSyncing");
-        whenFinished(this, {call}, [this, call]() {
-            QDBusReply<bool> syncReply = call;
+        QDBusPendingCall syncCall = iface.asyncCall("IsSyncing");
+        QDBusPendingCall settingsCall = iface.asyncCall("GetSyncSettings");
+        whenFinished(this, {syncCall, settingsCall}, [this, syncCall, settingsCall]() {
+            QDBusReply<bool> syncReply = syncCall;
             if (syncReply.isValid() && syncReply.value()) {
                 stopSync();
                 return;
             }
-            startSync();
+
+            /**
+             * A saved grant makes the portal skip its dialog, so there is
+             * nothing for the user to answer. An unreadable reply means the
+             * backend is not answering and the start is about to fail, so no
+             * dialog is coming then either.
+             */
+            QDBusReply<QVariantMap> settingsReply = settingsCall;
+            bool portalWillPrompt =
+                settingsReply.isValid() && !settingsReply.value().value("hasScreenGrant").toBool();
+            startSync(portalWillPrompt);
         });
     }
 
@@ -825,19 +836,21 @@ class HueControlDialog : public QDialog {
         });
     }
 
-    void startSync() {
+    void startSync(bool portalWillPrompt) {
         syncButton->setText("Starting...");
         syncButton->setIcon(QIcon::fromTheme("chronometer"));
-        statusLabel->setText("Waiting for screen share approval");
+        statusLabel->setText(portalWillPrompt ? "Waiting for screen share approval"
+                                              : "Starting screen sync...");
 
-        // Show info about permission dialog
-        KNotification* permNotif = new KNotification("syncPermission");
-        permNotif->setTitle("Screen Sharing Permission Required");
-        permNotif->setText(
-            "Please select your monitor and click 'Share' in the dialog that appears.");
-        permNotif->setIconName("dialog-information");
-        permNotif->setUrgency(KNotification::LowUrgency);
-        permNotif->sendEvent();
+        if (portalWillPrompt) {
+            KNotification* permNotif = new KNotification("syncPermission");
+            permNotif->setTitle("Screen Sharing Permission Required");
+            permNotif->setText(
+                "Please select your monitor and click 'Share' in the dialog that appears.");
+            permNotif->setIconName("dialog-information");
+            permNotif->setUrgency(KNotification::LowUrgency);
+            permNotif->sendEvent();
+        }
 
         QDBusPendingCall call = iface.asyncCall("StartSync");
         QDBusPendingCallWatcher* watcher = new QDBusPendingCallWatcher(call, this);
@@ -853,6 +866,9 @@ class HueControlDialog : public QDialog {
                 if (reply.isError() || !reply.value()) {
                     QString error = reply.isValid() ? "Unknown error" : reply.error().message();
                     updateSyncButton(false);
+
+                    // The refresh below leaves the label alone when the backend is gone
+                    statusLabel->setText("Screen sync failed to start");
 
                     // Parse portal errors for user-friendly messages
                     if (error.contains("PortalError:permission_denied")) {
@@ -903,7 +919,6 @@ class HueControlDialog : public QDialog {
                     }
                 } else {
                     updateSyncButton(true);
-                    QTimer::singleShot(500, this, &HueControlDialog::refresh);
 
                     // Show success notification
                     KNotification* notif = new KNotification("syncStarted");
@@ -914,6 +929,8 @@ class HueControlDialog : public QDialog {
                     notif->setUrgency(KNotification::LowUrgency);
                     notif->sendEvent();
                 }
+
+                QTimer::singleShot(500, this, &HueControlDialog::refresh);
 
                 w->deleteLater();
             });
