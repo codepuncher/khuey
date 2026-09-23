@@ -485,6 +485,42 @@ class HueControlDialog : public QDialog {
                 retryButton->show();
                 break;
         }
+
+        updateControlsEnabled();
+    }
+
+    /**
+     * Composes every reason a control is unusable: no backend to answer the
+     * call, sync owning the lights, or that control's own call still in
+     * flight. Re-enabling always goes through here, so a periodic
+     * pollStatus()/refresh() tick can't hand back a control another reason
+     * still holds. Disabling one directly is safe and stays where it is.
+     *
+     * Backend presence comes from the interface rather than connectionState,
+     * which a retry moves to CONNECTING before anything has answered.
+     *
+     * Bridge trouble (ERROR) leaves the controls alone: the backend still
+     * answers, the failure notifications already name the bridge, and the
+     * retry that clears it lives in the same panel.
+     */
+    void updateControlsEnabled() {
+        bool backendUp = iface.isValid();
+        bool lightControls = backendUp && !syncActive;
+
+        brightnessSlider->setEnabled(lightControls);
+        brightnessValueLabel->setEnabled(lightControls);
+        preset25Button->setEnabled(lightControls);
+        preset50Button->setEnabled(lightControls);
+        preset75Button->setEnabled(lightControls);
+        preset100Button->setEnabled(lightControls);
+        powerCheckbox->setEnabled(lightControls && !powerChangePending);
+
+        bool sceneControlsEnabled = lightControls && !sceneActivationPending;
+        sceneList->setEnabled(sceneControlsEnabled);
+        activateSceneBtn->setEnabled(sceneControlsEnabled && sceneList->currentItem());
+
+        syncButton->setEnabled(backendUp && !syncTogglePending);
+        settingsButton->setEnabled(backendUp && !roomPickerPending);
     }
 
     void updateSyncButton(bool syncing) {
@@ -497,24 +533,7 @@ class HueControlDialog : public QDialog {
             syncButton->setIcon(QIcon::fromTheme("media-playback-start"));
         }
 
-        // Disable brightness/scene controls while syncing - they conflict with sync
-        bool enabled = !syncing;
-        brightnessSlider->setEnabled(enabled);
-        brightnessValueLabel->setEnabled(enabled);
-        preset25Button->setEnabled(enabled);
-        preset50Button->setEnabled(enabled);
-        preset75Button->setEnabled(enabled);
-        preset100Button->setEnabled(enabled);
-
-        /**
-         * Also keep power and scene controls disabled while their call is in
-         * flight, so a periodic pollStatus()/refresh() tick can't re-enable
-         * them and let the user fire a second, overlapping call.
-         */
-        powerCheckbox->setEnabled(enabled && !powerChangePending);
-        bool sceneControlsEnabled = enabled && !sceneActivationPending;
-        sceneList->setEnabled(sceneControlsEnabled);
-        activateSceneBtn->setEnabled(sceneControlsEnabled && sceneList->currentItem());
+        updateControlsEnabled();
     }
 
     void updatePresetButtons(int value) {
@@ -547,7 +566,7 @@ class HueControlDialog : public QDialog {
         QDBusPendingCall call = iface.asyncCall("SetPower", checked);
         whenFinished(this, {call}, [this, call, checked]() {
             powerChangePending = false;
-            powerCheckbox->setEnabled(!syncActive);
+            updateControlsEnabled();
 
             QDBusReply<bool> reply = call;
             if (!reply.isValid() || !reply.value()) {
@@ -832,7 +851,7 @@ class HueControlDialog : public QDialog {
                                       reply.isValid() ? "Unknown error" : reply.error().message(),
                                       KNotification::CloseOnTimeout);
             }
-            syncButton->setEnabled(true);
+            updateControlsEnabled();
         });
     }
 
@@ -857,8 +876,8 @@ class HueControlDialog : public QDialog {
 
         connect(
             watcher, &QDBusPendingCallWatcher::finished, this, [this](QDBusPendingCallWatcher* w) {
-                syncButton->setEnabled(true);
                 syncTogglePending = false;
+                updateControlsEnabled();
                 stateWrites++;
                 refreshIfStale();
                 QDBusPendingReply<bool> reply = *w;
@@ -942,12 +961,14 @@ class HueControlDialog : public QDialog {
             return;
         }
 
+        roomPickerPending = true;
         settingsButton->setEnabled(false);
 
         // Get all scenes to extract room names
         QDBusPendingCall call = iface.asyncCall("GetScenes");
         whenFinished(this, {call}, [this, call]() {
-            settingsButton->setEnabled(true);
+            roomPickerPending = false;
+            updateControlsEnabled();
             // The user may have closed the panel while the bridge was slow to answer
             if (!isVisible()) {
                 return;
@@ -1188,6 +1209,7 @@ class HueControlDialog : public QDialog {
     bool sceneActivationPending = false; // From a scene click until its ActivateScene returns
     bool powerChangePending = false;
     bool syncTogglePending = false;
+    bool roomPickerPending = false;
     bool syncActive = false;
     int stateWrites = 0; // Finished calls that change light or sync state
     bool refreshPending = false;
