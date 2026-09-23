@@ -9,6 +9,7 @@
 #include <QList>
 #include <QMetaObject>
 #include <QObject>
+#include <QVariant>
 #include <functional>
 #include <memory>
 
@@ -27,8 +28,10 @@ class HueBackend : public QDBusAbstractInterface {
      * One timeout covers every call the interface makes, so a call that is
      * allowed to take minutes goes out as a plain message carrying its own.
      */
-    QDBusPendingCall asyncCallWithTimeout(const QString& method, int timeoutMs) {
+    QDBusPendingCall asyncCallWithTimeout(const QString& method, int timeoutMs,
+                                          const QVariantList& args = {}) {
         QDBusMessage msg = QDBusMessage::createMethodCall(service(), path(), interface(), method);
+        msg.setArguments(args);
         return connection().asyncCall(msg, timeoutMs);
     }
 };
