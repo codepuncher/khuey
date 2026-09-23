@@ -823,7 +823,7 @@ class HueControlDialog : public QDialog {
                 KNotification* notif = new KNotification("syncStopped");
                 notif->setTitle("Screen Sync Stopped");
                 notif->setText("Lights are no longer syncing with screen");
-                notif->setIconName("media-playback-stop");
+                notif->setIconName("preferences-desktop-display");
                 notif->setUrgency(KNotification::LowUrgency);
                 notif->sendEvent();
             } else {
@@ -925,7 +925,7 @@ class HueControlDialog : public QDialog {
                     notif->setTitle("Screen Sync Started");
                     notif->setText(QString("Lights are now syncing with your screen at %1 FPS")
                                        .arg(currentFps));
-                    notif->setIconName("media-record");
+                    notif->setIconName("video-display");
                     notif->setUrgency(KNotification::LowUrgency);
                     notif->sendEvent();
                 }
