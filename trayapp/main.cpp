@@ -7,6 +7,7 @@
 #include <QCheckBox>
 #include <QDBusAbstractInterface>
 #include <QDBusArgument>
+#include <QDBusError>
 #include <QDBusMessage>
 #include <QDBusPendingCall>
 #include <QDBusPendingReply>
@@ -45,6 +46,14 @@ enum ConnectionState { CONNECTING, CONNECTED, DISCONNECTED, ERROR };
  * still running and reports a failure for a sync that goes on to succeed.
  */
 constexpr int startSyncTimeoutMs = 3 * 60 * 1000;
+
+/**
+ * ActivateScene resolves the display name through GetScenes, three bridge
+ * requests, before the fourth that recalls the scene. Each is capped at the
+ * backend's 10-second HTTP timeout, so the reply can arrive past Qt's
+ * 25-second default with the scene already activated.
+ */
+constexpr int activateSceneTimeoutMs = 60 * 1000;
 
 class HueControlDialog : public QDialog {
     Q_OBJECT
@@ -753,8 +762,61 @@ class HueControlDialog : public QDialog {
         queueLightWrite(false, [this, sceneName]() { sendScene(sceneName); });
     }
 
+    /**
+     * A NoReply means the tray stopped waiting, not that anything failed: the
+     * backend is still working and the scene may yet activate. Qt's own text
+     * for it names the reply timeout, so the bridge checks below match it
+     * unless the error type is tested first.
+     */
+    void reportSceneFailure(const QDBusError& dbusError, const QString& sceneName) {
+        if (dbusError.type() == QDBusError::NoReply) {
+            showWriteResult("Still activating: " + sceneName);
+            showErrorNotification("Scene Activation Timed Out",
+                                  "The backend has not answered yet.\n\n"
+                                  "'" +
+                                      sceneName +
+                                      "' may still be activating. The panel updates "
+                                      "when it finishes.",
+                                  KNotification::CloseOnTimeout);
+            return;
+        }
+
+        QString error = dbusError.message();
+        showWriteResult("Failed to activate scene");
+
+        if (error.contains("unreachable") || error.contains("timeout") ||
+            error.contains("connection refused")) {
+            showStateError(bridgeUnreachable, "Bridge Unreachable",
+                           "Cannot connect to Hue Bridge.\n\n"
+                           "Check:\n"
+                           "• Bridge is powered on\n"
+                           "• Network connection is working\n"
+                           "• Bridge IP in config is correct");
+            return;
+        }
+
+        if (error.contains("not found") || error.contains("unknown")) {
+            showErrorNotification("Scene Not Found",
+                                  "Scene '" + sceneName +
+                                      "' could not be found.\n\n"
+                                      "It may have been deleted. Refresh the scene list.",
+                                  KNotification::CloseOnTimeout);
+            return;
+        }
+
+        showErrorNotification("Scene Activation Failed",
+                              "Failed to activate: " + sceneName +
+                                  "\n\n"
+                                  "Error: " +
+                                  error +
+                                  "\n\n"
+                                  "Try again or check bridge status.",
+                              KNotification::CloseOnTimeout);
+    }
+
     void sendScene(const QString& sceneName) {
-        QDBusPendingCall call = iface.asyncCall("ActivateScene", sceneName);
+        QDBusPendingCall call =
+            iface.asyncCallWithTimeout("ActivateScene", activateSceneTimeoutMs, {sceneName});
         QDBusPendingCallWatcher* watcher = new QDBusPendingCallWatcher(call, this);
 
         connect(watcher, &QDBusPendingCallWatcher::finished, this,
@@ -763,35 +825,7 @@ class HueControlDialog : public QDialog {
                     QDBusPendingReply<QString> reply = *w;
 
                     if (reply.isError()) {
-                        QString error = reply.error().message();
-                        showWriteResult("Failed to activate scene");
-
-                        // Provide user-friendly error messages
-                        if (error.contains("unreachable") || error.contains("timeout") ||
-                            error.contains("connection refused")) {
-                            showStateError(bridgeUnreachable, "Bridge Unreachable",
-                                           "Cannot connect to Hue Bridge.\n\n"
-                                           "Check:\n"
-                                           "• Bridge is powered on\n"
-                                           "• Network connection is working\n"
-                                           "• Bridge IP in config is correct");
-                        } else if (error.contains("not found") || error.contains("unknown")) {
-                            showErrorNotification(
-                                "Scene Not Found",
-                                "Scene '" + sceneName +
-                                    "' could not be found.\n\n"
-                                    "It may have been deleted. Refresh the scene list.",
-                                KNotification::CloseOnTimeout);
-                        } else {
-                            showErrorNotification("Scene Activation Failed",
-                                                  "Failed to activate: " + sceneName +
-                                                      "\n\n"
-                                                      "Error: " +
-                                                      error +
-                                                      "\n\n"
-                                                      "Try again or check bridge status.",
-                                                  KNotification::CloseOnTimeout);
-                        }
+                        reportSceneFailure(reply.error(), sceneName);
                     } else {
                         QString result = reply.value();
                         activeScene = sceneName;
