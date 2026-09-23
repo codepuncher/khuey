@@ -56,7 +56,7 @@ Comprehensive user experience improvements to the khuey tray application, focusi
 **Solution:**
 - **Appropriate Icons**:
   - `preferences-desktop-display-color` for scenes
-  - `media-record`/`media-playback-stop` for sync
+  - `video-display`/`preferences-desktop-display` for sync
   - `network-connect`/`network-disconnect` for connection
   - `dialog-error` for errors
   - `dialog-warning` for warnings
