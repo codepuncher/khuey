@@ -2,6 +2,8 @@
 #define HUEBACKEND_H
 
 #include <QDBusAbstractInterface>
+#include <QDBusConnection>
+#include <QDBusMessage>
 #include <QDBusPendingCall>
 #include <QDBusPendingCallWatcher>
 #include <QList>
@@ -20,6 +22,15 @@ class HueBackend : public QDBusAbstractInterface {
     explicit HueBackend(QObject* parent = nullptr)
         : QDBusAbstractInterface("org.kde.plasma.hue", "/org/kde/plasma/hue", "org.kde.plasma.hue",
                                  QDBusConnection::sessionBus(), parent) {}
+
+    /**
+     * One timeout covers every call the interface makes, so a call that is
+     * allowed to take minutes goes out as a plain message carrying its own.
+     */
+    QDBusPendingCall asyncCallWithTimeout(const QString& method, int timeoutMs) {
+        QDBusMessage msg = QDBusMessage::createMethodCall(service(), path(), interface(), method);
+        return connection().asyncCall(msg, timeoutMs);
+    }
 };
 
 /**
