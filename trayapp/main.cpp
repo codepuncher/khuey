@@ -353,7 +353,7 @@ class HueControlDialog : public QDialog {
         QDBusPendingCall syncCall = iface.asyncCall("IsSyncing");
         QDBusPendingCall syncSettingsCall = iface.asyncCall("GetSyncSettings");
         QDBusPendingCall stateCall = iface.asyncCall("GetState");
-        QDBusPendingCall scenesCall = iface.asyncCall("GetScenes");
+        QDBusPendingCall scenesCall = iface.asyncCallWithTimeout("GetScenes", getScenesTimeoutMs);
         QDBusPendingCall gamingCall = iface.asyncCall("IsGamingModeActive");
 
         auto apply = [this, connectionCall, statusCall, syncCall, syncSettingsCall, stateCall,
@@ -983,7 +983,7 @@ class HueControlDialog : public QDialog {
         settingsButton->setEnabled(false);
 
         // Get all scenes to extract room names
-        QDBusPendingCall call = iface.asyncCall("GetScenes");
+        QDBusPendingCall call = iface.asyncCallWithTimeout("GetScenes", getScenesTimeoutMs);
         whenFinished(this, {call}, [this, call]() {
             roomPickerPending = false;
             updateControlsEnabled();

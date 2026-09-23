@@ -384,7 +384,7 @@ void SettingsDialog::loadSettings() {
     QDBusPendingCall roomCall = backend->asyncCall("GetSelectedRoom");
     QDBusPendingCall gamingCall = backend->asyncCall("IsGamingModeEnabled");
     QDBusPendingCall startupSceneCall = backend->asyncCall("GetStartupScene");
-    QDBusPendingCall scenesCall = backend->asyncCall("GetScenes");
+    QDBusPendingCall scenesCall = backend->asyncCallWithTimeout("GetScenes", getScenesTimeoutMs);
     QDBusPendingCall bridgeCall = backend->asyncCall("GetBridgeSettings");
     QDBusPendingCall iconsCall = backend->asyncCall("GetTrayIcons");
     QDBusPendingCall roomsCall = backend->asyncCall("GetGroupedLights");

@@ -34,6 +34,13 @@ class HueBackend : public QDBusAbstractInterface {
 };
 
 /**
+ * GetScenes makes three sequential bridge requests, each capped at the
+ * backend's 10-second HTTP timeout, so a slow bridge pushes the reply past
+ * Qt's 25-second default and the scene list never populates.
+ */
+constexpr int getScenesTimeoutMs = 45 * 1000;
+
+/**
  * Runs done once every call has finished. The watchers are children of
  * context, so done never runs after context is destroyed.
  */
