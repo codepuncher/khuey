@@ -38,6 +38,14 @@
 // Enum for connection state
 enum ConnectionState { CONNECTING, CONNECTED, DISCONNECTED, ERROR };
 
+/**
+ * The backend gives the portal's screen-share dialog two minutes to be
+ * answered, then spends up to 40 more on the bridge activation and the DTLS
+ * handshake. Qt's 25-second default reply timeout gives up while the start is
+ * still running and reports a failure for a sync that goes on to succeed.
+ */
+constexpr int startSyncTimeoutMs = 3 * 60 * 1000;
+
 class HueControlDialog : public QDialog {
     Q_OBJECT
 
@@ -881,7 +889,7 @@ class HueControlDialog : public QDialog {
             permNotif->sendEvent();
         }
 
-        QDBusPendingCall call = iface.asyncCall("StartSync");
+        QDBusPendingCall call = iface.asyncCallWithTimeout("StartSync", startSyncTimeoutMs);
         QDBusPendingCallWatcher* watcher = new QDBusPendingCallWatcher(call, this);
 
         connect(
