@@ -426,43 +426,17 @@ class HueControlDialog : public QDialog {
                 }
             }
 
-            // Get scenes with current scene indicator
             QDBusReply<QStringList> scenesReply = scenesCall;
             if (scenesReply.isValid()) {
-                QStringList scenes = scenesReply.value();
+                const QStringList filteredScenes = filterScenesByRoom(scenesReply.value());
 
-                // Preserve the current selection across the reload
-                QString previousSelection;
-                if (QListWidgetItem* current = sceneList->currentItem()) {
-                    previousSelection = current->text();
-                }
-
-                sceneList->clear();
-
-                QStringList filteredScenes;
-
-                // Filter scenes by selected room if applicable
-                if (!selectedRoom.isEmpty() && selectedRoom != "All Rooms") {
-                    for (const QString& scene : scenes) {
-                        // Scene format: "Room Name - Scene Name"
-                        if (scene.contains(" - ")) {
-                            QString roomName = scene.left(scene.indexOf(" - "));
-                            if (roomName == selectedRoom) {
-                                filteredScenes << scene;
-                            }
-                        }
-                    }
-                } else {
-                    filteredScenes = scenes;
-                }
-
-                // Add filtered scenes to list, restoring the previous selection if still present
-                for (const QString& scene : filteredScenes) {
-                    QListWidgetItem* item = new QListWidgetItem(scene);
-                    sceneList->addItem(item);
-                    if (scene == previousSelection) {
-                        sceneList->setCurrentItem(item);
-                    }
+                /**
+                 * A rebuild empties the widget under whatever the user is
+                 * about to click, and a refresh runs 500ms after every
+                 * brightness write.
+                 */
+                if (filteredScenes != displayedScenes()) {
+                    rebuildSceneList(filteredScenes);
                 }
 
                 sceneCountLabel->setText(QString("(%1 available)").arg(filteredScenes.count()));
@@ -740,6 +714,52 @@ class HueControlDialog : public QDialog {
             return;
         }
         refresh();
+    }
+
+    /**
+     * The scenes the room filter admits, in the order the backend returned
+     * them. Display names are "Room Name - Scene Name".
+     */
+    QStringList filterScenesByRoom(const QStringList& scenes) const {
+        if (selectedRoom.isEmpty() || selectedRoom == "All Rooms") {
+            return scenes;
+        }
+
+        QStringList filtered;
+        for (const QString& scene : scenes) {
+            const int separator = scene.indexOf(" - ");
+            if (separator >= 0 && scene.left(separator) == selectedRoom) {
+                filtered << scene;
+            }
+        }
+        return filtered;
+    }
+
+    QStringList displayedScenes() const {
+        QStringList shown;
+        shown.reserve(sceneList->count());
+        for (int row = 0; row < sceneList->count(); ++row) {
+            shown << sceneList->item(row)->text();
+        }
+        return shown;
+    }
+
+    /**
+     * Keeps the selection on the same scene when it survives the rebuild.
+     */
+    void rebuildSceneList(const QStringList& scenes) {
+        QString previousSelection;
+        if (QListWidgetItem* current = sceneList->currentItem()) {
+            previousSelection = current->text();
+        }
+
+        sceneList->clear();
+        sceneList->addItems(scenes);
+
+        const int previousRow = scenes.indexOf(previousSelection);
+        if (previousRow >= 0) {
+            sceneList->setCurrentRow(previousRow);
+        }
     }
 
     void onSceneActivated(QListWidgetItem* item) {
