@@ -11,6 +11,7 @@
 #include <QDBusPendingCall>
 #include <QDBusPendingReply>
 #include <QDBusReply>
+#include <QDBusServiceWatcher>
 #include <QDateTime>
 #include <QDebug>
 #include <QDialog>
@@ -22,6 +23,7 @@
 #include <QMap>
 #include <QMenu>
 #include <QMessageBox>
+#include <QPointer>
 #include <QProcess>
 #include <QPushButton>
 #include <QSet>
@@ -199,7 +201,6 @@ class HueControlDialog : public QDialog {
         // Initial connection state
         connectionState = CONNECTING;
         connectionRetryCount = 0;
-        lastErrorShown = false;
 
         // Initial connection with retry
         QTimer::singleShot(100, this, &HueControlDialog::initialConnect);
@@ -215,6 +216,16 @@ class HueControlDialog : public QDialog {
         connectionTimer = new QTimer(this);
         connect(connectionTimer, &QTimer::timeout, this, &HueControlDialog::pollStatus);
         connectionTimer->start(10000); // Check every 10 seconds
+
+        /**
+         * Polling stops while the panel is hidden, so the bus is the only
+         * thing left that can tell a standing "backend missing" popup to
+         * close.
+         */
+        auto* backendWatcher = new QDBusServiceWatcher(
+            iface.service(), iface.connection(), QDBusServiceWatcher::WatchForRegistration, this);
+        connect(backendWatcher, &QDBusServiceWatcher::serviceRegistered, this,
+                [this]() { clearStateError(backendMissing); });
     }
 
   protected:
@@ -246,14 +257,10 @@ class HueControlDialog : public QDialog {
                 statusLabel->setText("Backend not available");
                 updateConnectionState(DISCONNECTED);
 
-                if (!lastErrorShown) {
-                    showErrorNotification("Backend Not Running",
-                                          "KDE Hue Control backend could not be reached.\n\n"
-                                          "Start with: systemctl --user start hue-backend\n\n"
-                                          "Or check if it's installed correctly.",
-                                          KNotification::Persistent);
-                    lastErrorShown = true;
-                }
+                showStateError(backendMissing, "Backend Not Running",
+                               "KDE Hue Control backend could not be reached.\n\n"
+                               "Start with: systemctl --user start hue-backend\n\n"
+                               "Or check if it's installed correctly.");
             }
             return;
         }
@@ -273,6 +280,8 @@ class HueControlDialog : public QDialog {
     void pollStatus() {
         if (!iface.isValid()) {
             updateConnectionState(DISCONNECTED);
+            statusLabel->setText("Backend not available");
+            statusAfterRefresh.clear();
             return;
         }
 
@@ -315,17 +324,13 @@ class HueControlDialog : public QDialog {
             updateConnectionState(DISCONNECTED);
             statusLabel->setText("Backend not available");
             statusAfterRefresh.clear();
-            if (!lastErrorShown) {
-                showErrorNotification("Service Unavailable",
-                                      "Backend service is not running.\n\n"
-                                      "Start with: systemctl --user start hue-backend",
-                                      KNotification::Persistent);
-                lastErrorShown = true;
-            }
+            showStateError(backendMissing, "Backend Not Running",
+                           "Backend service is not running.\n\n"
+                           "Start with: systemctl --user start hue-backend");
             return;
         }
 
-        lastErrorShown = false;
+        clearStateError(backendMissing);
 
         if (refreshPending) {
             refreshQueued = true;
@@ -474,10 +479,12 @@ class HueControlDialog : public QDialog {
     void updateConnectionState(ConnectionState state) {
         connectionState = state;
 
-        // Update visibility of retry button
         switch (state) {
-            case CONNECTING:
             case CONNECTED:
+                clearStateError(bridgeUnreachable);
+                retryButton->hide();
+                break;
+            case CONNECTING:
                 retryButton->hide();
                 break;
             case DISCONNECTED:
@@ -640,6 +647,11 @@ class HueControlDialog : public QDialog {
                 showWriteResult(QString("Brightness set to %1%").arg(brightness));
             }
 
+            /**
+             * A brightness above 0 turns the group on at the bridge, so the
+             * panel's power state is stale until this lands.
+             */
+            QTimer::singleShot(500, this, &HueControlDialog::refresh);
             lightWriteFinished();
         });
     }
@@ -719,10 +731,9 @@ class HueControlDialog : public QDialog {
         if (!iface.isValid()) {
             statusLabel->setText("Backend not available");
             updateConnectionState(DISCONNECTED);
-            showErrorNotification("Service Unavailable",
-                                  "Backend service is not running.\n\n"
-                                  "Start with: systemctl --user start hue-backend",
-                                  KNotification::Persistent);
+            showStateError(backendMissing, "Backend Not Running",
+                           "Backend service is not running.\n\n"
+                           "Start with: systemctl --user start hue-backend");
             return;
         }
 
@@ -750,13 +761,12 @@ class HueControlDialog : public QDialog {
                         // Provide user-friendly error messages
                         if (error.contains("unreachable") || error.contains("timeout") ||
                             error.contains("connection refused")) {
-                            showErrorNotification("Bridge Unreachable",
-                                                  "Cannot connect to Hue Bridge.\n\n"
-                                                  "Check:\n"
-                                                  "• Bridge is powered on\n"
-                                                  "• Network connection is working\n"
-                                                  "• Bridge IP in config is correct",
-                                                  KNotification::Persistent);
+                            showStateError(bridgeUnreachable, "Bridge Unreachable",
+                                           "Cannot connect to Hue Bridge.\n\n"
+                                           "Check:\n"
+                                           "• Bridge is powered on\n"
+                                           "• Network connection is working\n"
+                                           "• Bridge IP in config is correct");
                         } else if (error.contains("not found") || error.contains("unknown")) {
                             showErrorNotification(
                                 "Scene Not Found",
@@ -1113,6 +1123,15 @@ class HueControlDialog : public QDialog {
     }
 
     void retryConnection() {
+        if (!iface.isValid()) {
+            statusLabel->setText("Backend not available");
+            updateConnectionState(DISCONNECTED);
+            showStateError(backendMissing, "Backend Not Running",
+                           "KDE Hue Control backend could not be reached.\n\n"
+                           "Start with: systemctl --user start hue-backend");
+            return;
+        }
+
         statusLabel->setText("Retrying connection...");
         updateConnectionState(CONNECTING);
         connectionDetailsLabel->hide();
@@ -1139,13 +1158,12 @@ class HueControlDialog : public QDialog {
                 statusLabel->setText("Still unreachable");
                 updateConnectionState(ERROR);
 
-                showErrorNotification("Retry Failed",
-                                      "Bridge is still unreachable.\n\n"
-                                      "Check:\n"
-                                      "• Bridge is powered on\n"
-                                      "• Network connection is working\n"
-                                      "• Bridge IP in config is correct",
-                                      KNotification::Persistent);
+                showStateError(bridgeUnreachable, "Retry Failed",
+                               "Bridge is still unreachable.\n\n"
+                               "Check:\n"
+                               "• Bridge is powered on\n"
+                               "• Network connection is working\n"
+                               "• Bridge IP in config is correct");
             }
         });
     }
@@ -1164,7 +1182,7 @@ class HueControlDialog : public QDialog {
         }
     }
 
-    void
+    KNotification*
     showErrorNotification(const QString& title, const QString& message,
                           KNotification::NotificationFlags flags = KNotification::CloseOnTimeout) {
         KNotification* notif = new KNotification("error");
@@ -1174,6 +1192,30 @@ class HueControlDialog : public QDialog {
         notif->setUrgency(KNotification::NormalUrgency);
         notif->setFlags(flags);
         notif->sendEvent();
+        return notif;
+    }
+
+    /**
+     * Reports a condition that has an end rather than an event that happened.
+     * The popup stays up until the condition clears, so the recovery path
+     * needs the pointer to close it and a condition already on screen must not
+     * be raised a second time. KNotification deletes itself when closed, by
+     * the recovery path or by the user, which is what QPointer is tracking.
+     */
+    void showStateError(QPointer<KNotification>& tracked, const QString& title,
+                        const QString& message) {
+        if (tracked) {
+            return;
+        }
+        tracked = showErrorNotification(title, message, KNotification::Persistent);
+    }
+
+    void clearStateError(QPointer<KNotification>& tracked) {
+        if (!tracked) {
+            return;
+        }
+        tracked->close();
+        tracked.clear();
     }
 
   private:
@@ -1202,7 +1244,8 @@ class HueControlDialog : public QDialog {
     int pendingBrightness = 100;
     ConnectionState connectionState;
     int connectionRetryCount;
-    bool lastErrorShown;
+    QPointer<KNotification> backendMissing;
+    QPointer<KNotification> bridgeUnreachable;
     QString selectedRoom;                // For room filtering
     QString activeScene;                 // Last successfully activated scene
     int currentFps = 30;                 // Configured sync FPS, refreshed from GetSyncSettings
