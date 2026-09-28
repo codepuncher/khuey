@@ -7,6 +7,7 @@
 #include <QCheckBox>
 #include <QDBusAbstractInterface>
 #include <QDBusArgument>
+#include <QDBusConnection>
 #include <QDBusError>
 #include <QDBusMessage>
 #include <QDBusPendingCall>
@@ -243,6 +244,18 @@ class HueControlDialog : public QDialog {
             iface.service(), iface.connection(), QDBusServiceWatcher::WatchForRegistration, this);
         connect(backendWatcher, &QDBusServiceWatcher::serviceRegistered, this,
                 [this]() { clearStateError(backendMissing); });
+
+        /**
+         * Only the backend knows whether the bridge answers, and neither side
+         * asks while the panel is hidden or open and idle, so the change arrives
+         * as a push. Losing the subscription costs the push, not the state:
+         * pollStatus still covers a visible panel.
+         */
+        if (!QDBusConnection::sessionBus().connect(iface.service(), iface.path(), iface.interface(),
+                                                   "ConnectionStateChanged", this,
+                                                   SLOT(onConnectionStateChanged(QVariantMap)))) {
+            qWarning() << "Could not subscribe to ConnectionStateChanged; falling back to polling";
+        }
     }
 
   protected:
@@ -1118,7 +1131,26 @@ class HueControlDialog : public QDialog {
             return false;
         }
 
-        QVariantMap status = reply.value();
+        return applyConnectionStatus(reply.value());
+    }
+
+    /**
+     * The backend pushes this when the bridge starts or stops answering. A
+     * hidden panel polls nothing, and an open one only reads a cache that a
+     * bridge call writes, so without the push a reported outage outlives the
+     * real one.
+     */
+    void onConnectionStateChanged(const QVariantMap& status) {
+        if (applyConnectionStatus(status)) {
+            refresh();
+        }
+    }
+
+    /**
+     * Returns true when the bridge has just come back, which the caller answers
+     * with a refresh.
+     */
+    bool applyConnectionStatus(const QVariantMap& status) {
         bool connected = status["connected"].toBool();
         QString lastError = status["lastError"].toString();
         QString bridgeIP = status["bridgeIP"].toString();
