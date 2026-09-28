@@ -30,6 +30,13 @@ type Client struct {
 	// Connection tracking
 	connStatus ConnectionStatus
 	connMutex  sync.RWMutex
+	// Notified when Connected flips, so a caller can push the change somewhere.
+	// Carries no status: two calls racing in opposite directions can run in
+	// either order, so an observer reads GetConnectionStatus for the current
+	// state rather than trusting a snapshot taken before it ran. Invoked with no
+	// lock held, because an observer that writes to a bus must not be able to
+	// block a bridge call.
+	connObserver func()
 	// Rate limiting (10 req/sec, burst 20)
 	limiter *rate.Limiter
 }
@@ -476,20 +483,40 @@ func (c *Client) updateConnectionStatus() error {
 	return err
 }
 
-// setConnectionError marks the connection as failed with an error
-func (c *Client) setConnectionError(err error) {
+// SetConnectionObserver registers fn to run whenever the bridge flips between
+// reachable and unreachable. fn runs on whichever goroutine noticed the change
+// and reads the state it reports from GetConnectionStatus.
+func (c *Client) SetConnectionObserver(fn func()) {
 	c.connMutex.Lock()
 	defer c.connMutex.Unlock()
-	c.connStatus.Connected = false
-	c.connStatus.LastError = err.Error()
-	c.connStatus.LastAttempt = time.Now()
+	c.connObserver = fn
+}
+
+// setConnectionError marks the connection as failed with an error
+func (c *Client) setConnectionError(err error) {
+	c.setConnectionState(false, err.Error())
 }
 
 // setConnectionSuccess marks the connection as successful
 func (c *Client) setConnectionSuccess() {
+	c.setConnectionState(true, "")
+}
+
+// setConnectionState records the outcome of a bridge call and notifies the
+// observer when it changes whether the bridge is reachable. A repeated outcome
+// refreshes LastAttempt and LastError without notifying: only the transition is
+// news to anyone watching.
+func (c *Client) setConnectionState(connected bool, lastError string) {
 	c.connMutex.Lock()
-	defer c.connMutex.Unlock()
-	c.connStatus.Connected = true
-	c.connStatus.LastError = ""
+	changed := c.connStatus.Connected != connected
+	c.connStatus.Connected = connected
+	c.connStatus.LastError = lastError
 	c.connStatus.LastAttempt = time.Now()
+	observer := c.connObserver
+	c.connMutex.Unlock()
+
+	if !changed || observer == nil {
+		return
+	}
+	observer()
 }

@@ -24,7 +24,15 @@ const (
 	dbusName      = "org.kde.plasma.hue"
 	dbusPath      = "/org/kde/plasma/hue"
 	dbusInterface = "org.kde.plasma.hue"
+
+	connectionStateChanged = "ConnectionStateChanged"
 )
+
+// bridgeReachabilityPoll is how often a bridge recorded unreachable is
+// re-checked. Nothing else re-checks one: GetConnectionStatus reads a cache the
+// bridge calls write, and the tray stops asking when its panel is hidden. Only
+// an unreachable bridge is polled, so a healthy one costs no extra requests.
+const bridgeReachabilityPoll = 30 * time.Second
 
 // Service provides DBus interface for the tray application
 type Service struct {
@@ -46,6 +54,12 @@ type Service struct {
 	// NewService; a nil value (e.g. a directly-constructed Service in tests)
 	// makes checkAccess fail closed rather than allow or fall back.
 	callerUID func(dbus.Sender) (uint32, error)
+	// Stops the bridge reachability poller. Set by Start once nothing else can
+	// fail, called by Stop.
+	stopBridgeSupervisor context.CancelFunc
+	// Serialises connection state emissions so they reach the bus in the order
+	// the state reached the client.
+	emitMu sync.Mutex
 }
 
 // NewService creates a new DBus service
@@ -113,6 +127,7 @@ func (s *Service) Start() error {
 			{
 				Name:    dbusInterface,
 				Methods: s.introspectionMethods(),
+				Signals: s.introspectionSignals(),
 			},
 			introspect.IntrospectData,
 		},
@@ -122,15 +137,82 @@ func (s *Service) Start() error {
 		return fmt.Errorf("failed to export introspection: %w", err)
 	}
 
+	s.startBridgeSupervisor()
+
 	log.Printf("DBus service started: %s at %s", dbusName, dbusPath)
 	success = true
 	return nil
+}
+
+// startBridgeSupervisor begins pushing bridge connection changes to the tray and
+// re-checking an unreachable bridge. Called last in Start, so a failure earlier
+// cannot leave the goroutine running behind a closed connection.
+func (s *Service) startBridgeSupervisor() {
+	if s.hueClient == nil {
+		return
+	}
+
+	s.hueClient.SetConnectionObserver(s.emitConnectionState)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	s.stopBridgeSupervisor = cancel
+	go s.superviseBridgeReachability(ctx)
+}
+
+// emitConnectionState pushes a bridge connection change onto the bus, so a tray
+// whose panel is closed or idle learns about it without asking.
+//
+// emitMu serialises reading the state with putting it on the bus, so the last
+// signal a tray receives always carries the state the bridge is actually in.
+// Without it two calls that change the state in opposite directions could reach
+// the bus in either order, and the tray would keep whichever arrived last with
+// nothing polling to correct it.
+func (s *Service) emitConnectionState() {
+	if s.conn == nil {
+		return
+	}
+
+	s.emitMu.Lock()
+	defer s.emitMu.Unlock()
+
+	name := dbusInterface + "." + connectionStateChanged
+	status := connectionStatusMap(s.hueClient.GetConnectionStatus())
+	if err := s.conn.Emit(dbusPath, name, status); err != nil {
+		log.Printf("warn: failed to emit %s: %v", connectionStateChanged, err)
+	}
+}
+
+// superviseBridgeReachability re-checks a bridge recorded unreachable until it
+// answers. A reachable one is left alone, since GetScenes runs on every refresh
+// and records a failure the moment it happens.
+func (s *Service) superviseBridgeReachability(ctx context.Context) {
+	ticker := time.NewTicker(bridgeReachabilityPoll)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if s.hueClient.GetConnectionStatus().Connected {
+				continue
+			}
+			// IsReachable records its own outcome, and a change emits the
+			// signal. A check that fails again has nothing new to report.
+			_, _ = s.hueClient.IsReachable()
+		}
+	}
 }
 
 // Stop stops the DBus service
 func (s *Service) Stop() {
 	// Stop gaming mode detector if running
 	s.StopGamingMode()
+
+	if s.stopBridgeSupervisor != nil {
+		s.stopBridgeSupervisor()
+		s.stopBridgeSupervisor = nil
+	}
 
 	if s.conn != nil {
 		// Release the DBus name before closing connection to prevent resource leak
@@ -374,6 +456,18 @@ func (s *Service) introspectionMethods() []introspect.Method {
 				{Name: "syncing", Type: "s", Direction: "in"},
 				{Name: "idle", Type: "s", Direction: "in"},
 				{Name: "success", Type: "b", Direction: "out"},
+			},
+		},
+	}
+}
+
+// Introspection signals
+func (s *Service) introspectionSignals() []introspect.Signal {
+	return []introspect.Signal{
+		{
+			Name: connectionStateChanged,
+			Args: []introspect.Arg{
+				{Name: "status", Type: "a{sv}"}, // Same shape as GetConnectionStatus
 			},
 		},
 	}
@@ -731,19 +825,24 @@ func (s *Service) GetConnectionStatus(sender dbus.Sender) (map[string]interface{
 		}, nil
 	}
 
-	status := s.hueClient.GetConnectionStatus()
+	return connectionStatusMap(s.hueClient.GetConnectionStatus()), nil
+}
 
-	lastAttemptStr := ""
+// connectionStatusMap is the wire form of a connection status, shared by
+// GetConnectionStatus and the ConnectionStateChanged signal so a tray can read
+// both with one code path.
+func connectionStatusMap(status hue.ConnectionStatus) map[string]interface{} {
+	lastAttempt := ""
 	if !status.LastAttempt.IsZero() {
-		lastAttemptStr = status.LastAttempt.Format("2006-01-02 15:04:05")
+		lastAttempt = status.LastAttempt.Format("2006-01-02 15:04:05")
 	}
 
 	return map[string]interface{}{
 		"connected":   status.Connected,
 		"lastError":   status.LastError,
 		"bridgeIP":    status.BridgeAddr,
-		"lastAttempt": lastAttemptStr,
-	}, nil
+		"lastAttempt": lastAttempt,
+	}
 }
 
 // RetryConnection attempts to reconnect to the bridge
