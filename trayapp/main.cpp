@@ -1188,14 +1188,10 @@ class HueControlDialog : public QDialog {
                            "connectionFailed", "network-disconnect");
             return false;
         } else if (connected) {
-            // Connection restored
-            static bool wasDisconnected = false;
-            if (connectionState == ERROR || connectionState == DISCONNECTED) {
-                wasDisconnected = true;
-            }
+            const bool wasDisconnected =
+                connectionState == ERROR || connectionState == DISCONNECTED;
 
             if (wasDisconnected) {
-                wasDisconnected = false;
                 updateConnectionState(CONNECTED);
                 statusLabel->setText("Connection restored");
                 connectionDetailsLabel->hide();
