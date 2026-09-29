@@ -145,6 +145,7 @@ func (c *Client) SetLightPower(groupID string, on bool) error {
 		return fmt.Errorf("failed to set light power: status %d", resp.StatusCode())
 	}
 
+	c.setConnectionSuccess()
 	return nil
 }
 
@@ -162,6 +163,8 @@ func (c *Client) GetGroupedLightState(groupID string) (power bool, brightness fl
 	if resp.StatusCode() != 200 {
 		return false, 0, fmt.Errorf("failed to get grouped light: status %d", resp.StatusCode())
 	}
+
+	c.setConnectionSuccess()
 
 	if resp.JSON200 == nil || resp.JSON200.Data == nil || len(*resp.JSON200.Data) == 0 {
 		return false, 0, fmt.Errorf("no data in response")
@@ -220,6 +223,7 @@ func (c *Client) SetLightBrightness(groupID string, brightness float32) error {
 		return fmt.Errorf("failed to set brightness: status %d", resp.StatusCode())
 	}
 
+	c.setConnectionSuccess()
 	return nil
 }
 
@@ -394,6 +398,11 @@ func (c *Client) getRoomsAndZones() (result []roomOrZone, fetchErrs []error, err
 		}
 	}
 
+	if (roomsErr == nil && roomsResp.StatusCode() == 200) ||
+		(zonesErr == nil && zonesResp.StatusCode() == 200) {
+		c.setConnectionSuccess()
+	}
+
 	return result, fetchErrs, nil
 }
 
@@ -497,7 +506,10 @@ func (c *Client) setConnectionError(err error) {
 	c.setConnectionState(false, err.Error())
 }
 
-// setConnectionSuccess marks the connection as successful
+// setConnectionSuccess records that the bridge answered. Any call that got a
+// response reports success, so any of them clears a stale unreachable state.
+// Failure is reported only where it means the bridge is gone, so one failed
+// power or brightness write does not put the tray into its error presentation.
 func (c *Client) setConnectionSuccess() {
 	c.setConnectionState(true, "")
 }
