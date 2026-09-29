@@ -105,16 +105,6 @@ func (s *Service) Start() error {
 		}
 	}()
 
-	// Request the bus name
-	reply, err := s.conn.RequestName(dbusName, dbus.NameFlagDoNotQueue)
-	if err != nil {
-		return fmt.Errorf("failed to request bus name: %w", err)
-	}
-
-	if reply != dbus.RequestNameReplyPrimaryOwner {
-		return fmt.Errorf("name already taken")
-	}
-
 	// Export the service
 	if err := s.conn.Export(s, dbusPath, dbusInterface); err != nil {
 		return fmt.Errorf("failed to export service: %w", err)
@@ -135,6 +125,18 @@ func (s *Service) Start() error {
 
 	if err := s.conn.Export(introspect.NewIntrospectable(node), dbusPath, "org.freedesktop.DBus.Introspectable"); err != nil {
 		return fmt.Errorf("failed to export introspection: %w", err)
+	}
+
+	// Requested last: the name appearing is what a client waits for before it
+	// calls, and a call reaching an unexported path gets an error it cannot
+	// tell from a method its backend lacks.
+	reply, err := s.conn.RequestName(dbusName, dbus.NameFlagDoNotQueue)
+	if err != nil {
+		return fmt.Errorf("failed to request bus name: %w", err)
+	}
+
+	if reply != dbus.RequestNameReplyPrimaryOwner {
+		return fmt.Errorf("name already taken")
 	}
 
 	s.startBridgeSupervisor()
