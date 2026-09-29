@@ -887,14 +887,14 @@ cat ~/.openhue/config.yaml | grep -v "Key\|clientkey"
 
 | Error Message | Cause | Solution |
 |---------------|-------|----------|
-| "Config file not found" | Missing ~/.openhue/config.yaml | Run `openhue setup` |
+| "No bridge configuration found" | No `~/.openhue/config.yaml`; the backend starts with defaults and reports "not configured" | Run `openhue setup` |
 | "Bridge unreachable" | Network/bridge issue | Check bridge IP and network |
-| "Invalid API key" | Wrong/expired key | Re-run `openhue setup` |
-| "Entertainment Area not found" | No area configured | Create area in Hue app or run register tool |
+| "API key not configured" | The config file exists but has no `Key` | Run `openhue setup`, then check `Key:` in the config file |
+| "sync engine not available - check Entertainment API configuration" | `clientkey` or `entertainmentConfigurationId` missing from the config | Create the Entertainment Area in the Hue app, then run `go run ./cmd/get-entertainment-info` |
 | "No frame available yet" | Portal dialog not approved | Approve screen sharing dialog |
 | "Frame capture failing for ... stopping capture" | 5s of continuous capture errors | Check PipeWire status, restart sync |
 | "User did not respond to permission dialog" | Dialog not approved in 2 min | Start sync again, approve promptly |
-| "Service not available" | Backend not running | `systemctl --user start hue-backend` |
+| "Backend not available" | Backend not running | `systemctl --user start hue-backend` |
 
 ---
 
