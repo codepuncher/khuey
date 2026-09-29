@@ -891,7 +891,7 @@ cat ~/.openhue/config.yaml | grep -v "Key\|clientkey"
 | "Bridge unreachable" | Network/bridge issue | Check bridge IP and network |
 | "API key not configured" | The config file exists but has no `Key` | Run `openhue setup`, then check `Key:` in the config file |
 | "sync engine not available - check Entertainment API configuration" | `clientkey` or `entertainmentConfigurationId` missing from the config | Create the Entertainment Area in the Hue app, then run `go run ./cmd/get-entertainment-info` |
-| "No frame available yet" | Portal dialog not approved | Approve screen sharing dialog |
+| "No first frame after ... stopping capture" | No frame in the first 6s of capture; the stream-up variant reads "Stream up but no first frame after ..." | Check PipeWire status, restart sync |
 | "Frame capture failing for ... stopping capture" | 5s of continuous capture errors | Check PipeWire status, restart sync |
 | "User did not respond to permission dialog" | Dialog not approved in 2 min | Start sync again, approve promptly |
 | "Backend not available" | Backend not running | `systemctl --user start hue-backend` |
