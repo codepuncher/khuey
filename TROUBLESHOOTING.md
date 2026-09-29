@@ -439,12 +439,17 @@ dbus-send --session --print-reply \
 
 **Verify It's Working:**
 ```bash
-# After dialog approved, check logs for frames
-journalctl --user -u hue-backend --since "30 seconds ago" | grep -i frame
+# After dialog approved, check the capture start in the log
+journalctl --user -u hue-backend --since "30 seconds ago" \
+  | grep -i -e pipewire -e frame
 
-# Should see:
-# [PipeWire] Stream state changed: CONNECTING -> STREAMING
-# [PipeWire] Video format: 2560x1440
+# Should see (node id, resolution and pixel format vary by machine):
+# [PipeWire] Stream state changed: unconnected -> connecting
+# [PipeWire] Stream connected to node 92
+# Native PipeWire capture started (CGo + libpipewire)
+# [PipeWire] Stream state changed: connecting -> paused
+# [PipeWire] Video format: 2560x1440, format=Spa:Enum:VideoFormat:BGRA
+# [PipeWire] Stream state changed: paused -> streaming
 # (no "No first frame" or "Frame capture failing" errors)
 
 # Lights should be changing colors!
