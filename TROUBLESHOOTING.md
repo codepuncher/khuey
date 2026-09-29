@@ -387,7 +387,8 @@ dbus-send --session --dest=org.kde.plasma.hue \
 
 **THIS IS THE #1 MISUNDERSTOOD ISSUE**
 
-**Symptom:** StartSync called, but lights don't change. Logs show "no frame available".
+**Symptom:** StartSync called, but lights don't change and nothing new appears
+in the log. The call hasn't returned yet.
 
 **Cause:** **You haven't approved the permission dialog yet.**
 
@@ -444,7 +445,7 @@ journalctl --user -u hue-backend --since "30 seconds ago" | grep -i frame
 # Should see:
 # [PipeWire] Stream state changed: CONNECTING -> STREAMING
 # [PipeWire] Video format: 2560x1440
-# (no more "no frame available" errors)
+# (no "No first frame" or "Frame capture failing" errors)
 
 # Lights should be changing colors!
 ```
