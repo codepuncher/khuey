@@ -247,6 +247,13 @@ func (c *Client) ActivateScene(sceneID string) error {
 		return fmt.Errorf("failed to activate scene: %w", err)
 	}
 
+	// A 4xx is the bridge answering that the request was wrong, so a scene that
+	// is gone fails the call without saying anything about reachability.
+	if isClientError(resp.StatusCode()) {
+		c.setConnectionSuccess()
+		return fmt.Errorf("failed to activate scene: status %d", resp.StatusCode())
+	}
+
 	if resp.StatusCode() != 200 {
 		err := fmt.Errorf("failed to activate scene: status %d", resp.StatusCode())
 		c.setConnectionError(err)
@@ -499,6 +506,12 @@ func (c *Client) SetConnectionObserver(fn func()) {
 	c.connMutex.Lock()
 	defer c.connMutex.Unlock()
 	c.connObserver = fn
+}
+
+// isClientError reports whether status is a 4xx, which means the bridge
+// answered and rejected the request.
+func isClientError(status int) bool {
+	return status >= 400 && status < 500
 }
 
 // setConnectionError marks the connection as failed with an error
