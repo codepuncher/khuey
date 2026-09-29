@@ -1187,7 +1187,9 @@ class HueControlDialog : public QDialog {
                                .arg(lastError),
                            "connectionFailed", "network-disconnect");
             return false;
-        } else if (connected) {
+        }
+
+        if (connected) {
             const bool wasDisconnected =
                 connectionState == ERROR || connectionState == DISCONNECTED;
 
