@@ -14,7 +14,6 @@
 #include <QDBusPendingReply>
 #include <QDBusReply>
 #include <QDBusServiceWatcher>
-#include <QDateTime>
 #include <QDebug>
 #include <QDialog>
 #include <QHBoxLayout>
@@ -242,8 +241,22 @@ class HueControlDialog : public QDialog {
          */
         auto* backendWatcher = new QDBusServiceWatcher(
             iface.service(), iface.connection(), QDBusServiceWatcher::WatchForRegistration, this);
-        connect(backendWatcher, &QDBusServiceWatcher::serviceRegistered, this,
-                [this]() { clearStateError(backendMissing); });
+        connect(backendWatcher, &QDBusServiceWatcher::serviceRegistered, this, [this]() {
+            clearStateError(backendMissing);
+
+            /**
+             * A backend that starts with a healthy bridge has no transition to
+             * report, so nothing would close a bridge popup raised against the
+             * one before it. Reads a cache rather than the bridge.
+             */
+            QDBusPendingCall call = iface.asyncCall("GetConnectionStatus");
+            whenFinished(this, {call}, [this, call]() {
+                QDBusReply<QVariantMap> reply = call;
+                if (checkConnectionStatus(reply)) {
+                    refresh();
+                }
+            });
+        });
 
         /**
          * Only the backend knows whether the bridge answers, and neither side
@@ -1167,23 +1180,12 @@ class HueControlDialog : public QDialog {
                     .arg(bridgeIP));
             connectionDetailsLabel->show();
 
-            // Show notification once per disconnection
-            static QString lastErrorTime;
-            QString currentTime = QDateTime::currentDateTime().toString(Qt::ISODate);
-
-            if (lastErrorTime != currentTime.left(16)) { // Check per minute
-                lastErrorTime = currentTime.left(16);
-
-                KNotification* notif = new KNotification("connectionFailed");
-                notif->setTitle("Hue Bridge Unreachable");
-                notif->setText(QString("Cannot connect to bridge at %1\n\n%2\n\n"
-                                       "Open the control panel and click 'Retry' to reconnect.")
-                                   .arg(bridgeIP)
-                                   .arg(lastError));
-                notif->setIconName("network-disconnect");
-                notif->setUrgency(KNotification::NormalUrgency);
-                notif->sendEvent();
-            }
+            showStateError(bridgeUnreachable, "Hue Bridge Unreachable",
+                           QString("Cannot connect to bridge at %1\n\n%2\n\n"
+                                   "Open the control panel and click 'Retry' to reconnect.")
+                               .arg(bridgeIP)
+                               .arg(lastError),
+                           "connectionFailed", "network-disconnect");
             return false;
         } else if (connected) {
             // Connection restored
@@ -1278,11 +1280,13 @@ class HueControlDialog : public QDialog {
 
     KNotification*
     showErrorNotification(const QString& title, const QString& message,
-                          KNotification::NotificationFlags flags = KNotification::CloseOnTimeout) {
-        KNotification* notif = new KNotification("error");
+                          KNotification::NotificationFlags flags = KNotification::CloseOnTimeout,
+                          const QString& eventId = "error",
+                          const QString& iconName = "dialog-error") {
+        KNotification* notif = new KNotification(eventId);
         notif->setTitle(title);
         notif->setText(message);
-        notif->setIconName("dialog-error");
+        notif->setIconName(iconName);
         notif->setUrgency(KNotification::NormalUrgency);
         notif->setFlags(flags);
         notif->sendEvent();
@@ -1297,11 +1301,13 @@ class HueControlDialog : public QDialog {
      * the recovery path or by the user, which is what QPointer is tracking.
      */
     void showStateError(QPointer<KNotification>& tracked, const QString& title,
-                        const QString& message) {
+                        const QString& message, const QString& eventId = "error",
+                        const QString& iconName = "dialog-error") {
         if (tracked) {
             return;
         }
-        tracked = showErrorNotification(title, message, KNotification::Persistent);
+        tracked =
+            showErrorNotification(title, message, KNotification::Persistent, eventId, iconName);
     }
 
     void clearStateError(QPointer<KNotification>& tracked) {
