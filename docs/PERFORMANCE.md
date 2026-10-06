@@ -58,7 +58,7 @@ Based on benchmarks from April 2026 (commit 8241a53, Intel i7-9700K @ 3.60GHz):
 | Operation                 | Time      | Notes                              |
 |--------------------------|-----------|-------------------------------------|
 | **GetStatus()**           | ~100 µs   | Simple string return               |
-| **IsSyncing()**           | ~50 µs    | Mutex-protected boolean read       |
+| **IsSyncing()**           | ~50 µs    | Atomic boolean read                |
 | **IsGamingModeActive()**  | ~60 µs    | State check with mutex             |
 | **GetSyncSettings()**     | ~200 µs   | Struct marshaling                  |
 | **GetScenes()**           | 50-100 ms | Network call to bridge             |
@@ -153,7 +153,7 @@ TwoZones_4K:        < 20ms    // Typical: 141µs (130x faster!)
 | Method                  | Target    | Notes                        |
 |------------------------|-----------|------------------------------|
 | GetStatus()             | < 1ms     | Should be instant            |
-| IsSyncing()             | < 1ms     | Mutex read only              |
+| IsSyncing()             | < 1ms     | Atomic read only             |
 | Start/Stop operations   | < 100ms   | May block briefly on startup |
 | GetScenes()             | < 500ms   | Network-dependent            |
 
