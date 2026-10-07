@@ -126,6 +126,8 @@ type SyncConfig struct {
 	RestoreToken   string `mapstructure:"restoreToken"` // Portal session restore token (eliminates permission dialog)
 
 	MetricsInterval int `mapstructure:"metricsInterval"` // Seconds between metrics lines while syncing (0 = off)
+
+	SuspendNightLight bool `mapstructure:"suspendNightLight"` // Suspend the KDE night light for manual sync
 }
 
 // GamingModeConfig represents gaming mode auto-sync settings
@@ -141,6 +143,8 @@ type GamingModeConfig struct {
 
 	// Legacy detection (fallback)
 	UseGameMode bool `mapstructure:"useGameMode"` // Feral GameMode (if installed)
+
+	SuspendNightLight bool `mapstructure:"suspendNightLight"` // Suspend the KDE night light while gaming sync runs
 }
 
 // UIConfig represents user interface settings
@@ -166,6 +170,8 @@ func DefaultConfig() *Config {
 			SubsampleWidth:  DefaultSubsampleWidth,
 			RestoreToken:    "", // Empty on first run
 			MetricsInterval: DefaultMetricsInterval,
+			// Opt-in: suspending the night light changes the user's display.
+			SuspendNightLight: false,
 		},
 		GamingMode: GamingModeConfig{
 			Enabled:           false, // Disabled by default (opt-in)
@@ -175,6 +181,7 @@ func DefaultConfig() *Config {
 			UsePowerProfile:   true,  // CachyOS secondary validation
 			UseSteamAppId:     true,  // Steam-specific detection
 			UseGameMode:       false, // Feral GameMode (not installed by default)
+			SuspendNightLight: false, // Opt-in
 		},
 		UI: UIConfig{
 			Icons: IconConfig{

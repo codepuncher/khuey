@@ -50,6 +50,8 @@ class SettingsDialog : public QDialog {
         int fps = 0;
         int subsample = 0;
         bool gamingMode = false;
+        bool syncNightLight = false;
+        bool gamingNightLight = false;
         QString roomID;
         QString startupScene;
         QString gamingIcon;
@@ -76,6 +78,8 @@ class SettingsDialog : public QDialog {
     QPushButton* resetCaptureButton;
     QLabel* syncStatusLabel;
     QCheckBox* gamingModeCheckbox;
+    QCheckBox* syncNightLightCheckbox;
+    QCheckBox* gamingNightLightCheckbox;
 
     // Light Control tab
     QComboBox* roomCombo;
@@ -148,6 +152,7 @@ class SettingsDialog : public QDialog {
     int currentSubsample;
     QString currentRoomID;
     bool currentGamingMode;
+    bool nightLightLoaded = false;
     QString currentGamingIcon;
     QString currentSyncingIcon;
     QString currentIdleIcon;

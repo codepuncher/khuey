@@ -15,6 +15,7 @@ import (
 	"github.com/codepuncher/khuey/internal/config"
 	"github.com/codepuncher/khuey/internal/gaming"
 	"github.com/codepuncher/khuey/internal/hue"
+	"github.com/codepuncher/khuey/internal/nightlight"
 	syncengine "github.com/codepuncher/khuey/internal/sync"
 	"github.com/godbus/dbus/v5"
 	"github.com/godbus/dbus/v5/introspect"
@@ -40,6 +41,7 @@ type Service struct {
 	config           *config.Config
 	hueClient        *hue.Client
 	syncEngine       *syncengine.Engine
+	nightLight       *nightlight.Inhibitor
 	gamingDetector   *gaming.Detector
 	gamingModeActive bool // Track if gaming mode triggered sync
 	// Cancels the supervisor watching the sync session gaming mode started.
@@ -88,9 +90,13 @@ func NewService(cfg *config.Config, client *hue.Client) (*Service, error) {
 		config:     cfg,
 		hueClient:  client,
 		syncEngine: engine,
+		nightLight: nightlight.New(conn),
 		ownerUID:   uint32(os.Getuid()), // Store owner UID for access control
 	}
 	s.callerUID = s.getCallerUID
+	if engine != nil {
+		engine.SetSessionObserver(s.onSyncSessionChanged)
+	}
 	return s, nil
 }
 
@@ -210,6 +216,8 @@ func (s *Service) superviseBridgeReachability(ctx context.Context) {
 func (s *Service) Stop() {
 	// Stop gaming mode detector if running
 	s.StopGamingMode()
+
+	s.releaseAllNightLight()
 
 	if s.stopBridgeSupervisor != nil {
 		s.stopBridgeSupervisor()
@@ -377,6 +385,21 @@ func (s *Service) introspectionMethods() []introspect.Method {
 			Args: []introspect.Arg{
 				{Name: "fps", Type: "i", Direction: "in"},
 				{Name: "subsampleWidth", Type: "i", Direction: "in"},
+				{Name: "success", Type: "b", Direction: "out"},
+			},
+		},
+		{
+			Name: "GetNightLightSuspend",
+			Args: []introspect.Arg{
+				{Name: "syncSuspend", Type: "b", Direction: "out"},
+				{Name: "gamingSuspend", Type: "b", Direction: "out"},
+			},
+		},
+		{
+			Name: "SetNightLightSuspend",
+			Args: []introspect.Arg{
+				{Name: "syncSuspend", Type: "b", Direction: "in"},
+				{Name: "gamingSuspend", Type: "b", Direction: "in"},
 				{Name: "success", Type: "b", Direction: "out"},
 			},
 		},
@@ -937,6 +960,94 @@ func (s *Service) SetSyncSettings(fps int32, subsampleWidth int32, sender dbus.S
 	return true, nil
 }
 
+/**
+ * GetNightLightSuspend returns whether manual sync and game-mode sync each
+ * suspend the KDE night light.
+ */
+func (s *Service) GetNightLightSuspend() (bool, bool, *dbus.Error) {
+	var syncSuspend, gamingSuspend bool
+	s.config.View(func(c *config.Config) {
+		syncSuspend = c.Sync.SuspendNightLight
+		gamingSuspend = c.GamingMode.SuspendNightLight
+	})
+	return syncSuspend, gamingSuspend, nil
+}
+
+/**
+ * SetNightLightSuspend sets whether each kind of sync session suspends the
+ * night light. A session already running keeps the setting it started with.
+ */
+func (s *Service) SetNightLightSuspend(syncSuspend bool, gamingSuspend bool, sender dbus.Sender) (bool, *dbus.Error) {
+	if err := s.checkAccess(sender); err != nil {
+		log.Printf("[WARN] SetNightLightSuspend access denied")
+		return false, dbus.MakeFailedError(err)
+	}
+
+	var prevSync, prevGaming bool
+	err := s.config.Update(func(c *config.Config) {
+		prevSync = c.Sync.SuspendNightLight
+		prevGaming = c.GamingMode.SuspendNightLight
+		c.Sync.SuspendNightLight = syncSuspend
+		c.GamingMode.SuspendNightLight = gamingSuspend
+	}, func(c *config.Config) {
+		c.Sync.SuspendNightLight = prevSync
+		c.GamingMode.SuspendNightLight = prevGaming
+	})
+	if err != nil {
+		log.Printf("[ERROR] Failed to save night light settings, reverted in memory (the file on disk may already hold the new values): %v", err)
+		return false, dbus.MakeFailedError(err)
+	}
+
+	log.Printf("[INFO] Night light suspend updated: sync=%t gaming=%t", syncSuspend, gamingSuspend)
+	return true, nil
+}
+
+/**
+ * releaseAllNightLight lifts any suspension this service holds, so KWin is not
+ * left inhibited after the backend exits.
+ */
+func (s *Service) releaseAllNightLight() {
+	if s.nightLight == nil {
+		return
+	}
+	if err := s.nightLight.ReleaseAll(); err != nil {
+		log.Printf("[WARN] %v", err)
+	}
+}
+
+/**
+ * onSyncSessionChanged runs with the engine's lock held, so it takes only the
+ * night light's lock and the config read lock.
+ */
+func (s *Service) onSyncSessionChanged(running bool, origin syncengine.Origin) {
+	reason := nightlight.ReasonSync
+	if origin == syncengine.OriginGaming {
+		reason = nightlight.ReasonGaming
+	}
+
+	if !running {
+		if err := s.nightLight.Release(reason); err != nil {
+			log.Printf("[WARN] %v", err)
+		}
+		return
+	}
+
+	var suspend bool
+	s.config.View(func(c *config.Config) {
+		if origin == syncengine.OriginGaming {
+			suspend = c.GamingMode.SuspendNightLight
+			return
+		}
+		suspend = c.Sync.SuspendNightLight
+	})
+	if !suspend {
+		return
+	}
+	if err := s.nightLight.Acquire(reason); err != nil {
+		log.Printf("[WARN] %v", err)
+	}
+}
+
 // ResetCaptureSource forgets the saved screen-share grant. The portal asks
 // which screen to cast on the next sync start, which is the only way to change
 // it: the portal takes no option naming an output.
@@ -1344,7 +1455,7 @@ func gamingEnded(ctx context.Context) bool {
 // to keep it, and a session tied to it would be stranded, still reported as
 // running, the moment the supervisor was cancelled.
 func startSyncForGaming(ctx context.Context, engine *syncengine.Engine) error {
-	gen, err := engine.StartSession(context.Background())
+	gen, err := engine.StartSession(context.Background(), syncengine.OriginGaming)
 	if err != nil {
 		return err
 	}

@@ -782,7 +782,7 @@ func TestStopWaitsForTheSyncLoop(t *testing.T) {
 	<-held
 
 	e.mu.Lock()
-	e.launchLoopLocked(context.Background())
+	e.launchLoopLocked(context.Background(), OriginManual)
 	e.mu.Unlock()
 
 	stopped := make(chan error, 1)
@@ -810,7 +810,7 @@ func TestFailingSyncLoopEndsItsSession(t *testing.T) {
 	e := newLoopTestEngine(t, cfg)
 
 	e.mu.Lock()
-	e.launchLoopLocked(context.Background())
+	e.launchLoopLocked(context.Background(), OriginManual)
 	e.mu.Unlock()
 
 	ended := make(chan error, 1)
