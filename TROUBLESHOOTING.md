@@ -12,6 +12,9 @@ This guide covers common issues, their causes, and solutions for KDE Hue Control
 6. [Bridge Connection](#bridge-connection)
 7. [Gaming Mode Issues](#gaming-mode-issues)
 8. [Performance Issues](#performance-issues)
+9. [Advanced Debugging](#advanced-debugging)
+10. [Getting Help](#getting-help)
+11. [Common Error Messages](#common-error-messages)
 
 ---
 
@@ -784,7 +787,7 @@ go tool pprof -http=:8080 mem.prof
 ```bash
 # Profile CPU usage
 cd backend
-go run ./cmd/profile-sync -duration 15s
+go run ./cmd/profile-sync -duration 15
 
 # Generates cpu.prof
 go tool pprof -http=:8080 cpu.prof
@@ -835,7 +838,7 @@ sudo tcpdump -i any -n udp and host 192.168.1.100
 ```bash
 # Full profiling session
 cd backend
-go run ./cmd/profile-sync -duration 30s
+go run ./cmd/profile-sync -duration 30
 
 # Generate reports
 go tool pprof -top cpu.prof      # Top CPU consumers
