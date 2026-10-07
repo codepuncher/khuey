@@ -93,9 +93,6 @@ type Config struct {
 	// UI settings
 	UI UIConfig `mapstructure:"ui"`
 
-	// Logging
-	LogLevel string `mapstructure:"log_level"`
-
 	mu sync.Mutex
 
 	// Non-global viper instance for thread safety
@@ -190,7 +187,6 @@ func DefaultConfig() *Config {
 				Idle:    "preferences-desktop-display-color", // Default idle icon
 			},
 		},
-		LogLevel: "info",
 		Channels: []ChannelConfig{},
 	}
 }
@@ -348,7 +344,6 @@ func (c *Config) saveLocked() error {
 	c.v.Set("sync", c.Sync)
 	c.v.Set("gamingMode", c.GamingMode)
 	c.v.Set("ui", c.UI)
-	c.v.Set("log_level", c.LogLevel)
 
 	// Do not Set("sync.<field>") individually. Viper stores a nested key as a
 	// map under "sync", which replaces the whole-struct Set above, and every

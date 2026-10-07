@@ -13,7 +13,7 @@ Complete reference guide for configuring KDE Hue Control (khuey). This document 
 7. [Entertainment API Configuration](#entertainment-api-configuration)
 8. [UV Coordinate System](#uv-coordinate-system)
 9. [UI Settings](#ui-settings)
-10. [Logging Configuration](#logging-configuration)
+10. [Logging](#logging)
 11. [Example Configurations](#example-configurations)
 12. [Validation Rules](#validation-rules)
 13. [Troubleshooting Common Config Issues](#troubleshooting-common-config-issues)
@@ -31,7 +31,6 @@ KDE Hue Control uses a YAML configuration file that is **shared with openhue-cli
 - **Gaming Mode**: Automatic sync detection during gameplay
 - **Entertainment API**: Multi-zone screen mapping with UV coordinates
 - **UI Customization**: Tray icon themes
-- **Logging**: Debug and diagnostic output
 
 **When configuration changes take effect:**
 
@@ -119,7 +118,6 @@ grouped_light_id: "room-1"              # Default room/zone for controls
 clientkey: "CLIENT-KEY"                 # Entertainment API key
 entertainmentConfigurationId: "550e8400-e29b-41d4-a716-446655440000"  # Entertainment Area ID
 startupScene: ""                        # Scene activated when the backend starts
-log_level: "info"                       # Logging verbosity
 
 sync:                                   # Screen sync settings
   enabled: false
@@ -1401,142 +1399,10 @@ ui:
 
 ---
 
-## Logging Configuration
+## Logging
 
-Configuration for diagnostic and debug output.
-
-### Log Level
-
-| Option | Type | Default | Values | Description |
-|--------|------|---------|--------|-------------|
-| `log_level` | string | `"info"` | See below | Logging verbosity |
-
-#### Log Levels
-
-**Available levels** (least to most verbose):
-
-| Level | Value | When to Use | Output |
-|-------|-------|-------------|--------|
-| `error` | `"error"` | Production (minimal) | Errors only |
-| `warn` | `"warn"` | Production | Errors + warnings |
-| `info` | `"info"` | **Default** | Status updates + warnings + errors |
-| `debug` | `"debug"` | Development | Detailed debugging info |
-| `trace` | `"trace"` | Deep debugging | Everything including frame-by-frame |
-
-**Example:**
-```yaml
-log_level: "info"  # Default - recommended
-```
-
-#### Level Details
-
-##### error
-
-**Use:** Production systems, minimal logging
-**Output:** Only errors that prevent operation
-
-```yaml
-log_level: "error"
-```
-
-**Example output:**
-```
-[ERROR] Failed to connect to bridge: connection refused
-[ERROR] Entertainment API stream failed: invalid clientkey
-```
-
-##### warn
-
-**Use:** Production systems, cautious logging
-**Output:** Errors + warnings about potential issues
-
-```yaml
-log_level: "warn"
-```
-
-**Example output:**
-```
-[WARN] Config file has insecure permissions: 0644 (should be 0600)
-[WARN] Frame processing took 45ms (target: 33ms)
-[ERROR] Bridge connection lost
-```
-
-##### info (Default)
-
-**Use:** Default for most users
-**Output:** Status updates, successful operations, warnings, errors
-
-```yaml
-log_level: "info"  # Recommended
-```
-
-**Example output:**
-```
-[INFO] Bridge connected: 192.168.1.100
-[INFO] Entertainment Area activated: Living Room
-[INFO] Screen sync started at 30 FPS
-[INFO] Gaming detected - starting screen sync
-[WARN] Frame processing took 45ms
-[ERROR] Failed to capture frame
-```
-
-##### debug
-
-**Use:** Development, troubleshooting issues
-**Output:** Detailed debugging information
-
-```yaml
-log_level: "debug"
-```
-
-**Example output:**
-```
-[DEBUG] Loading config from /home/user/.openhue/config.yaml
-[DEBUG] Config validation passed
-[DEBUG] DBus service registered: org.kde.plasma.hue
-[INFO] Bridge connected: 192.168.1.100
-[DEBUG] Entertainment Area channels: 2
-[DEBUG] Channel 0: uvA={0.0, 0.0}, uvB={0.5, 1.0}
-[DEBUG] PipeWire stream state: STREAMING
-[DEBUG] Frame captured: 2560x1440 (BGRA)
-[DEBUG] Subsampled to: 64x36
-[DEBUG] Zone 0 color: RGB(45, 120, 200)
-[INFO] Screen sync started at 30 FPS
-```
-
-##### trace
-
-**Use:** Deep debugging, performance analysis
-**Output:** Every operation including frame-by-frame processing
-
-```yaml
-log_level: "trace"  # Very verbose!
-```
-
-**Example output:**
-```
-[TRACE] Config file read: 1234 bytes
-[TRACE] YAML parse: 5.2ms
-[DEBUG] Config validation passed
-[TRACE] DBus connection established
-[TRACE] Introspection sent
-[INFO] Bridge connected
-[TRACE] HTTP GET /clip/v2/resource/entertainment_configuration
-[TRACE] Response: 200 OK (234ms)
-[TRACE] JSON parse: 2.1ms
-[TRACE] PipeWire: format negotiation
-[TRACE] PipeWire: buffer allocated (1920x1080x4 = 8MB)
-[TRACE] Frame 1: captured (33.2ms)
-[TRACE] Frame 1: subsampled (2.1ms)
-[TRACE] Frame 1: zone 0 extracted (0.8ms)
-[TRACE] Frame 1: zone 0 color: RGB(45, 120, 200)
-[TRACE] Frame 1: streamed (1.2ms)
-[TRACE] Frame 1: total time 37.3ms
-```
-
-**Warning:** `trace` level generates **massive logs** (MB per minute). Only use for short debugging sessions.
-
-#### Log Output
+The backend logs at one fixed verbosity. Nothing configures it: no option
+selects a level and nothing filters the output.
 
 **Viewing logs:**
 
@@ -1550,35 +1416,20 @@ journalctl --user -u hue-backend -n 50
 # Last hour
 journalctl --user -u hue-backend --since "1 hour ago"
 
-# Manual run (stdout)
+# Manual run (stderr)
 ./backend/hue-sync  # Logs to terminal
 ```
 
 **Log format:** a `2006/01/02 15:04:05` timestamp from the standard library
-logger, then a level tag, then the message. journalctl adds its own timestamp
-and unit prefix on top of that. Both prefixes are omitted below.
+logger, then the message. Most messages open with an `[INFO]`, `[WARN]` or
+`[ERROR]` tag, written by hand at the call site rather than by the logger, so
+some lines carry none. journalctl adds its own timestamp and unit prefix on top
+of that. Both prefixes are omitted below.
 
 ```
 [INFO] Screen sync started
 [WARN] Frame skip: dropped 12 frames (processing too slow for 30 FPS)
 ```
-
-#### Performance Impact
-
-| Level | CPU Overhead | Disk I/O | Use Case |
-|-------|--------------|----------|----------|
-| `error` | ~0.1% | Minimal | Production |
-| `warn` | ~0.2% | Low | Production |
-| `info` | ~0.5% | Moderate | **Default** |
-| `debug` | ~2-5% | High | Development |
-| `trace` | ~10-20% | Very high | Debugging only |
-
-**Recommendations:**
-- **Production**: `info` or `warn`
-- **Development**: `debug`
-- **Bug reports**: `debug` (include logs with issue)
-- **Performance profiling**: `info` (debug adds overhead)
-- **Debugging crashes**: `trace` (short duration only)
 
 ---
 
@@ -1595,7 +1446,6 @@ version: 1
 Bridge: "192.168.1.100"
 Key: "your-api-key-here"
 grouped_light_id: "room/living-room"
-log_level: "info"
 ```
 
 **Features:**
@@ -1640,8 +1490,6 @@ channels:
     gammaFactor: 2.2
     uvA: {x: 0.5, y: 0.0}
     uvB: {x: 1.0, y: 1.0}
-
-log_level: "info"
 ```
 
 **Features:**
@@ -1694,8 +1542,6 @@ channels:
     gammaFactor: 2.2
     uvA: {x: 0.67, y: 0.0}
     uvB: {x: 1.0, y: 1.0}
-
-log_level: "info"
 ```
 
 **Features:**
@@ -1756,8 +1602,6 @@ channels:
     gammaFactor: 2.2
     uvA: {x: 0.5, y: 0.0}
     uvB: {x: 1.0, y: 1.0}
-
-log_level: "info"
 ```
 
 **Features:**
@@ -1816,8 +1660,6 @@ channels:
     gammaFactor: 2.4
     uvA: {x: 0.25, y: 0.85}
     uvB: {x: 0.75, y: 1.0}
-
-log_level: "info"
 ```
 
 **Features:**
@@ -1858,8 +1700,6 @@ channels:
     gammaFactor: 2.2
     uvA: {x: 0.0, y: 0.0}
     uvB: {x: 1.0, y: 1.0}  # Full screen (single light)
-
-log_level: "warn"      # Less logging overhead
 ```
 
 **Features:**
@@ -1867,7 +1707,6 @@ log_level: "warn"      # Less logging overhead
 - Power/brightness control
 - Screen sync (1 zone)
 - **Battery-optimized** (low FPS, low resolution)
-- Minimal logging
 
 **Performance:**
 - CPU usage: ~2-4% (vs 6-10% default)
@@ -1909,15 +1748,12 @@ channels:
     gammaFactor: 2.2
     uvA: {x: 0.5, y: 0.0}
     uvB: {x: 1.0, y: 1.0}
-
-log_level: "debug"     # More diagnostic info
 ```
 
 **Features:**
 - Scene control
 - Power/brightness control
 - **Maximum quality** (60 FPS, high resolution)
-- Detailed logging
 
 **Performance:**
 - CPU usage: ~15-25%
@@ -1969,13 +1805,10 @@ channels:
     gammaFactor: 2.2
     uvA: {x: 0.5, y: 0.0}
     uvB: {x: 1.0, y: 1.0}
-
-log_level: "debug"     # Detailed debugging
 ```
 
 **Features:**
 - All detection methods enabled
-- Debug logging
 - Fresh restore token (forces dialog)
 - Simple 2-zone setup for testing
 
@@ -2398,7 +2231,6 @@ KDE Hue Control config is **fully compatible** with openhue-cli:
 - `gamingMode`
 - `ui`
 - `channels`
-- `log_level`
 
 **Example shared config:**
 ```yaml
@@ -2546,9 +2378,6 @@ go run ./cmd/test-capture
 ```bash
 # Backend logs
 journalctl --user -u hue-backend -f
-
-# Set debug logging
-log_level: "debug"
 ```
 
 **Validate config:**

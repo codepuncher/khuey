@@ -218,7 +218,6 @@ type Config struct {
     Sync                         SyncConfig        // Screen sync settings
     GamingMode                   GamingModeConfig  // Gaming mode settings
     UI                           UIConfig          // UI preferences
-    LogLevel                     string            // Logging level
     mu                           sync.Mutex        // Protects concurrent access
     v                            *viper.Viper      // Non-global viper instance
 }
@@ -1717,11 +1716,6 @@ ui:
     gaming: "applications-games"
     syncing: "media-record"
     idle: "preferences-desktop-display-color"
-
-# Logging level. Nothing reads it. The backend logs through the standard
-# library's log package, which has no levels; Save writes the key back so it
-# survives a round trip.
-log_level: "info"
 ```
 
 ### Configuration Loading Flow

@@ -516,10 +516,6 @@ func TestDefaultConfig(t *testing.T) {
     if cfg.Sync.Enabled {
         t.Error("Expected sync to be disabled by default")
     }
-
-    if cfg.LogLevel != "info" {
-        t.Errorf("Expected default log level 'info', got '%s'", cfg.LogLevel)
-    }
 }
 
 func TestConfigValidation(t *testing.T) {

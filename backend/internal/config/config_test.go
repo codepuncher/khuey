@@ -22,10 +22,6 @@ func TestDefaultConfig(t *testing.T) {
 		t.Error("Expected sync to be disabled by default")
 	}
 
-	if cfg.LogLevel != "info" {
-		t.Errorf("Expected default log level 'info', got '%s'", cfg.LogLevel)
-	}
-
 	if cfg.StartupScene != "" {
 		t.Errorf("Expected startup scene to be disabled by default, got %q", cfg.StartupScene)
 	}
@@ -440,9 +436,6 @@ func TestLoadNonExistentFile(t *testing.T) {
 	if cfg.Sync.FPS != 30 {
 		t.Errorf("Expected default FPS 30, got %d", cfg.Sync.FPS)
 	}
-	if cfg.LogLevel != "info" {
-		t.Errorf("Expected default log level 'info', got %q", cfg.LogLevel)
-	}
 }
 
 // TestLoadValidFile tests Load() with a valid config file
@@ -466,7 +459,6 @@ gamingMode:
   detectionMethods:
     - systemd-inhibit
     - power-profile
-log_level: debug
 `
 	err := os.WriteFile(configFile, []byte(configYAML), 0600)
 	if err != nil {
@@ -508,9 +500,6 @@ log_level: debug
 	}
 	if cfg.Sync.SubsampleWidth != 128 {
 		t.Errorf("Sync.SubsampleWidth = %d, want 128", cfg.Sync.SubsampleWidth)
-	}
-	if cfg.LogLevel != "debug" {
-		t.Errorf("LogLevel = %q, want 'debug'", cfg.LogLevel)
 	}
 	if !cfg.GamingMode.Enabled {
 		t.Error("GamingMode.Enabled should be true")
