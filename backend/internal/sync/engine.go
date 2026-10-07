@@ -79,6 +79,14 @@ var (
 	ErrNotRunning     = fmt.Errorf("sync not running")
 )
 
+// Origin says what started a session.
+type Origin int
+
+const (
+	OriginManual Origin = iota
+	OriginGaming
+)
+
 // Engine manages screen synchronization
 type Engine struct {
 	config   *config.Config
@@ -88,6 +96,10 @@ type Engine struct {
 	mu      sync.RWMutex
 	running bool
 	cancel  context.CancelFunc
+	origin  Origin
+
+	// Called with mu held, so calls arrive in the order sessions start and stop.
+	sessionObserver func(running bool, origin Origin)
 
 	// Bumped per session so a sync loop winding down can only stop the
 	// session it belongs to, never one started while it was stopping.
@@ -286,9 +298,19 @@ func createDefaultZone(index, total int) color.Zone {
 	return zone
 }
 
+/**
+ * SetSessionObserver registers fn to be called as each session starts and
+ * stops, with the origin it was started under.
+ */
+func (e *Engine) SetSessionObserver(fn func(running bool, origin Origin)) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.sessionObserver = fn
+}
+
 // Start begins screen synchronization with the provided context
 func (e *Engine) Start(ctx context.Context) error {
-	_, err := e.StartSession(ctx)
+	_, err := e.StartSession(ctx, OriginManual)
 	return err
 }
 
@@ -297,7 +319,7 @@ func (e *Engine) Start(ctx context.Context) error {
 // undo its own start uses the pair: Start can block for as long as the portal
 // dialog stays open, and by the time it returns another session can already be
 // queued behind it, so stopping whatever is running would stop the wrong one.
-func (e *Engine) StartSession(ctx context.Context) (uint64, error) {
+func (e *Engine) StartSession(ctx context.Context, origin Origin) (uint64, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -328,7 +350,7 @@ func (e *Engine) StartSession(ctx context.Context) (uint64, error) {
 		return 0, e.lastFailure
 	}
 
-	gen := e.launchLoopLocked(ctx)
+	gen := e.launchLoopLocked(ctx, origin)
 	log.Printf("Screen sync started at %d FPS", e.fps.Load())
 	return gen, nil
 }
@@ -376,13 +398,18 @@ func (e *Engine) connectStream(ctx context.Context) error {
 
 // launchLoopLocked marks a new session running and starts its sync loop.
 // Called with e.mu held.
-func (e *Engine) launchLoopLocked(ctx context.Context) uint64 {
+func (e *Engine) launchLoopLocked(ctx context.Context, origin Origin) uint64 {
 	syncCtx, cancel := context.WithCancel(ctx)
 	e.cancel = cancel
 	e.running = true
+	e.origin = origin
 	e.generation++
 	e.lastFailure = nil
 	e.metrics.reset(time.Now())
+
+	if e.sessionObserver != nil {
+		e.sessionObserver(true, origin)
+	}
 
 	e.syncLoopWg.Add(1)
 	go e.syncLoop(syncCtx, e.generation)
@@ -466,6 +493,9 @@ func (e *Engine) stopLocked() error {
 	}
 
 	e.running = false
+	if e.sessionObserver != nil {
+		e.sessionObserver(false, e.origin)
+	}
 	log.Println("Screen sync stopped")
 	return nil
 }

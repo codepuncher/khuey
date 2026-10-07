@@ -82,9 +82,11 @@ void SettingsDialog::setupUI() {
 
     syncLayout->addWidget(subsampleGroup);
 
-    // The screen-share portal takes no option naming an output, so the screen
-    // is whatever was picked in its dialog. All this can do is drop the saved
-    // grant so the dialog comes back.
+    /**
+     * The screen-share portal takes no option naming an output, so the screen
+     * is whatever was picked in its dialog. All this can do is drop the saved
+     * grant so the dialog comes back.
+     */
     QGroupBox* captureGroup = new QGroupBox("Capture screen", syncTab);
     QVBoxLayout* captureLayout = new QVBoxLayout(captureGroup);
 
@@ -142,6 +144,23 @@ void SettingsDialog::setupUI() {
     gamingLayout->addWidget(gamingHint);
 
     syncLayout->addWidget(gamingGroup);
+
+    QGroupBox* nightLightGroup = new QGroupBox("Night Light", syncTab);
+    QVBoxLayout* nightLightLayout = new QVBoxLayout(nightLightGroup);
+
+    syncNightLightCheckbox =
+        new QCheckBox("Suspend night light during screen sync", nightLightGroup);
+    nightLightLayout->addWidget(syncNightLightCheckbox);
+
+    gamingNightLightCheckbox =
+        new QCheckBox("Suspend night light during gaming sync", nightLightGroup);
+    nightLightLayout->addWidget(gamingNightLightCheckbox);
+
+    QLabel* nightLightHint = new QLabel("Takes effect the next time sync starts.", nightLightGroup);
+    nightLightHint->setStyleSheet("QLabel { color: gray; font-size: 10pt; }");
+    nightLightLayout->addWidget(nightLightHint);
+
+    syncLayout->addWidget(nightLightGroup);
 
     syncLayout->addStretch();
     tabWidget->addTab(syncTab, "Screen Sync");
@@ -368,6 +387,8 @@ void SettingsDialog::setupUI() {
     connect(fpsSpinBox, QOverload<int>::of(&QSpinBox::valueChanged), this, onFormChanged);
     connect(subsampleSpinBox, QOverload<int>::of(&QSpinBox::valueChanged), this, onFormChanged);
     connect(gamingModeCheckbox, &QCheckBox::toggled, this, onFormChanged);
+    connect(syncNightLightCheckbox, &QCheckBox::toggled, this, onFormChanged);
+    connect(gamingNightLightCheckbox, &QCheckBox::toggled, this, onFormChanged);
     connect(roomCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, onFormChanged);
     connect(startupSceneCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
             onFormChanged);
@@ -388,9 +409,10 @@ void SettingsDialog::loadSettings() {
     QDBusPendingCall bridgeCall = backend->asyncCall("GetBridgeSettings");
     QDBusPendingCall iconsCall = backend->asyncCall("GetTrayIcons");
     QDBusPendingCall roomsCall = backend->asyncCall("GetGroupedLights");
+    QDBusPendingCall nightLightCall = backend->asyncCall("GetNightLightSuspend");
 
     auto apply = [this, syncCall, roomCall, gamingCall, startupSceneCall, scenesCall, bridgeCall,
-                  iconsCall, roomsCall]() {
+                  iconsCall, roomsCall, nightLightCall]() {
         QDBusReply<QVariantMap> syncReply = syncCall;
         if (syncReply.isValid()) {
             const QVariantMap settings = syncReply.value();
@@ -410,6 +432,16 @@ void SettingsDialog::loadSettings() {
         if (gamingReply.isValid()) {
             currentGamingMode = gamingReply.value();
             gamingModeCheckbox->setChecked(currentGamingMode);
+        }
+
+        // Unread values are not written back, so a failed read must not look like "off".
+        QDBusPendingReply<bool, bool> nightLightReply = nightLightCall;
+        nightLightLoaded = !nightLightReply.isError();
+        syncNightLightCheckbox->setEnabled(nightLightLoaded);
+        gamingNightLightCheckbox->setEnabled(nightLightLoaded);
+        if (nightLightLoaded) {
+            syncNightLightCheckbox->setChecked(nightLightReply.argumentAt<0>());
+            gamingNightLightCheckbox->setChecked(nightLightReply.argumentAt<1>());
         }
 
         // Selects currentRoomID, so it runs after the room reply is read.
@@ -499,7 +531,7 @@ void SettingsDialog::loadSettings() {
 
     whenFinished(this,
                  {syncCall, roomCall, gamingCall, startupSceneCall, scenesCall, bridgeCall,
-                  iconsCall, roomsCall},
+                  iconsCall, roomsCall, nightLightCall},
                  apply);
 }
 
@@ -561,10 +593,11 @@ void SettingsDialog::reject() {
 }
 
 bool SettingsDialog::FormValues::operator==(const FormValues& other) const {
-    return std::tie(fps, subsample, gamingMode, roomID, startupScene, gamingIcon, syncingIcon,
-                    idleIcon) == std::tie(other.fps, other.subsample, other.gamingMode,
-                                          other.roomID, other.startupScene, other.gamingIcon,
-                                          other.syncingIcon, other.idleIcon);
+    return std::tie(fps, subsample, gamingMode, syncNightLight, gamingNightLight, roomID,
+                    startupScene, gamingIcon, syncingIcon, idleIcon) ==
+           std::tie(other.fps, other.subsample, other.gamingMode, other.syncNightLight,
+                    other.gamingNightLight, other.roomID, other.startupScene, other.gamingIcon,
+                    other.syncingIcon, other.idleIcon);
 }
 
 SettingsDialog::FormValues SettingsDialog::formValues() const {
@@ -572,6 +605,8 @@ SettingsDialog::FormValues SettingsDialog::formValues() const {
     values.fps = fpsSpinBox->value();
     values.subsample = subsampleSpinBox->value();
     values.gamingMode = gamingModeCheckbox->isChecked();
+    values.syncNightLight = syncNightLightCheckbox->isChecked();
+    values.gamingNightLight = gamingNightLightCheckbox->isChecked();
     values.roomID = roomCombo->currentData().toString();
     if (values.roomID.isEmpty()) {
         // No rooms loaded, so the room read at load stands.
@@ -600,6 +635,11 @@ void SettingsDialog::saveSettings(const FormValues& values, std::function<void()
     auto queue = std::make_shared<QList<Setter>>();
     queue->append({"SetSyncSettings", {values.fps, values.subsample}, "Screen Sync settings"});
     queue->append({"SetGamingMode", {values.gamingMode}, "gaming mode setting"});
+    if (nightLightLoaded) {
+        queue->append({"SetNightLightSuspend",
+                       {values.syncNightLight, values.gamingNightLight},
+                       "night light setting"});
+    }
     if (!values.roomID.isEmpty()) {
         queue->append({"SetSelectedRoom", {values.roomID}, "room selection"});
     }

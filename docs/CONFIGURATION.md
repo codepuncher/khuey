@@ -127,6 +127,7 @@ sync:                                   # Screen sync settings
   subsampleWidth: 64
   restoreToken: ""
   metricsInterval: 60
+  suspendNightLight: false
 
 gamingMode:                             # Gaming mode settings
   enabled: false
@@ -136,6 +137,7 @@ gamingMode:                             # Gaming mode settings
   usePowerProfile: true
   useSteamAppId: true
   useGameMode: false
+  suspendNightLight: false
 
 ui:                                     # UI customization
   icons:
@@ -358,6 +360,7 @@ Configuration for real-time screen-to-lights synchronization.
 | `sync.subsampleWidth` | int | `64` | `16` - `256` | Resize width for processing (performance tuning) |
 | `sync.restoreToken` | string | `""` | Portal token | XDG Portal restore token (auto-generated) |
 | `sync.metricsInterval` | int | `60` | `0` - `3600` | Seconds between performance metrics log lines while syncing (`0` turns them off) |
+| `sync.suspendNightLight` | bool | `false` | `true`/`false` | Suspend the KDE night light while manual screen sync runs (applies from the next sync start) |
 
 #### sync.enabled
 
@@ -575,6 +578,7 @@ Configuration for automatic screen sync detection during gameplay.
 | `gamingMode.usePowerProfile` | bool | `true` | Use power profile validation |
 | `gamingMode.useSteamAppId` | bool | `true` | Use Steam AppId detection |
 | `gamingMode.useGameMode` | bool | `false` | Use Feral GameMode DBus (legacy) |
+| `gamingMode.suspendNightLight` | bool | `false` | Suspend the KDE night light while game-triggered sync runs (applies from the next sync start) |
 
 #### gamingMode.enabled
 
