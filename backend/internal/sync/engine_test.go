@@ -605,7 +605,7 @@ func TestEndSessionOnlyEndsItsOwnSession(t *testing.T) {
 	boom := errors.New("capture gave up")
 
 	e.mu.Lock()
-	e.running = true
+	e.running.Store(true)
 	e.generation = 2
 	e.mu.Unlock()
 
@@ -635,7 +635,7 @@ func TestStopClearsLastFailure(t *testing.T) {
 	e := newTestEngine(t, testEngineConfig(30))
 
 	e.mu.Lock()
-	e.running = true
+	e.running.Store(true)
 	e.generation = 1
 	e.mu.Unlock()
 	e.endSession(1, errors.New("capture gave up"))
@@ -659,7 +659,7 @@ func TestEndSessionAfterStopRecordsNothing(t *testing.T) {
 	e := newTestEngine(t, testEngineConfig(30))
 
 	e.mu.Lock()
-	e.running = true
+	e.running.Store(true)
 	e.generation = 1
 	e.mu.Unlock()
 
@@ -680,7 +680,7 @@ func TestStopSessionOnlyStopsItsOwnSession(t *testing.T) {
 	e := newTestEngine(t, testEngineConfig(30))
 
 	e.mu.Lock()
-	e.running = true
+	e.running.Store(true)
 	e.generation = 2
 	e.mu.Unlock()
 

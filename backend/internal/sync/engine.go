@@ -93,10 +93,9 @@ type Engine struct {
 	capturer *capture.ScreenCapture
 	client   *entertainment.Client
 
-	mu      sync.RWMutex
-	running bool
-	cancel  context.CancelFunc
-	origin  Origin
+	mu     sync.Mutex
+	cancel context.CancelFunc
+	origin Origin
 
 	// Called with mu held, so calls arrive in the order sessions start and stop.
 	sessionObserver func(running bool, origin Origin)
@@ -110,10 +109,17 @@ type Engine struct {
 	// under mu only, which keeps an Add from racing a Wait.
 	syncLoopWg sync.WaitGroup
 
-	// Why the last session ended or failed to start, or nil if it was stopped
-	// deliberately. A caller that restarts sync needs the two apart: undoing
-	// the user's own Stop would be a bug, not a recovery.
-	lastFailure error
+	// Written under mu and read without it, so a status query answers while
+	// Start holds mu across the portal dialog and the DTLS connect. A failure
+	// is recorded before running is cleared, because the other order shows a
+	// reader the stopped-deliberately state and nothing brings the session
+	// back.
+	//
+	// lastFailure is why the last session ended or failed to start, and nil
+	// if it was stopped deliberately. A caller that restarts sync needs the
+	// two apart: undoing the user's own Stop would be a bug, not a recovery.
+	running     atomic.Bool
+	lastFailure atomic.Pointer[error]
 
 	// Atomic so a settings change never blocks on e.mu, which Start holds
 	// across the portal dialog and the DTLS connect.
@@ -130,7 +136,6 @@ func NewEngine(cfg *config.Config) (*Engine, error) {
 	// Create placeholder engine to use in token callback
 	engine := &Engine{
 		config:     cfg,
-		running:    false,
 		httpClient: common.NewHueHTTPClient(), // PERF-004: Reuse HTTP client
 	}
 	engine.fps.Store(int64(cfg.Sync.FPS))
@@ -323,7 +328,7 @@ func (e *Engine) StartSession(ctx context.Context, origin Origin) (uint64, error
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	if e.running {
+	if e.running.Load() {
 		return 0, ErrAlreadyRunning
 	}
 
@@ -337,17 +342,19 @@ func (e *Engine) StartSession(ctx context.Context, origin Origin) (uint64, error
 		err = fmt.Errorf("failed to start screen capture: %w", err)
 		// Declining the dialog is a choice, recorded as a deliberate stop
 		// would be, so nothing reopens it.
-		e.lastFailure = err
+		recorded := err
 		if capture.IsPermissionDenied(err) {
-			e.lastFailure = nil
+			recorded = nil
 		}
+		e.setFailure(recorded)
 		return 0, err
 	}
 
 	if err := e.connectStream(ctx); err != nil {
 		e.capturer.Stop() // Clean up capture on connection failure
-		e.lastFailure = fmt.Errorf("failed to connect to Entertainment API: %w", err)
-		return 0, e.lastFailure
+		wrapped := fmt.Errorf("failed to connect to Entertainment API: %w", err)
+		e.setFailure(wrapped)
+		return 0, wrapped
 	}
 
 	gen := e.launchLoopLocked(ctx, origin)
@@ -401,10 +408,10 @@ func (e *Engine) connectStream(ctx context.Context) error {
 func (e *Engine) launchLoopLocked(ctx context.Context, origin Origin) uint64 {
 	syncCtx, cancel := context.WithCancel(ctx)
 	e.cancel = cancel
-	e.running = true
+	e.running.Store(true)
 	e.origin = origin
 	e.generation++
-	e.lastFailure = nil
+	e.setFailure(nil)
 	e.metrics.reset(time.Now())
 
 	if e.sessionObserver != nil {
@@ -424,7 +431,7 @@ func (e *Engine) Stop() error {
 	// Cleared even when nothing is running: after a failed start or a session
 	// capture ended, a Stop is the caller saying to leave it stopped, and a
 	// failure left in place would read as one still waiting to be retried.
-	e.lastFailure = nil
+	e.setFailure(nil)
 	return e.stopLocked()
 }
 
@@ -435,19 +442,30 @@ func (e *Engine) StopSession(gen uint64) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	if e.generation != gen || !e.running {
+	if e.generation != gen || !e.running.Load() {
 		return ErrNotRunning
 	}
-	e.lastFailure = nil
+	e.setFailure(nil)
 	return e.stopLocked()
+}
+
+// setFailure records cause as the reason the last session ended, or clears the
+// recorded reason when cause is nil.
+func (e *Engine) setFailure(cause error) {
+	if cause == nil {
+		e.lastFailure.Store(nil)
+		return
+	}
+	e.lastFailure.Store(&cause)
 }
 
 // LastFailure reports why the last session ended or failed to start, or nil if
 // sync is running or was stopped deliberately.
 func (e *Engine) LastFailure() error {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-	return e.lastFailure
+	if cause := e.lastFailure.Load(); cause != nil {
+		return *cause
+	}
+	return nil
 }
 
 // endSession records why this loop is giving up and stops the session it
@@ -459,11 +477,11 @@ func (e *Engine) endSession(gen uint64, cause error) {
 	// Not running means a Stop got here first, between the loop deciding to
 	// give up and taking the lock. That Stop cleared the failure on purpose,
 	// and writing it back would have the session restarted against it.
-	if e.generation != gen || !e.running {
+	if e.generation != gen || !e.running.Load() {
 		e.mu.Unlock()
 		return
 	}
-	e.lastFailure = cause
+	e.setFailure(cause)
 	err := e.stopLocked()
 	e.mu.Unlock()
 
@@ -473,7 +491,7 @@ func (e *Engine) endSession(gen uint64, cause error) {
 }
 
 func (e *Engine) stopLocked() error {
-	if !e.running {
+	if !e.running.Load() {
 		return ErrNotRunning
 	}
 
@@ -492,7 +510,7 @@ func (e *Engine) stopLocked() error {
 		log.Printf("[ERROR] closing Entertainment API: %v", err)
 	}
 
-	e.running = false
+	e.running.Store(false)
 	if e.sessionObserver != nil {
 		e.sessionObserver(false, e.origin)
 	}
@@ -500,11 +518,11 @@ func (e *Engine) stopLocked() error {
 	return nil
 }
 
-// IsRunning returns whether sync is active
+// IsRunning returns whether sync is active. It answers without taking mu, so a
+// start still waiting on the portal dialog reports not running rather than
+// leaving the caller blocked until the dialog is answered.
 func (e *Engine) IsRunning() bool {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-	return e.running
+	return e.running.Load()
 }
 
 // SetFPS updates the target frame rate. Takes effect on the next tick of a
