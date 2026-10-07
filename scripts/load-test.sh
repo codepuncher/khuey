@@ -122,7 +122,6 @@ channels:
     gammaFactor: 2.2
     uvA: {x: 0.0, y: 0.0}
     uvB: {x: 1.0, y: 1.0}
-log_level: info
 EOF
 
 # Run concurrent config load test

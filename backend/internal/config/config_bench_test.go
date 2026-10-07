@@ -58,7 +58,6 @@ channels:
     uvB:
       x: 1.0
       y: 1.0
-log_level: info
 `
 	err := os.WriteFile(configFile, []byte(configYAML), 0600)
 	if err != nil {
