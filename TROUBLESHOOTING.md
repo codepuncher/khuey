@@ -795,7 +795,6 @@ go tool pprof -http=:8080 cpu.prof
 **Common causes:**
 - High subsample width (lower it)
 - Many channels configured (reduce zones)
-- Debug logging enabled (disable verbose logs)
 
 ### Frame Drops
 
@@ -820,14 +819,6 @@ journalctl --user -u hue-backend -f | grep Metrics
 ---
 
 ## Advanced Debugging
-
-### Enable Debug Logging
-
-**Edit backend code to increase verbosity:**
-```go
-// In main.go or relevant file, add:
-log.SetLevel(log.DebugLevel)
-```
 
 ### Capture Packets
 
