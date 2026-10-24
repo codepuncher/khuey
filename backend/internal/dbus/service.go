@@ -1515,6 +1515,9 @@ func (s *Service) superviseGamingSync(ctx context.Context, engine *syncengine.En
 			continue
 		}
 
+		// Taken before the start, which blocks for as long as the portal
+		// dialog stays open, so the log says what is happening while it does.
+		prevAttempts, prevNextAttemptAt := attempts, nextAttemptAt
 		attempts++
 		nextAttemptAt = now.Add(gamingRestartDelay(attempts))
 		log.Printf("[INFO] Screen sync stopped during gaming (%v), restarting (attempt %d of %d)",
@@ -1524,8 +1527,12 @@ func (s *Service) superviseGamingSync(ctx context.Context, engine *syncengine.En
 		if errors.Is(err, errGamingEnded) {
 			return
 		}
-		// Someone started it between the check above and this call.
+		// Someone started it between the check above and this call, so this
+		// tick restarted nothing and gives its attempt back: the budget is
+		// there for starts that fail.
 		if errors.Is(err, syncengine.ErrAlreadyRunning) {
+			attempts, nextAttemptAt = prevAttempts, prevNextAttemptAt
+			log.Printf("[INFO] Screen sync was started by another caller, no restart needed")
 			continue
 		}
 		if err != nil {
