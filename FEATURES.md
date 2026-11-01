@@ -98,11 +98,11 @@ channels:
 
 ```bash
 # Start sync via DBus
-dbus-send --session --dest=org.kde.plasma.hue \
+dbus-send --session --print-reply --dest=org.kde.plasma.hue \
   /org/kde/plasma/hue org.kde.plasma.hue.StartSync
 
 # Stop sync
-dbus-send --session --dest=org.kde.plasma.hue \
+dbus-send --session --print-reply --dest=org.kde.plasma.hue \
   /org/kde/plasma/hue org.kde.plasma.hue.StopSync
 
 # Check if syncing

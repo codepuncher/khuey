@@ -380,7 +380,7 @@ journalctl --user -u hue-backend -f
 **Gaming mode not starting/stopping?**
 ```bash
 # Enable gaming mode
-dbus-send --session --dest=org.kde.plasma.hue \
+dbus-send --session --print-reply --dest=org.kde.plasma.hue \
   /org/kde/plasma/hue org.kde.plasma.hue.SetGamingMode boolean:true
 
 # Check if detector is running
