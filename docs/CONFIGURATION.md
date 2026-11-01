@@ -569,16 +569,16 @@ Configuration for automatic screen sync detection during gameplay.
 
 ### Gaming Mode Configuration
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `gamingMode.enabled` | bool | `false` | Enable/disable gaming mode feature |
-| `gamingMode.pollInterval` | int | `2` | How often to check for games (seconds) |
-| `gamingMode.debounceDelay` | int | `5` | Wait time before triggering (seconds) |
-| `gamingMode.useSystemdInhibit` | bool | `true` | Use systemd-inhibit detection (CachyOS) |
-| `gamingMode.usePowerProfile` | bool | `true` | Use power profile validation |
-| `gamingMode.useSteamAppId` | bool | `true` | Use Steam AppId detection |
-| `gamingMode.useGameMode` | bool | `false` | Use Feral GameMode DBus (legacy) |
-| `gamingMode.suspendNightLight` | bool | `false` | Suspend the KDE night light while game-triggered sync runs (applies from the next sync start) |
+| Option | Type | Default | Range/Values | Description |
+|--------|------|---------|--------------|-------------|
+| `gamingMode.enabled` | bool | `false` | `true`/`false` | Enable/disable gaming mode feature |
+| `gamingMode.pollInterval` | int | `2` | `1` - `30` | How often to check for games (seconds) |
+| `gamingMode.debounceDelay` | int | `5` | `0` - `60` | Wait time before triggering (seconds) |
+| `gamingMode.useSystemdInhibit` | bool | `true` | `true`/`false` | Use systemd-inhibit detection (CachyOS) |
+| `gamingMode.usePowerProfile` | bool | `true` | `true`/`false` | Use power profile validation |
+| `gamingMode.useSteamAppId` | bool | `true` | `true`/`false` | Use Steam AppId detection |
+| `gamingMode.useGameMode` | bool | `false` | `true`/`false` | Use Feral GameMode DBus (legacy) |
+| `gamingMode.suspendNightLight` | bool | `false` | `true`/`false` | Suspend the KDE night light while game-triggered sync runs (applies from the next sync start) |
 
 #### gamingMode.enabled
 
