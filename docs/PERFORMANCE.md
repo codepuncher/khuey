@@ -14,6 +14,8 @@ Comprehensive performance documentation for KDE Hue Control (khuey), covering be
 8. [Performance Regression Detection](#performance-regression-detection)
 9. [Optimization Techniques Used](#optimization-techniques-used)
 10. [Future Optimization Opportunities](#future-optimization-opportunities)
+11. [Summary](#summary)
+12. [References](#references)
 
 ---
 
