@@ -1894,10 +1894,12 @@ func (s *Service) ActivateScene(displayName string, sender dbus.Sender) (string,
 
 **Portal Error Handling:**
 ```go
-// Special handling for portal errors
-if portalErr, ok := err.(*capture.PortalError); ok {
-    // Format: "PortalError:TYPE:HINT"
-    errMsg := fmt.Sprintf("PortalError:%s:%s", portalErr.Type, portalErr.Hint)
+// internal/dbus/service.go. The engine and the capturer both wrap this, so it
+// has to be unwrapped rather than asserted. Format: "PortalError:TYPE:HINT",
+// which the tray app splits on the colons.
+var portalErr *capture.PortalError
+if errors.As(err, &portalErr) {
+    errMsg := "PortalError:" + portalErr.Type + ":" + portalErr.Hint
     return false, dbus.MakeFailedError(fmt.Errorf("%s", errMsg))
 }
 ```
