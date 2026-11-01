@@ -185,7 +185,7 @@ dbus-send --session --print-reply \
   org.kde.plasma.hue.IsSyncing
 
 # If true, stop it
-dbus-send --session --dest=org.kde.plasma.hue \
+dbus-send --session --print-reply --dest=org.kde.plasma.hue \
   /org/kde/plasma/hue \
   org.kde.plasma.hue.StopSync
 ```
@@ -359,7 +359,7 @@ dbus-send --session --print-reply \
 journalctl --user -u hue-backend -n 50
 
 # If syncing, stop it
-dbus-send --session --dest=org.kde.plasma.hue \
+dbus-send --session --print-reply --dest=org.kde.plasma.hue \
   /org/kde/plasma/hue \
   org.kde.plasma.hue.StopSync
 
@@ -375,7 +375,7 @@ systemctl --user restart hue-backend
 dbus-monitor --session "interface='org.kde.plasma.hue'"
 
 # In another terminal, trigger action
-dbus-send --session --dest=org.kde.plasma.hue \
+dbus-send --session --print-reply --dest=org.kde.plasma.hue \
   /org/kde/plasma/hue \
   org.kde.plasma.hue.GetScenes
 
@@ -416,7 +416,7 @@ If you're running `dbus-send` commands from terminal, the GUI dialog appears on 
 echo "A GUI dialog will appear, approve screen sharing"
 
 # Then call StartSync
-dbus-send --session --dest=org.kde.plasma.hue \
+dbus-send --session --print-reply --dest=org.kde.plasma.hue \
   /org/kde/plasma/hue \
   org.kde.plasma.hue.StartSync
 
@@ -524,7 +524,7 @@ systemctl --user status pipewire
 systemctl --user start pipewire
 
 # Try screen sync again
-dbus-send --session --dest=org.kde.plasma.hue \
+dbus-send --session --print-reply --dest=org.kde.plasma.hue \
   /org/kde/plasma/hue \
   org.kde.plasma.hue.StartSync
 ```
@@ -737,7 +737,7 @@ journalctl --user -u hue-backend | grep -i gaming | tail -20
 **Solution:**
 ```bash
 # Manually stop sync
-dbus-send --session --dest=org.kde.plasma.hue \
+dbus-send --session --print-reply --dest=org.kde.plasma.hue \
   /org/kde/plasma/hue \
   org.kde.plasma.hue.StopSync
 
