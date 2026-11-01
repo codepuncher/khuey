@@ -18,6 +18,8 @@ Complete reference guide for configuring KDE Hue Control (khuey). This document 
 12. [Validation Rules](#validation-rules)
 13. [Troubleshooting Common Config Issues](#troubleshooting-common-config-issues)
 14. [Migration & Compatibility](#migration--compatibility)
+15. [Additional Resources](#additional-resources)
+16. [Summary](#summary)
 
 ---
 

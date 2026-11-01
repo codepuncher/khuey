@@ -19,6 +19,8 @@ Comprehensive technical documentation of the KDE Hue Control system architecture
 13. [Performance Characteristics](#performance-characteristics)
 14. [Design Decisions](#design-decisions)
 15. [Future Architecture](#future-architecture)
+16. [Contributing](#contributing)
+17. [See Also](#see-also)
 
 ---
 

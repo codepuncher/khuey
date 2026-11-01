@@ -17,6 +17,9 @@ Complete reference for the `org.kde.plasma.hue` DBus API.
 5. [Error Handling](#error-handling)
 6. [Usage Examples](#usage-examples)
 7. [Type Reference](#type-reference)
+8. [Best Practices](#best-practices)
+9. [Debugging](#debugging)
+10. [See Also](#see-also)
 
 ---
 

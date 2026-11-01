@@ -11,6 +11,10 @@ This document provides a comprehensive overview of the KDE Hue Control architect
 5. [Screen Sync Pipeline](#screen-sync-pipeline)
 6. [Performance Characteristics](#performance-characteristics)
 7. [Design Decisions](#design-decisions)
+8. [Security Considerations](#security-considerations)
+9. [Future Architecture Considerations](#future-architecture-considerations)
+10. [Debugging Guide](#debugging-guide)
+11. [Contributing](#contributing)
 
 ---
 
