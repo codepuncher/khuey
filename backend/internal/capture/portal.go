@@ -174,13 +174,13 @@ func (sc *ScreenCapture) startStream(sessionHandle string) (uint32, string, erro
 	var requestPath dbus.ObjectPath
 	err = obj.Call(screenCastIface+".Start", 0, dbus.ObjectPath(sessionHandle), "", options).Store(&requestPath)
 	if err != nil {
-		return 0, "", fmt.Errorf("failed to start stream: %w", err)
+		return 0, "", err
 	}
 
 	// Wait for stream to start
 	result, err := sc.waitForResponse(requestPath)
 	if err != nil {
-		return 0, "", fmt.Errorf("failed to start stream: %w", err)
+		return 0, "", err // Already wrapped by waitForResponse
 	}
 
 	// Extract stream node from result
