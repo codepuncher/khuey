@@ -762,9 +762,18 @@ Starts screen synchronization (Entertainment API streaming).
 - `"PortalError:TYPE:HINT"` - Screen capture permission error
 
 **Portal Errors:**
-- `"PortalError:UserCancelled:..."` - User cancelled permission dialog
-- `"PortalError:Timeout:..."` - Permission dialog timed out (2 minutes)
-- `"PortalError:InvalidSession:..."` - Previous session is invalid
+
+`TYPE` is one of the eight values below, defined in `backend/internal/capture/portal.go`.
+`HINT` is human-readable guidance for the user, so match on the type and display the hint rather than parsing it.
+
+- `permission_denied` - the user declined the dialog
+- `timeout` - the dialog went unanswered for two minutes
+- `cancelled` - the capture was stopped while the dialog was still open
+- `request_failed` - the portal returned a response code other than 0 or 1
+- `session_failed` - the portal session could not be created
+- `select_sources_failed` - the monitor selection call failed
+- `invalid_response` - the portal's reply had an unexpected shape
+- `connection` - the DBus signal match could not be added
 
 **Important Notes:**
 - **User must approve screen sharing** via XDG Desktop Portal dialog
@@ -796,9 +805,9 @@ if (reply.isValid() && reply.value()) {
         QString errorType = parts[1];
         QString hint = parts[2];
 
-        if (errorType == "UserCancelled") {
-            qDebug() << "User cancelled screen sharing";
-        } else if (errorType == "Timeout") {
+        if (errorType == "permission_denied") {
+            qDebug() << "User declined screen sharing";
+        } else if (errorType == "timeout") {
             qDebug() << "Permission dialog timed out";
         }
     } else {
@@ -1229,9 +1238,11 @@ DBus errors are returned as `*dbus.Error` with the following formats:
 - `"hue client not initialized"`
 
 **Portal Errors (Screen Capture):**
-- `"PortalError:UserCancelled:user cancelled screen sharing permission"`
-- `"PortalError:Timeout:permission dialog timed out after 2 minutes"`
-- `"PortalError:InvalidSession:previous session is no longer valid"`
+- `"PortalError:permission_denied:Please approve the screen sharing dialog when prompted. You can try again by clicking 'Start Screen Sync'."`
+- `"PortalError:timeout:Please approve screen sharing when prompted"`
+
+The text after the second colon is the hint, not the message.
+See [StartSync](#startsync) for all eight types.
 
 **Scene Errors:**
 - `"scene not found: XYZ"`
@@ -1410,12 +1421,12 @@ public:
                     QString errorType = parts[1];
                     QString hint = parts[2];
 
-                    if (errorType == "UserCancelled") {
+                    if (errorType == "permission_denied") {
                         KNotification::event("Info",
                                             "Hue Control",
-                                            "Screen sharing was cancelled",
+                                            "Screen sharing was declined",
                                             "dialog-information");
-                    } else if (errorType == "Timeout") {
+                    } else if (errorType == "timeout") {
                         KNotification::event("Warning",
                                             "Hue Control",
                                             "Screen sharing permission timed out",
