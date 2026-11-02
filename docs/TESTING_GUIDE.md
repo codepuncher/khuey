@@ -21,7 +21,7 @@ Comprehensive guide for writing, running, and debugging tests in the khuey codeb
 10. [CI/CD Testing Workflow](#cicd-testing-workflow)
 11. [Debugging Failing Tests](#debugging-failing-tests)
 12. [Best Practices](#best-practices)
-13. [Quick Reference](#quick-reference-1)
+13. [Quick Reference](#quick-reference)
 14. [Conclusion](#conclusion)
 
 ---
@@ -126,7 +126,7 @@ package main
 
 ## Running Tests
 
-### Quick Reference
+### Common Commands
 
 ```bash
 # Unit tests only (fast, no external dependencies)
