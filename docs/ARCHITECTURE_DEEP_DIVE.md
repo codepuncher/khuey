@@ -1976,22 +1976,24 @@ DBus argument validation does not. `SetBrightness` out of range returns the bare
 
 **UID Verification:**
 ```go
+// internal/dbus/service.go. errCallerUnverified is a package-level value,
+// "access denied: unable to verify caller identity", shared by the two
+// branches that cannot establish who is calling.
 func (s *Service) checkAccess(sender dbus.Sender) error {
     if s.callerUID == nil {
         log.Printf("[WARN] Access denied: no caller UID resolver configured")
-        return fmt.Errorf("access denied: unable to verify caller identity")
+        return errCallerUnverified
     }
 
     callerUID, err := s.callerUID(sender)
     if err != nil {
         log.Printf("[WARN] Failed to get caller UID: %v", err)
-        return fmt.Errorf("access denied: unable to verify caller identity")
+        return errCallerUnverified
     }
 
-    // Compare with service owner UID
     if callerUID != s.ownerUID {
         log.Printf("[WARN] Access denied: caller UID %d != owner UID %d", callerUID, s.ownerUID)
-        return fmt.Errorf("access denied: only the service owner can perform this operation")
+        return errors.New("access denied: only the service owner can perform this operation")
     }
 
     return nil
