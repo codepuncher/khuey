@@ -11,12 +11,6 @@ import (
 	"github.com/spf13/viper"
 )
 
-// Sentinel errors for common error conditions
-var (
-	ErrBridgeRequired = fmt.Errorf("bridge address is required")
-	ErrKeyRequired    = fmt.Errorf("API key is required")
-)
-
 // Configuration constants
 const (
 	// ConfigVersion is incremented when breaking changes are made to config format
