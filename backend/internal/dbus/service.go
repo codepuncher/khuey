@@ -35,6 +35,11 @@ const (
 // an unreachable bridge is polled, so a healthy one costs no extra requests.
 const bridgeReachabilityPoll = 30 * time.Second
 
+var (
+	errNoHueClient      = errors.New("hue client not initialized")
+	errCallerUnverified = errors.New("access denied: unable to verify caller identity")
+)
+
 // Service provides DBus interface for the tray application
 type Service struct {
 	conn             *dbus.Conn
@@ -250,7 +255,7 @@ func (s *Service) getCallerUID(sender dbus.Sender) (uint32, error) {
 // Returns error if not configured or if hue client is not available
 func (s *Service) getGroupedLightID() (string, error) {
 	if s.hueClient == nil {
-		return "", errors.New("hue client not initialized")
+		return "", errNoHueClient
 	}
 
 	var groupedLightID string
@@ -270,13 +275,13 @@ func (s *Service) getGroupedLightID() (string, error) {
 func (s *Service) checkAccess(sender dbus.Sender) error {
 	if s.callerUID == nil {
 		log.Printf("[WARN] Access denied: no caller UID resolver configured")
-		return errors.New("access denied: unable to verify caller identity")
+		return errCallerUnverified
 	}
 
 	callerUID, err := s.callerUID(sender)
 	if err != nil {
 		log.Printf("[WARN] Failed to get caller UID: %v", err)
-		return errors.New("access denied: unable to verify caller identity")
+		return errCallerUnverified
 	}
 
 	if callerUID != s.ownerUID {
@@ -617,7 +622,7 @@ func (s *Service) ActivateStartupScene() error {
 // or bare "SceneName" as returned by GetScenes, and activates it on the bridge.
 func (s *Service) activateSceneByDisplayName(displayName string) (hue.Scene, error) {
 	if s.hueClient == nil {
-		return hue.Scene{}, errors.New("hue client not initialized")
+		return hue.Scene{}, errNoHueClient
 	}
 
 	// Get all scenes and find matching one
@@ -660,7 +665,7 @@ func (s *Service) GetScenes(sender dbus.Sender) ([]string, *dbus.Error) {
 	}
 
 	if s.hueClient == nil {
-		return nil, dbus.MakeFailedError(errors.New("hue client not initialized"))
+		return nil, dbus.MakeFailedError(errNoHueClient)
 	}
 
 	scenes, err := s.hueClient.GetScenes()
@@ -690,7 +695,7 @@ func (s *Service) GetGroupedLights(sender dbus.Sender) ([]struct{ ID, Name, Type
 	}
 
 	if s.hueClient == nil {
-		return nil, dbus.MakeFailedError(errors.New("hue client not initialized"))
+		return nil, dbus.MakeFailedError(errNoHueClient)
 	}
 
 	lights, err := s.hueClient.GetGroupedLights()
@@ -879,7 +884,7 @@ func (s *Service) RetryConnection(sender dbus.Sender) (bool, *dbus.Error) {
 	}
 
 	if s.hueClient == nil {
-		return false, dbus.MakeFailedError(errors.New("hue client not initialized"))
+		return false, dbus.MakeFailedError(errNoHueClient)
 	}
 
 	log.Println("[INFO] Retrying bridge connection...")
@@ -1111,7 +1116,7 @@ func (s *Service) TestBridgeConnection(sender dbus.Sender) (bool, *dbus.Error) {
 	}
 
 	if s.hueClient == nil {
-		return false, dbus.MakeFailedError(errors.New("hue client not initialized"))
+		return false, dbus.MakeFailedError(errNoHueClient)
 	}
 
 	log.Println("[INFO] Testing bridge connection...")
