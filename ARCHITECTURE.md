@@ -285,7 +285,7 @@ Each frame goes through 4 stages:
 - UDP transport (low latency)
 - A failed write is logged and that frame is dropped; there is no retry
 
-### Performance Characteristics
+### Pipeline Performance
 
 **Target:** 30 FPS (33ms per frame)
 **Achieved:** 30.0 FPS (11ms processing time)
