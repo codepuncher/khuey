@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -346,10 +347,10 @@ func (c *Config) saveLocked() error {
 
 	// Validate required fields
 	if c.Bridge == "" {
-		return fmt.Errorf("bridge address is required")
+		return errors.New("bridge address is required")
 	}
 	if c.Key == "" {
-		return fmt.Errorf("API key is required")
+		return errors.New("API key is required")
 	}
 
 	configFile := getConfigFile()

@@ -1,6 +1,7 @@
 package color
 
 import (
+	"errors"
 	"fmt"
 	"image"
 	"math"
@@ -56,7 +57,7 @@ func NewExtractor(subsampleWidth int, gamma float64) (*Extractor, error) {
 // OPTIMIZED: Skip global subsampling, sample zones directly with stride
 func (e *Extractor) ExtractColors(img image.Image, zones []Zone) ([]ZoneColor, error) {
 	if img == nil {
-		return nil, fmt.Errorf("image is nil")
+		return nil, errors.New("image is nil")
 	}
 
 	// Extract colors from each zone directly (no global subsampling)

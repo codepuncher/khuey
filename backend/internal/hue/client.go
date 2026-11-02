@@ -2,6 +2,7 @@ package hue
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"sort"
@@ -74,10 +75,10 @@ func NewClient(ctx context.Context, bridgeAddr, apiKey string) (*Client, error) 
 		ctx = context.Background()
 	}
 	if bridgeAddr == "" {
-		return nil, fmt.Errorf("bridge address is required")
+		return nil, errors.New("bridge address is required")
 	}
 	if apiKey == "" {
-		return nil, fmt.Errorf("API key is required")
+		return nil, errors.New("API key is required")
 	}
 
 	httpClient := common.NewHueHTTPClient()
@@ -167,7 +168,7 @@ func (c *Client) GetGroupedLightState(groupID string) (power bool, brightness fl
 	c.setConnectionSuccess()
 
 	if resp.JSON200 == nil || resp.JSON200.Data == nil || len(*resp.JSON200.Data) == 0 {
-		return false, 0, fmt.Errorf("no data in response")
+		return false, 0, errors.New("no data in response")
 	}
 
 	data := (*resp.JSON200.Data)[0]
@@ -190,7 +191,7 @@ func (c *Client) GetGroupedLightState(groupID string) (power bool, brightness fl
 // the brightness change applies to all lights (not just those currently on)
 func (c *Client) SetLightBrightness(groupID string, brightness float32) error {
 	if brightness < 0 || brightness > 100 {
-		return fmt.Errorf("brightness must be between 0 and 100")
+		return errors.New("brightness must be between 0 and 100")
 	}
 
 	if err := c.waitForRateLimit(); err != nil {

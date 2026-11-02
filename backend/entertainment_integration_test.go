@@ -7,6 +7,7 @@ package main
 
 import (
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"image"
 	"image/color"
@@ -301,7 +302,7 @@ func TestEntertainmentAPI_StreamWithoutConnect(t *testing.T) {
 	colors := []entertainment.ChannelColor{{ChannelID: 0, R: 1000, G: 1000, B: 1000}}
 	err = client.StreamColors(colors)
 
-	if err != entertainment.ErrNotConnected {
+	if !errors.Is(err, entertainment.ErrNotConnected) {
 		t.Errorf("StreamColors() error = %v, want ErrNotConnected", err)
 	}
 }

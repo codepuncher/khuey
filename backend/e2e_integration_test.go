@@ -12,6 +12,7 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -259,7 +260,7 @@ func TestE2E_ErrorRecoveryWorkflow(t *testing.T) {
 
 	t.Run("Step2_SimulateBridgeFailure", func(t *testing.T) {
 		// Simulate bridge returning errors
-		bridge.SetResponseError("/clip/v2/resource/scene", fmt.Errorf("bridge internal error"))
+		bridge.SetResponseError("/clip/v2/resource/scene", errors.New("bridge internal error"))
 
 		// Try to get scenes (should fail)
 		var failScenes []string

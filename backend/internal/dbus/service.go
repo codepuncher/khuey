@@ -142,7 +142,7 @@ func (s *Service) Start() error {
 	}
 
 	if reply != dbus.RequestNameReplyPrimaryOwner {
-		return fmt.Errorf("name already taken")
+		return errors.New("name already taken")
 	}
 
 	s.startBridgeSupervisor()
@@ -250,7 +250,7 @@ func (s *Service) getCallerUID(sender dbus.Sender) (uint32, error) {
 // Returns error if not configured or if hue client is not available
 func (s *Service) getGroupedLightID() (string, error) {
 	if s.hueClient == nil {
-		return "", fmt.Errorf("hue client not initialized")
+		return "", errors.New("hue client not initialized")
 	}
 
 	var groupedLightID string
@@ -259,7 +259,7 @@ func (s *Service) getGroupedLightID() (string, error) {
 	})
 
 	if groupedLightID == "" {
-		return "", fmt.Errorf("no grouped light configured")
+		return "", errors.New("no grouped light configured")
 	}
 
 	return groupedLightID, nil
@@ -270,18 +270,18 @@ func (s *Service) getGroupedLightID() (string, error) {
 func (s *Service) checkAccess(sender dbus.Sender) error {
 	if s.callerUID == nil {
 		log.Printf("[WARN] Access denied: no caller UID resolver configured")
-		return fmt.Errorf("access denied: unable to verify caller identity")
+		return errors.New("access denied: unable to verify caller identity")
 	}
 
 	callerUID, err := s.callerUID(sender)
 	if err != nil {
 		log.Printf("[WARN] Failed to get caller UID: %v", err)
-		return fmt.Errorf("access denied: unable to verify caller identity")
+		return errors.New("access denied: unable to verify caller identity")
 	}
 
 	if callerUID != s.ownerUID {
 		log.Printf("[WARN] Access denied: caller UID %d != owner UID %d", callerUID, s.ownerUID)
-		return fmt.Errorf("access denied: only the service owner can perform this operation")
+		return errors.New("access denied: only the service owner can perform this operation")
 	}
 
 	return nil
@@ -544,7 +544,7 @@ func (s *Service) SetBrightness(brightness int32, sender dbus.Sender) (bool, *db
 	}
 
 	if brightness < 0 || brightness > 100 {
-		return false, dbus.MakeFailedError(fmt.Errorf("brightness must be 0-100"))
+		return false, dbus.MakeFailedError(errors.New("brightness must be 0-100"))
 	}
 
 	groupedLightID, err := s.getGroupedLightID()
@@ -617,7 +617,7 @@ func (s *Service) ActivateStartupScene() error {
 // or bare "SceneName" as returned by GetScenes, and activates it on the bridge.
 func (s *Service) activateSceneByDisplayName(displayName string) (hue.Scene, error) {
 	if s.hueClient == nil {
-		return hue.Scene{}, fmt.Errorf("hue client not initialized")
+		return hue.Scene{}, errors.New("hue client not initialized")
 	}
 
 	// Get all scenes and find matching one
@@ -660,7 +660,7 @@ func (s *Service) GetScenes(sender dbus.Sender) ([]string, *dbus.Error) {
 	}
 
 	if s.hueClient == nil {
-		return nil, dbus.MakeFailedError(fmt.Errorf("hue client not initialized"))
+		return nil, dbus.MakeFailedError(errors.New("hue client not initialized"))
 	}
 
 	scenes, err := s.hueClient.GetScenes()
@@ -690,7 +690,7 @@ func (s *Service) GetGroupedLights(sender dbus.Sender) ([]struct{ ID, Name, Type
 	}
 
 	if s.hueClient == nil {
-		return nil, dbus.MakeFailedError(fmt.Errorf("hue client not initialized"))
+		return nil, dbus.MakeFailedError(errors.New("hue client not initialized"))
 	}
 
 	lights, err := s.hueClient.GetGroupedLights()
@@ -722,7 +722,7 @@ func (s *Service) StartSync(sender dbus.Sender) (bool, *dbus.Error) {
 	}
 
 	if s.syncEngine == nil {
-		return false, dbus.MakeFailedError(fmt.Errorf("sync engine not available - check Entertainment API configuration"))
+		return false, dbus.MakeFailedError(errors.New("sync engine not available - check Entertainment API configuration"))
 	}
 
 	// Pass context.Background() since DBus service runs for application lifetime
@@ -754,7 +754,7 @@ func (s *Service) StopSync(sender dbus.Sender) (bool, *dbus.Error) {
 	}
 
 	if s.syncEngine == nil {
-		return false, dbus.MakeFailedError(fmt.Errorf("sync engine not available"))
+		return false, dbus.MakeFailedError(errors.New("sync engine not available"))
 	}
 
 	if err := s.syncEngine.Stop(); err != nil {
@@ -813,7 +813,7 @@ func (s *Service) SetGroupedLight(groupedLightID string, sender dbus.Sender) (bo
 	}
 
 	if groupedLightID == "" {
-		return false, dbus.MakeFailedError(fmt.Errorf("grouped light ID cannot be empty"))
+		return false, dbus.MakeFailedError(errors.New("grouped light ID cannot be empty"))
 	}
 
 	err := s.config.Update(func(c *config.Config) {
@@ -879,7 +879,7 @@ func (s *Service) RetryConnection(sender dbus.Sender) (bool, *dbus.Error) {
 	}
 
 	if s.hueClient == nil {
-		return false, dbus.MakeFailedError(fmt.Errorf("hue client not initialized"))
+		return false, dbus.MakeFailedError(errors.New("hue client not initialized"))
 	}
 
 	log.Println("[INFO] Retrying bridge connection...")
@@ -895,7 +895,7 @@ func (s *Service) RetryConnection(sender dbus.Sender) (bool, *dbus.Error) {
 		return true, nil
 	}
 
-	return false, dbus.MakeFailedError(fmt.Errorf("bridge still unreachable"))
+	return false, dbus.MakeFailedError(errors.New("bridge still unreachable"))
 }
 
 // GetSyncSettings returns current Screen Sync configuration
@@ -1058,7 +1058,7 @@ func (s *Service) ResetCaptureSource(sender dbus.Sender) (bool, *dbus.Error) {
 	}
 
 	if s.syncEngine == nil {
-		return false, dbus.MakeFailedError(fmt.Errorf("sync engine unavailable"))
+		return false, dbus.MakeFailedError(errors.New("sync engine unavailable"))
 	}
 
 	if err := s.syncEngine.ResetCaptureSource(); err != nil {
@@ -1111,7 +1111,7 @@ func (s *Service) TestBridgeConnection(sender dbus.Sender) (bool, *dbus.Error) {
 	}
 
 	if s.hueClient == nil {
-		return false, dbus.MakeFailedError(fmt.Errorf("hue client not initialized"))
+		return false, dbus.MakeFailedError(errors.New("hue client not initialized"))
 	}
 
 	log.Println("[INFO] Testing bridge connection...")
@@ -1127,7 +1127,7 @@ func (s *Service) TestBridgeConnection(sender dbus.Sender) (bool, *dbus.Error) {
 		return true, nil
 	}
 
-	return false, dbus.MakeFailedError(fmt.Errorf("bridge is not reachable"))
+	return false, dbus.MakeFailedError(errors.New("bridge is not reachable"))
 }
 
 // GetSelectedRoom returns the currently selected room/zone for light control
@@ -1159,7 +1159,7 @@ func (s *Service) SetSelectedRoom(roomID string, sender dbus.Sender) (bool, *dbu
 	}
 
 	if roomID == "" {
-		return false, dbus.MakeFailedError(fmt.Errorf("room ID cannot be empty"))
+		return false, dbus.MakeFailedError(errors.New("room ID cannot be empty"))
 	}
 
 	err := s.config.Update(func(c *config.Config) {
