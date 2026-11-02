@@ -178,16 +178,16 @@ func (npc *NativePipeWireCapture) Start() error {
 	defer npc.shutdownMutex.Unlock()
 
 	if npc.userData == nil {
-		return fmt.Errorf("capture not initialized")
+		return errors.New("capture not initialized")
 	}
 	if npc.running.Load() {
-		return fmt.Errorf("capture already running")
+		return errors.New("capture already running")
 	}
 
 	// Start the PipeWire thread loop (non-blocking)
 	result := C.pw_start_loop(npc.userData)
 	if result < 0 {
-		return fmt.Errorf("failed to start PipeWire thread loop")
+		return errors.New("failed to start PipeWire thread loop")
 	}
 
 	npc.running.Store(true)
@@ -207,7 +207,7 @@ func (npc *NativePipeWireCapture) GetFrame() (*image.RGBA, error) {
 	defer npc.shutdownMutex.Unlock()
 
 	if npc.userData == nil || !npc.running.Load() {
-		return nil, fmt.Errorf("capture not initialized or stopped")
+		return nil, errors.New("capture not initialized or stopped")
 	}
 
 	// Get frame data from C
@@ -233,7 +233,7 @@ func (npc *NativePipeWireCapture) GetFrame() (*image.RGBA, error) {
 		if status.streaming != 0 {
 			return nil, ErrAwaitingFirstFrame
 		}
-		return nil, fmt.Errorf("no frame available yet")
+		return nil, errors.New("no frame available yet")
 	}
 
 	// Converting the same pixels again would cost a full frame's work and

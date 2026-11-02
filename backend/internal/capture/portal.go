@@ -187,23 +187,23 @@ func (sc *ScreenCapture) startStream(sessionHandle string) (uint32, string, erro
 	// Format is: streams: [[node_id, properties], ...]
 	streamsOuter, ok := result["streams"].([][]interface{})
 	if !ok {
-		return 0, "", fmt.Errorf("streams field not found or wrong type")
+		return 0, "", errors.New("streams field not found or wrong type")
 	}
 
 	if len(streamsOuter) == 0 {
-		return 0, "", fmt.Errorf("no streams in response")
+		return 0, "", errors.New("no streams in response")
 	}
 
 	// Get first stream [node_id, properties]
 	firstStream := streamsOuter[0]
 	if len(firstStream) < 1 {
-		return 0, "", fmt.Errorf("stream has no elements")
+		return 0, "", errors.New("stream has no elements")
 	}
 
 	// Node ID is the first element
 	nodeID, ok := firstStream[0].(uint32)
 	if !ok {
-		return 0, "", fmt.Errorf("node_id not found or wrong type")
+		return 0, "", errors.New("node_id not found or wrong type")
 	}
 
 	// Extract restore token for next session (optional - may not be present)

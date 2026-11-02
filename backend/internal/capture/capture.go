@@ -137,7 +137,7 @@ func NewScreenCapture(cfg Config) (*ScreenCapture, error) {
 		screenshotTool = detectScreenshotTool()
 		if screenshotTool == "" {
 			cancel() // Clean up context on error
-			return nil, fmt.Errorf("no screenshot tool available (need spectacle, grim, or import)")
+			return nil, errors.New("no screenshot tool available (need spectacle, grim, or import)")
 		}
 	}
 
@@ -305,7 +305,7 @@ func (sc *ScreenCapture) CaptureFrame() (*image.RGBA, error) {
 	}
 
 	if sc.frameBuffer == nil {
-		return nil, fmt.Errorf("no frame available yet")
+		return nil, errors.New("no frame available yet")
 	}
 
 	bounds := sc.frameBuffer.Bounds()

@@ -3,6 +3,7 @@ package entertainment
 import (
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net"
 	"sync"
@@ -18,8 +19,8 @@ const (
 
 // Sentinel errors
 var (
-	ErrAlreadyConnected = fmt.Errorf("already connected")
-	ErrNotConnected     = fmt.Errorf("not connected")
+	ErrAlreadyConnected = errors.New("already connected")
+	ErrNotConnected     = errors.New("not connected")
 )
 
 // Client handles streaming to Hue Entertainment API
@@ -57,19 +58,19 @@ type ChannelColor struct {
 // NewClient creates a new Entertainment API client
 func NewClient(cfg Config) (*Client, error) {
 	if cfg.BridgeIP == "" {
-		return nil, fmt.Errorf("bridge IP is required")
+		return nil, errors.New("bridge IP is required")
 	}
 	if cfg.Username == "" {
-		return nil, fmt.Errorf("username is required")
+		return nil, errors.New("username is required")
 	}
 	if cfg.ClientKey == "" {
-		return nil, fmt.Errorf("client key is required")
+		return nil, errors.New("client key is required")
 	}
 	if cfg.EntertainmentID == "" {
-		return nil, fmt.Errorf("entertainment ID is required")
+		return nil, errors.New("entertainment ID is required")
 	}
 	if cfg.ChannelCount <= 0 {
-		return nil, fmt.Errorf("channel count must be positive")
+		return nil, errors.New("channel count must be positive")
 	}
 
 	return &Client{

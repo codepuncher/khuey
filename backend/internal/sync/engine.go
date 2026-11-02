@@ -75,8 +75,8 @@ const (
 
 // Sentinel errors
 var (
-	ErrAlreadyRunning = fmt.Errorf("sync already running")
-	ErrNotRunning     = fmt.Errorf("sync not running")
+	ErrAlreadyRunning = errors.New("sync already running")
+	ErrNotRunning     = errors.New("sync not running")
 )
 
 // Origin says what started a session.
@@ -142,7 +142,7 @@ func NewEngine(cfg *config.Config) (*Engine, error) {
 
 	zones := createZonesFromConfig(cfg)
 	if len(zones) == 0 {
-		return nil, fmt.Errorf("no active channels configured")
+		return nil, errors.New("no active channels configured")
 	}
 
 	// Create screen capture - native PipeWire capture with CGo

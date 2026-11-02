@@ -4,6 +4,7 @@ package testutil
 import (
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -75,7 +76,7 @@ func (m *MockEntertainmentServer) Start(t *testing.T) error {
 	defer m.mu.Unlock()
 
 	if m.running {
-		return fmt.Errorf("server already running")
+		return errors.New("server already running")
 	}
 
 	// Decode PSK from hex
