@@ -1056,62 +1056,99 @@ main() goroutine
 
 **DBus Method Concurrency:**
 ```go
-// Each DBus method call runs in its own goroutine
-// Service must be thread-safe
-
+// internal/dbus/service.go, abridged at the // ... lines. Each DBus method
+// call runs in its own goroutine, so a method has to be safe to enter
+// concurrently. Neither of these takes Service.mu: GetScenes touches no
+// Service state and the hue client carries its own lock, and SetGroupedLight
+// changes config only through Config.Update, which takes the config's mutex.
 func (s *Service) GetScenes(sender dbus.Sender) ([]string, *dbus.Error) {
-    // Scenes are bridge data, so they need the owner check. No mutex: the
-    // hue client has its own, and nothing here touches Service state.
+    // Access control: only service owner can read bridge-derived data
     if err := s.checkAccess(sender); err != nil {
+        log.Printf("[WARN] GetScenes access denied")
         return nil, dbus.MakeFailedError(err)
     }
-    // hue.Client returns []Scene; this formats the display names.
-    ...
+
+    if s.hueClient == nil {
+        return nil, dbus.MakeFailedError(errNoHueClient)
+    }
+    // ... calls GetScenes on the hue client, then formats each scene as
+    // "RoomName - SceneName", or the bare name when it has no room.
 }
 
-func (s *Service) SetGroupedLight(id string, sender dbus.Sender) (bool, *dbus.Error) {
-    // Update changes and saves the config under its own lock
+func (s *Service) SetGroupedLight(groupedLightID string, sender dbus.Sender) (bool, *dbus.Error) {
+    // ... checkAccess, then common.ValidateDBusString, then an empty check,
+    // each returning dbus.MakeFailedError on its own.
     err := s.config.Update(func(c *config.Config) {
-        c.GroupedLightID = id
+        c.GroupedLightID = groupedLightID
     }, nil)
-    return err == nil, dbusError(err)
+
+    if err != nil {
+        log.Printf("[ERROR] Failed to save config: %v", err)
+        return false, dbus.MakeFailedError(err)
+    }
+
+    log.Printf("Grouped light ID set to: %s", groupedLightID)
+    return true, nil
 }
 ```
 
 **Sync Engine Concurrency:**
 ```go
-// One sync loop per session, stopped by cancelling its context. A stop waits
-// for the loop to exit before tearing down the capturer and client, which the
-// next session reuses.
-
-func (e *Engine) launchLoopLocked(ctx context.Context) uint64 {
+// internal/sync/engine.go. One sync loop per session, stopped by cancelling
+// its context, and both of these run with e.mu held. running is an
+// atomic.Bool written under the lock and read without it, so a status query
+// answers while Start holds the lock across the portal dialog and the DTLS
+// connect. A stop waits for the loop to exit before tearing down the capturer
+// and client, which the next session reuses.
+func (e *Engine) launchLoopLocked(ctx context.Context, origin Origin) uint64 {
     syncCtx, cancel := context.WithCancel(ctx)
     e.cancel = cancel
-    e.running = true
+    e.running.Store(true)
+    e.origin = origin
     e.generation++
-    // ...
+    e.setFailure(nil)
+    e.metrics.reset(time.Now())
+
+    if e.sessionObserver != nil {
+        e.sessionObserver(true, origin)
+    }
+
     e.syncLoopWg.Add(1)
     go e.syncLoop(syncCtx, e.generation)
     return e.generation
 }
 
 func (e *Engine) stopLocked() error {
-    if !e.running {
+    if !e.running.Load() {
         return ErrNotRunning
     }
-    e.cancel()
+
+    // Cancel context to stop loop
+    if e.cancel != nil {
+        e.cancel()
+    }
     e.syncLoopWg.Wait()
     e.logFinalMetrics()
+
+    // Stop screen capture
     e.capturer.Stop()
-    // ... close the Entertainment API client
-    e.running = false
+
+    // Close Entertainment API connection
+    if err := e.client.Close(); err != nil {
+        log.Printf("[ERROR] closing Entertainment API: %v", err)
+    }
+
+    e.running.Store(false)
+    if e.sessionObserver != nil {
+        e.sessionObserver(false, e.origin)
+    }
+    log.Println("Screen sync stopped")
     return nil
 }
 
-// A loop that gives up marks itself done before ending its session, since
-// endSession stops the session and so waits for this loop.
 func (e *Engine) syncLoop(ctx context.Context, gen uint64) {
     err := e.streamFrames(ctx)
+    // Before endSession, whose stop waits for this very loop.
     e.syncLoopWg.Done()
     if err != nil {
         e.endSession(gen, err)
